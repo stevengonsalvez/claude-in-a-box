@@ -30,6 +30,7 @@ toml = "0.8"
 anyhow = "1.0"
 thiserror = "1.0"
 directories = "5.0"
+dirs = "5.0"
 uuid = { version = "1.5", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"

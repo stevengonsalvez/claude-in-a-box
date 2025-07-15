@@ -1,8 +1,10 @@
 // ABOUTME: Application state management and view switching logic
 
 use crate::models::{Session, Workspace};
+use crate::git::{WorkspaceScanner, RepositoryManager};
 use std::collections::HashMap;
 use uuid::Uuid;
+use tracing::{warn, info};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
@@ -40,8 +42,62 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         let mut state = Self::default();
-        state.load_mock_data();
+        state.load_real_workspaces();
         state
+    }
+
+    pub fn load_real_workspaces(&mut self) {
+        info!("Loading real workspaces from filesystem");
+        
+        let scanner = WorkspaceScanner::new();
+        match scanner.scan() {
+            Ok(scan_result) => {
+                self.workspaces = scan_result.workspaces;
+                
+                // Update git status for each workspace
+                for workspace in &mut self.workspaces {
+                    if let Ok(repo_manager) = RepositoryManager::open(&workspace.path) {
+                        match repo_manager.get_status() {
+                            Ok(git_changes) => {
+                                // Create a placeholder session for demonstration
+                                // In future phases, real sessions will be loaded from persistence or containers
+                                let mut session = Session::new(
+                                    format!("{}-main", workspace.name),
+                                    workspace.path.to_string_lossy().to_string()
+                                );
+                                session.git_changes = git_changes;
+                                workspace.add_session(session);
+                            }
+                            Err(e) => {
+                                warn!("Failed to get git status for workspace {}: {}", workspace.name, e);
+                            }
+                        }
+                    }
+                }
+                
+                if !scan_result.errors.is_empty() {
+                    warn!("Workspace scan completed with {} errors", scan_result.errors.len());
+                    for error in &scan_result.errors {
+                        warn!("Scan error: {}", error);
+                    }
+                }
+                
+                info!("Loaded {} workspaces", self.workspaces.len());
+            }
+            Err(e) => {
+                warn!("Failed to scan workspaces: {}", e);
+                // Fall back to mock data if scan fails
+                self.load_mock_data();
+            }
+        }
+        
+        // Set initial selection
+        if !self.workspaces.is_empty() {
+            self.selected_workspace_index = Some(0);
+            if !self.workspaces[0].sessions.is_empty() {
+                self.selected_session_index = Some(0);
+            }
+        }
     }
 
     pub fn load_mock_data(&mut self) {

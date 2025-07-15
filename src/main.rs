@@ -17,6 +17,7 @@ use std::{
 
 mod app;
 mod components;
+mod git;
 mod models;
 
 use app::{App, EventHandler};
