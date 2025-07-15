@@ -1,37 +1,31 @@
-# Environment variables
-.env
-.env.local
+# Rust
+/target/
+Cargo.lock
+*.rs.bk
+*.pdb
 
-# OS files
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
 .DS_Store
 Thumbs.db
 
-# IDE files
-.idea/
-.vscode/
-*.swp
-*.swo
-
 # Logs
 *.log
-logs/
 
-# Node modules (if any local testing)
-node_modules/
-
-# Docker volumes
-data/
-
-# Temporary files
-*.tmp
-*.temp
-~*
-
-
-# Environment file with credentials
+# Environment
 .env
-plan.md 
-task_log.mdcommit_diff_summary.txt
-commit_diff_summary.txt
-commit_diff_summary.txt
-task_log.md
+.env.local
+
+# Claude Box specific
+.claude-box/
+worktrees/
+
+# Testing
+test-repos/
+temp/
