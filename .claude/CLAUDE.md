@@ -1,79 +1,186 @@
-# CORE EXECUTION PROTOCOL
-THESE RULES ARE ABSOLUTE AND APPLY AT ALL TIMES.
+# Claude-in-a-Box Project Instructions
 
-### 1. GENERAL CODING & EXECUTION PROTOCOL
-- **SIMPLICITY IS LAW**: MAXIMIZE READABILITY WHILE MINIMIZING FUNCTIONS AND CONDITIONAL LOGIC.
-- **NO ERROR HANDLING**: DO NOT ATTEMPT ANY FORM OF ERROR SUPPRESSION. Scripts MUST fail loudly and immediately.
-- **NO FALLBACKS OR ALTERNATIVE PATHS**.
-- **NO EDGE CASE HANDLING**: UNLESS USER PROMPTS FOR IT.
-- **RELATIVE PATHS ONLY**: NEVER use absolute paths in code.
-- **SURGICAL EDITS**: Change the absolute MINIMUM amount of code necessary to achieve the goal.
-- **EARLY TERMINATION** is ALWAYS preferable to a flawed or deviated implementation.
+## Project Overview
+Claude-in-a-Box is a Rust terminal-based application that manages isolated Docker containers running Claude Code sessions. This project follows the PRD in `docs/prd.md` and implements a sophisticated TUI using Ratatui.
 
-### 2. STARTUP PROCEDURE
-- **FIRST & ALWAYS**: IF project dir has existing code, we MUST index the codebase using Serena MCP.
-  `uvx --from git+https://github.com/oraios/serena index-project`
+## Team Member Names
+- **Stevie-CLI**: The mastermind behind the Docker orchestration
+- **Claude-TUI**: The wizard of terminal user interfaces
 
-### 3. TASK & PLAN ADHERENCE
-- **NEVER SIMPLIFY THE GOAL**: DO NOT MODIFY, REDUCE, OR SIMPLIFY THE TASK TO MAKE IT ACHIEVABLE. IF THE TASK AS SPECIFIED IS IMPOSSIBLE, YOU MUST TERMINATE.
-- **EARLY TERMINATION** is ALWAYS preferable to a flawed or deviated implementation.
+## Development Standards
 
-### 4. LANGUAGE-SPECIFIC ENVIRONMENT & EXECUTION PROTOCOLS
+### Code Quality
+- **Clean Code**: Follow SOLID principles and Rust best practices
+- **Testing**: Maintain comprehensive test coverage (unit, integration, E2E)
+- **Documentation**: Every public API must have documentation
+- **Formatting**: Use `just fmt` for consistent code formatting
+- **Linting**: Use `just lint` to catch issues early
 
-#### 4A. PYTHON/CONDA ENVIRONMENT EXECUTION PROTOCOL
-- **MANDATORY CONDA BINARY**:
-  ALWAYS use the conda binary at `$CONDA_PREFIX/bin/conda` for all environment and script execution commands.
-- **SCRIPT EXECUTION FORMAT**:
-  ALWAYS execute Python scripts using the following format:
-  ```bash
-  ${CONDA_EXE:-conda} run --live-stream -n ENVIRONMENT_NAME python -u your_script.py [args]
-  /vol/biomedic3/vj724/miniconda3/bin/conda run --live-stream -n ENVIRONMENT_NAME python -u your_script.py [args]
-  ```
-  - Replace `ENVIRONMENT_NAME` with the target conda environment.
-  - Replace `your_script.py [args]` with the script and its arguments.
-- **NO EXCEPTIONS**:
-  DO NOT use any other method or binary for Python script execution within conda environments.
-  DO NOT omit the `--live-stream` or `-u` flags under any circumstances.
+### Build & Test Commands
+```bash
+# Development workflow
+just check         # Format check + lint + test
+just fmt           # Format code
+just lint          # Run clippy
+just test          # Run all tests
+just test-verbose  # Run tests with output
+just build         # Build project
+just run           # Run the application
 
-- **PYTHON SPECIFIC PRACTICES**:
-  **USE `dotenv`** to load `.env` files when required.
+# Watch mode for development
+just watch          # Auto-rebuild on changes
+```
 
-### 5. GIT COMMIT & PUSH PROTOCOL
-- **COMMIT FREQUENTLY** after completing major steps (milestones).
-- **ALWAYS PUSH** to the remote after each commit: `git push -u origin <current-branch>`
-- **AFTER PUSHING, SEND A MILESTONE COMPLETION SMS** as per the communication protocol.
-- **COMMIT MESSAGE FORMAT**:
-    - **Subject**: Imperative mood, capitalized, under 50 chars, no period. (e.g., `feat(thing): Add new thing`)
-    - **Body**: Explain *what* and *why*, not how. Wrap at 72 chars. For new scripts, ALWAYS include an example usage command.
+### Architecture Guidelines
 
-### 6. LOGGING & COMMUNICATION PROTOCOL
-- **`task_log.md`**: UPDATE PROACTIVELY at every single checklist step. This is your primary on-disk communication channel. Create it if it does not exist.
-- **COMPREHENSIVE DOCUMENTATION REQUIREMENT**: `task_log.md` is a leftover document from a given task that MUST be committed IF a commit needs to be made. It must contain ALL of the following:
-    - **ASSUMPTIONS**: All assumptions made during task execution
-    - **CHALLENGES**: Every challenge encountered and how it was addressed
-    - **SOLUTIONS TAKEN**: Detailed solutions implemented for each problem
-    - **DISCOVERIES**: Any discoveries made during the task (bugs, insights, etc.)
-    - **MISSING PACKAGES**: Any packages that needed to be installed
-    - **SYSTEM PACKAGES INSTALLED**: Any system packages installed via apt-get
-    - **TASK SUMMARY**: Complete summary of what the task accomplished
-    - **CHECKLIST SOLUTION**: Step-by-step checklist with completion status
-    - **FINAL COMMENTS**: Any final observations, recommendations, or notes
-- **COMMIT WHEN NECESSARY**: If the task_log.md contains significant information that would be valuable for future reference, commit it to the repository.
-- **SEND USER TEXT AS CHECKLIST ITEM**: ALWAYS add 'Send user text' as an explicit checklist item to assure the user the text will be sent.
-- **TWILIO SMS IS THE PRIMARY "CALL-BACK" MECHANISM**:
-    - **SEND A TEXT AT THE END OF EVERY CHECKLIST**: A checklist represents a significant task. A text signals that this task is complete and your attention is needed.
-    - **WHEN TO SEND**:
-        1.  **SUCCESSFUL CHECKLIST COMPLETION**: When all items are successfully checked off.
-        2.  **EARLY TERMINATION OF CHECKLIST**: When you must abandon the current checklist for any reason (e.g., you are stuck, the plan is flawed).
-    - **MESSAGE CONTENT**: The text MUST contain a brief summary of the outcome (what was achieved or why termination occurred) so you are up-to-speed when you return.
-    - **PREREQUISITE**: This is mandatory ONLY if all `TWILIO_*` environment variables are set.
-    - **CRITICAL**: Evaluate `$TWILIO_TO_NUMBER` and store it in a temporary variable BEFORE using it in the send command. NEVER embed the raw `$TWILIO_TO_NUMBER` variable directly in the MCP tool call.
-    - **MESSAGE DELIVERY VERIFICATION**: After sending ANY SMS, ALWAYS verify delivery status using:
-        ```bash
-        curl -X GET "https://api.twilio.com/2010-04-01/Accounts/$TWILIO_ACCOUNT_SID/Messages/[MESSAGE_SID].json" -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN"
-        ```
-        Check the "status" field in the response. If status is "failed", retry with progressively shorter messages:
-        1. First retry: "Task complete - [brief outcome]"
-        2. Second retry: "Task done - [status]"
-        3. Final retry: "Task complete"
-        Continue until a message has status "delivered" or "sent".
+#### Module Structure
+```
+src/
+├── app/           # Application state and event handling
+├── components/    # TUI components (session list, logs, help)
+├── docker/        # Docker container management (Phase 4)
+├── git/           # Git worktree operations (Phase 3)
+├── models/        # Data structures (Session, Workspace, etc.)
+└── utils/         # Utility functions
+```
+
+#### State Management
+- **Single Source of Truth**: AppState holds all application state
+- **Immutable Updates**: State changes go through event handlers
+- **Clear Separation**: UI components are stateless and receive state as props
+
+#### Error Handling
+- Use `anyhow::Result` for error propagation
+- Create custom error types using `thiserror` for domain-specific errors
+- Never panic in user-facing code - handle all errors gracefully
+
+### Implementation Phases
+
+#### ✅ Phase 1: UI Foundation (COMPLETED)
+- Basic TUI skeleton with Ratatui
+- Session list component with workspace grouping
+- Navigation controls (vim-style)
+- Right pane views (logs viewer)
+- Help overlay system
+- **Status**: All components implemented and tested
+
+#### 🔄 Phase 2: Data Models & State (COMPLETED)
+- Session and Workspace models
+- Mock data layer for development
+- State management with navigation
+- **Status**: Core models implemented with full test coverage
+
+#### 🔜 Phase 3: Git Integration (NEXT)
+- Workspace detection and validation
+- Git worktree creation and management
+- Git diff statistics integration
+- **Priority**: Start with workspace scanning
+
+#### 🔜 Phase 4: Docker Integration
+- Docker client setup with Bollard
+- Container lifecycle management
+- Real-time log streaming
+- **Dependency**: Requires Phase 3 completion
+
+#### 🔜 Phase 5: Interactive Features
+- TTY attachment for container interaction
+- Environment file management
+- Signal handling for clean detach
+- **Dependency**: Requires Phase 4 completion
+
+#### 🔜 Phase 6: Persistence & Polish
+- Session state persistence to disk
+- Configuration management
+- Error recovery and validation
+- **Dependency**: Requires core functionality completion
+
+### Testing Strategy
+
+#### Test Categories
+1. **Unit Tests**: Individual functions and methods
+2. **Integration Tests**: Component interactions
+3. **End-to-End Tests**: Full application workflows
+
+#### Test Organization
+- `tests/test_*_model.rs`: Data model tests
+- `tests/test_*_component.rs`: UI component tests
+- `tests/test_*_integration.rs`: Integration tests
+
+#### Mock Strategy
+- Use mock data for UI development
+- Mock Docker operations until Phase 4
+- Mock Git operations until Phase 3
+
+### Docker Integration Notes
+
+#### Container Requirements
+- Based on existing claude-docker image
+- Mount workspace as volume
+- Copy environment files (.env, .env.local)
+- Proper signal handling for clean shutdown
+
+#### Security Considerations
+- Validate all file paths
+- Sandbox container access
+- No privileged container mode
+- Secure environment variable handling
+
+### Performance Guidelines
+
+#### UI Responsiveness
+- Async operations for I/O
+- Non-blocking UI updates
+- Efficient terminal rendering
+- Smooth scrolling and navigation
+
+#### Memory Management
+- Limit log buffer sizes
+- Clean up unused sessions
+- Efficient data structures
+- Monitor container resource usage
+
+### Troubleshooting Guide
+
+#### Common Issues
+1. **Compilation Errors**: Run `just check` before commits
+2. **UI Artifacts**: Ensure proper terminal cleanup on exit
+3. **Container Issues**: Validate Docker daemon connectivity
+4. **Git Issues**: Check repository permissions and worktree conflicts
+
+#### Debug Mode
+- Set `RUST_LOG=debug` for detailed logging
+- Use `just test-verbose` for test debugging
+- Monitor container logs in real-time
+
+### Future Enhancements
+
+#### Post-MVP Features
+- Session templates with pre-configured environments
+- MCP server configuration management
+- Resource usage monitoring
+- Web UI companion app
+- GitHub Codespaces integration
+
+### Contribution Guidelines
+
+#### Before Starting Work
+1. Check the current phase in the PRD
+2. Run `just check` to ensure clean state
+3. Create feature branch: `git checkout -b feature/description`
+4. Write tests first (TDD approach)
+
+#### Before Submitting
+1. All tests must pass: `just test`
+2. Code must be formatted: `just fmt`
+3. No lint warnings: `just lint`
+4. Update documentation as needed
+
+#### Code Review Checklist
+- [ ] Tests cover new functionality
+- [ ] Error handling is comprehensive
+- [ ] Documentation is complete
+- [ ] Performance impact considered
+- [ ] Security implications reviewed
+
+## Health Check Information
+This project is in active development. Phase 1 (UI Foundation) is complete with full test coverage. Ready to proceed with Phase 3 (Git Integration) as the next priority.
