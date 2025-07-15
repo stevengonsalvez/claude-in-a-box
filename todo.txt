@@ -1,0 +1,5 @@
+add slash command to refresh claude md
+
+update mcp so the mcps properly show.
+
+follow local instructions to see if now installs at .config instead / where the mcp details are stored locally.
