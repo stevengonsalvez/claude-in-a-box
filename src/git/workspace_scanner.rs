@@ -22,8 +22,15 @@ pub struct WorkspaceScanner {
 
 impl WorkspaceScanner {
     pub fn new() -> Self {
+        Self::with_additional_paths(vec![])
+    }
+    
+    pub fn with_additional_paths(additional_paths: Vec<PathBuf>) -> Self {
+        let mut search_paths = Self::default_search_paths();
+        search_paths.extend(additional_paths);
+        
         Self {
-            search_paths: Self::default_search_paths(),
+            search_paths,
             max_depth: 3,
             ignore_patterns: vec![
                 "node_modules".to_string(),

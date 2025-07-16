@@ -1,7 +1,7 @@
 // ABOUTME: Application state management and view switching logic
 
 use crate::models::{Session, Workspace};
-use crate::git::{WorkspaceScanner, RepositoryManager};
+use crate::app::SessionLoader;
 use std::collections::HashMap;
 use uuid::Uuid;
 use tracing::{warn, info};
@@ -12,6 +12,8 @@ pub enum View {
     Logs,
     Terminal,
     Help,
+    NewSession,
+    SearchWorkspace,
 }
 
 #[derive(Debug)]
@@ -23,6 +25,66 @@ pub struct AppState {
     pub should_quit: bool,
     pub logs: HashMap<Uuid, Vec<String>>,
     pub help_visible: bool,
+    // New session creation state
+    pub new_session_state: Option<NewSessionState>,
+    // Async action processing
+    pub pending_async_action: Option<AsyncAction>,
+}
+
+#[derive(Debug)]
+pub struct NewSessionState {
+    pub available_repos: Vec<std::path::PathBuf>,
+    pub filtered_repos: Vec<(usize, std::path::PathBuf)>, // (original_index, path)
+    pub selected_repo_index: Option<usize>,
+    pub branch_name: String,
+    pub step: NewSessionStep,
+    pub filter_text: String,
+    pub is_current_dir_mode: bool, // true if creating session in current dir
+}
+
+impl NewSessionState {
+    pub fn apply_filter(&mut self) {
+        self.filtered_repos.clear();
+        let filter_lower = self.filter_text.to_lowercase();
+        
+        for (idx, repo) in self.available_repos.iter().enumerate() {
+            if let Some(folder_name) = repo.file_name() {
+                if let Some(name_str) = folder_name.to_str() {
+                    if name_str.to_lowercase().contains(&filter_lower) {
+                        self.filtered_repos.push((idx, repo.clone()));
+                    }
+                }
+            }
+        }
+        
+        // Reset selection if current selection is out of bounds
+        if let Some(idx) = self.selected_repo_index {
+            if idx >= self.filtered_repos.len() {
+                self.selected_repo_index = if self.filtered_repos.is_empty() {
+                    None
+                } else {
+                    Some(0)
+                };
+            }
+        } else if !self.filtered_repos.is_empty() {
+            self.selected_repo_index = Some(0);
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NewSessionStep {
+    SelectRepo,
+    InputBranch,
+    Creating,
+}
+
+#[derive(Debug, Clone)]
+pub enum AsyncAction {
+    StartNewSession,       // Old - will be removed
+    StartWorkspaceSearch,   // New - search all workspaces
+    NewSessionInCurrentDir, // New - create session in current directory
+    CreateNewSession,
 }
 
 impl Default for AppState {
@@ -35,67 +97,55 @@ impl Default for AppState {
             should_quit: false,
             logs: HashMap::new(),
             help_visible: false,
+            new_session_state: None,
+            pending_async_action: None,
         }
     }
 }
 
 impl AppState {
     pub fn new() -> Self {
-        let mut state = Self::default();
-        state.load_real_workspaces();
-        state
+        Self::default()
     }
 
-    pub fn load_real_workspaces(&mut self) {
-        info!("Loading real workspaces from filesystem");
+    pub async fn load_real_workspaces(&mut self) {
+        info!("Loading active sessions from Docker containers");
         
-        let scanner = WorkspaceScanner::new();
-        match scanner.scan() {
-            Ok(scan_result) => {
-                self.workspaces = scan_result.workspaces;
-                
-                // Update git status for each workspace
-                for workspace in &mut self.workspaces {
-                    if let Ok(repo_manager) = RepositoryManager::open(&workspace.path) {
-                        match repo_manager.get_status() {
-                            Ok(git_changes) => {
-                                // Create a placeholder session for demonstration
-                                // In future phases, real sessions will be loaded from persistence or containers
-                                let mut session = Session::new(
-                                    format!("{}-main", workspace.name),
-                                    workspace.path.to_string_lossy().to_string()
-                                );
-                                session.git_changes = git_changes;
-                                workspace.add_session(session);
+        // Try to load active sessions
+        match SessionLoader::new().await {
+            Ok(loader) => {
+                match loader.load_active_sessions().await {
+                    Ok(workspaces) => {
+                        self.workspaces = workspaces;
+                        info!("Loaded {} workspaces with active sessions", self.workspaces.len());
+                        
+                        // Set initial selection
+                        if !self.workspaces.is_empty() {
+                            self.selected_workspace_index = Some(0);
+                            if !self.workspaces[0].sessions.is_empty() {
+                                self.selected_session_index = Some(0);
                             }
-                            Err(e) => {
-                                warn!("Failed to get git status for workspace {}: {}", workspace.name, e);
-                            }
+                        } else {
+                            info!("No active sessions found. Use 'n' to create a new session.");
+                            self.selected_workspace_index = None;
+                            self.selected_session_index = None;
                         }
                     }
-                }
-                
-                if !scan_result.errors.is_empty() {
-                    warn!("Workspace scan completed with {} errors", scan_result.errors.len());
-                    for error in &scan_result.errors {
-                        warn!("Scan error: {}", error);
+                    Err(e) => {
+                        warn!("Failed to load active sessions: {}", e);
+                        info!("No active sessions found. Use 'n' to create a new session.");
+                        self.workspaces.clear();
+                        self.selected_workspace_index = None;
+                        self.selected_session_index = None;
                     }
                 }
-                
-                info!("Loaded {} workspaces", self.workspaces.len());
             }
             Err(e) => {
-                warn!("Failed to scan workspaces: {}", e);
-                // Fall back to mock data if scan fails
-                self.load_mock_data();
-            }
-        }
-        
-        // Set initial selection
-        if !self.workspaces.is_empty() {
-            self.selected_workspace_index = Some(0);
-            if !self.workspaces[0].sessions.is_empty() {
-                self.selected_session_index = Some(0);
+                warn!("Failed to create session loader: {}", e);
+                info!("No active sessions found. Use 'n' to create a new session.");
+                self.workspaces.clear();
+                self.selected_workspace_index = None;
+                self.selected_session_index = None;
             }
         }
     }
@@ -219,6 +269,251 @@ impl AppState {
     pub fn quit(&mut self) {
         self.should_quit = true;
     }
+
+    pub async fn new_session_in_current_dir(&mut self) {
+        use crate::git::WorkspaceScanner;
+        use std::env;
+        
+        // Check if current directory is a git repository
+        let current_dir = match env::current_dir() {
+            Ok(dir) => dir,
+            Err(e) => {
+                warn!("Failed to get current directory: {}", e);
+                return;
+            }
+        };
+        
+        if !WorkspaceScanner::validate_workspace(&current_dir).unwrap_or(false) {
+            // Show error message - current directory is not a git repository
+            warn!("Current directory is not a git repository");
+            // TODO: Show error in UI
+            return;
+        }
+        
+        // Generate branch name with UUID
+        let branch_base = format!("claude/{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session"));
+        
+        // Create new session state for current directory
+        self.new_session_state = Some(NewSessionState {
+            available_repos: vec![current_dir.clone()],
+            filtered_repos: vec![(0, current_dir)],
+            selected_repo_index: Some(0),
+            branch_name: branch_base,
+            step: NewSessionStep::InputBranch,  // Skip repo selection
+            filter_text: String::new(),
+            is_current_dir_mode: true,
+        });
+        
+        self.current_view = View::NewSession;
+    }
+    
+    pub async fn start_workspace_search(&mut self) {
+        match SessionLoader::new().await {
+            Ok(loader) => {
+                match loader.get_available_repositories().await {
+                    Ok(repos) => {
+                        if repos.is_empty() {
+                            warn!("No repositories found");
+                            return;
+                        }
+                        
+                        // Generate branch name with UUID
+                        let branch_base = format!("claude/{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session"));
+                        
+                        // Initialize filtered repos with all repos
+                        let filtered_repos: Vec<(usize, std::path::PathBuf)> = 
+                            repos.iter().enumerate().map(|(idx, path)| (idx, path.clone())).collect();
+                        
+                        self.new_session_state = Some(NewSessionState {
+                            available_repos: repos,
+                            filtered_repos,
+                            selected_repo_index: Some(0),
+                            branch_name: branch_base,
+                            step: NewSessionStep::SelectRepo,
+                            filter_text: String::new(),
+                            is_current_dir_mode: false,
+                        });
+                        
+                        self.current_view = View::SearchWorkspace;
+                    }
+                    Err(e) => {
+                        warn!("Failed to load repositories: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to create session loader: {}", e);
+            }
+        }
+    }
+
+    pub async fn start_new_session(&mut self) {
+        info!("Starting new session creation");
+        
+        // Get available repositories
+        match SessionLoader::new().await {
+            Ok(loader) => {
+                match loader.get_available_repositories().await {
+                    Ok(repos) => {
+                        let has_repos = !repos.is_empty();
+                        let filtered_repos: Vec<(usize, std::path::PathBuf)> = 
+                            repos.iter().enumerate().map(|(idx, path)| (idx, path.clone())).collect();
+                        
+                        self.new_session_state = Some(NewSessionState {
+                            available_repos: repos,
+                            filtered_repos,
+                            selected_repo_index: if has_repos { Some(0) } else { None },
+                            branch_name: String::new(),
+                            step: NewSessionStep::SelectRepo,
+                            filter_text: String::new(),
+                            is_current_dir_mode: false,
+                        });
+                        self.current_view = View::NewSession;
+                    }
+                    Err(e) => {
+                        warn!("Failed to get available repositories: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to create session loader: {}", e);
+            }
+        }
+    }
+
+    pub fn cancel_new_session(&mut self) {
+        self.new_session_state = None;
+        self.current_view = View::SessionList;
+    }
+
+    pub fn new_session_next_repo(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if !state.filtered_repos.is_empty() {
+                let current = state.selected_repo_index.unwrap_or(0);
+                state.selected_repo_index = Some((current + 1) % state.filtered_repos.len());
+            }
+        }
+    }
+
+    pub fn new_session_prev_repo(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if !state.filtered_repos.is_empty() {
+                let current = state.selected_repo_index.unwrap_or(0);
+                state.selected_repo_index = Some(
+                    if current == 0 {
+                        state.filtered_repos.len() - 1
+                    } else {
+                        current - 1
+                    }
+                );
+            }
+        }
+    }
+
+    pub fn new_session_confirm_repo(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.selected_repo_index.is_some() {
+                state.step = NewSessionStep::InputBranch;
+                let uuid_str = uuid::Uuid::new_v4().to_string();
+                state.branch_name = format!("claude-session-{}", &uuid_str[..8]);
+            }
+        }
+    }
+
+    pub fn new_session_update_branch(&mut self, ch: char) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputBranch {
+                state.branch_name.push(ch);
+            }
+        }
+    }
+
+    pub fn new_session_backspace(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputBranch {
+                state.branch_name.pop();
+            }
+        }
+    }
+
+    pub async fn new_session_create(&mut self) {
+        let (repo_path, branch_name) = {
+            if let Some(ref mut state) = self.new_session_state {
+                if state.step == NewSessionStep::InputBranch {
+                    if let Some(repo_index) = state.selected_repo_index {
+                        if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
+                            state.step = NewSessionStep::Creating;
+                            (repo_path.clone(), state.branch_name.clone())
+                        } else {
+                            return;
+                        }
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                }
+            } else {
+                return;
+            }
+        };
+        
+        // Create the session
+        match self.create_session_internal(&repo_path, &branch_name).await {
+            Ok(()) => {
+                info!("Session created successfully");
+                self.cancel_new_session();
+                self.load_real_workspaces().await;
+            }
+            Err(e) => {
+                warn!("Failed to create session: {}", e);
+                self.cancel_new_session();
+            }
+        }
+    }
+
+    async fn create_session_internal(&self, repo_path: &std::path::Path, branch_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
+        
+        let session_id = uuid::Uuid::new_v4();
+        let workspace_name = repo_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        
+        let request = SessionRequest {
+            session_id,
+            workspace_name,
+            workspace_path: repo_path.to_path_buf(),
+            branch_name: branch_name.to_string(),
+            base_branch: None,
+            container_config: None,
+        };
+        
+        let mut manager = SessionLifecycleManager::new().await?;
+        manager.create_session(request).await?;
+        
+        Ok(())
+    }
+
+    pub async fn process_async_action(&mut self) {
+        if let Some(action) = self.pending_async_action.take() {
+            match action {
+                AsyncAction::StartNewSession => {
+                    self.start_new_session().await;
+                }
+                AsyncAction::StartWorkspaceSearch => {
+                    self.start_workspace_search().await;
+                }
+                AsyncAction::NewSessionInCurrentDir => {
+                    self.new_session_in_current_dir().await;
+                }
+                AsyncAction::CreateNewSession => {
+                    self.new_session_create().await;
+                }
+            }
+        }
+    }
 }
 
 pub struct App {
@@ -232,7 +527,14 @@ impl App {
         }
     }
 
-    pub fn tick(&mut self) {
+    pub async fn init(&mut self) {
+        self.state.load_real_workspaces().await;
+    }
+
+    pub async fn tick(&mut self) {
+        // Process any pending async actions
+        self.state.process_async_action().await;
+        
         // Update logic for the app (e.g., refresh container status)
     }
 }

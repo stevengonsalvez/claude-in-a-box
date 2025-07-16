@@ -177,6 +177,35 @@ impl WorktreeManager {
         Ok(worktrees)
     }
 
+    /// List all existing worktrees by scanning the by-session directory
+    pub fn list_all_worktrees(&self) -> Result<Vec<(Uuid, WorktreeInfo)>> {
+        let mut worktrees = Vec::new();
+
+        let by_session_dir = self.base_worktree_dir.join("by-session");
+        if !by_session_dir.exists() {
+            return Ok(worktrees);
+        }
+
+        let entries = std::fs::read_dir(&by_session_dir)?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_symlink() {
+                continue;
+            }
+
+            if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                if let Ok(session_id) = Uuid::parse_str(dir_name) {
+                    if let Ok(worktree_info) = self.get_worktree_info(session_id) {
+                        worktrees.push((session_id, worktree_info));
+                    }
+                }
+            }
+        }
+
+        Ok(worktrees)
+    }
+
     pub fn get_worktree_info(&self, session_id: Uuid) -> Result<WorktreeInfo, WorktreeError> {
         // Find the actual worktree path (might be in by-name directory)
         let session_path = self.base_worktree_dir.join("by-session").join(session_id.to_string());

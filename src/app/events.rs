@@ -1,7 +1,7 @@
 // ABOUTME: Event handling system for keyboard input and app actions
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::app::AppState;
+use crate::app::{AppState, state::AsyncAction};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -11,7 +11,8 @@ pub enum AppEvent {
     NextWorkspace,
     PreviousWorkspace,
     ToggleHelp,
-    NewSession,
+    NewSession,         // Create session in current directory
+    SearchWorkspace,    // Search all workspaces
     AttachSession,
     StartStopSession,
     DeleteSession,
@@ -19,17 +20,40 @@ pub enum AppEvent {
     SwitchToTerminal,
     GoToTop,
     GoToBottom,
+    // New session creation events
+    NewSessionCancel,
+    NewSessionNextRepo,
+    NewSessionPrevRepo,
+    NewSessionConfirmRepo,
+    NewSessionInputChar(char),
+    NewSessionBackspace,
+    NewSessionCreate,
+    // Search workspace events
+    SearchWorkspaceInputChar(char),
+    SearchWorkspaceBackspace,
 }
 
 pub struct EventHandler;
 
 impl EventHandler {
     pub fn handle_key_event(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        use crate::app::state::View;
+        
         if state.help_visible {
             match key_event.code {
                 KeyCode::Char('?') | KeyCode::Esc => return Some(AppEvent::ToggleHelp),
                 _ => return None,
             }
+        }
+
+        // Handle new session creation view
+        if state.current_view == View::NewSession {
+            return Self::handle_new_session_keys(key_event, state);
+        }
+
+        // Handle search workspace view
+        if state.current_view == View::SearchWorkspace {
+            return Self::handle_search_workspace_keys(key_event, state);
         }
 
         match key_event.code {
@@ -42,12 +66,61 @@ impl EventHandler {
             KeyCode::Char('g') => Some(AppEvent::GoToTop),
             KeyCode::Char('G') => Some(AppEvent::GoToBottom),
             KeyCode::Char('n') => Some(AppEvent::NewSession),
+            KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
-            KeyCode::Char('s') => Some(AppEvent::StartStopSession),
+            KeyCode::Char('r') => Some(AppEvent::StartStopSession),  // Changed from 's' to 'r' (run/stop)
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Tab => Some(AppEvent::SwitchToLogs),
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
             _ => None,
+        }
+    }
+
+    fn handle_search_workspace_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
+        match key_event.code {
+            KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+            KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
+            KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
+            KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
+            KeyCode::Backspace => Some(AppEvent::SearchWorkspaceBackspace),
+            KeyCode::Char(ch) => Some(AppEvent::SearchWorkspaceInputChar(ch)),
+            _ => None,
+        }
+    }
+
+    fn handle_new_session_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        use crate::app::state::NewSessionStep;
+        
+        if let Some(ref session_state) = state.new_session_state {
+            match session_state.step {
+                NewSessionStep::SelectRepo => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
+                        KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
+                        KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::InputBranch => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Enter => Some(AppEvent::NewSessionCreate),
+                        KeyCode::Backspace => Some(AppEvent::NewSessionBackspace),
+                        KeyCode::Char(ch) => Some(AppEvent::NewSessionInputChar(ch)),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::Creating => {
+                    // During creation, only allow cancellation
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        _ => None,
+                    }
+                }
+            }
+        } else {
+            None
         }
     }
 
@@ -74,7 +147,34 @@ impl EventHandler {
                 }
             },
             AppEvent::NewSession => {
-                // TODO: Implement new session creation
+                // Mark for async processing - create session in current directory
+                state.pending_async_action = Some(AsyncAction::NewSessionInCurrentDir);
+            },
+            AppEvent::SearchWorkspace => {
+                // Mark for async processing - search all workspaces
+                state.pending_async_action = Some(AsyncAction::StartWorkspaceSearch);
+            },
+            AppEvent::NewSessionCancel => state.cancel_new_session(),
+            AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
+            AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),
+            AppEvent::NewSessionConfirmRepo => state.new_session_confirm_repo(),
+            AppEvent::NewSessionInputChar(ch) => state.new_session_update_branch(ch),
+            AppEvent::NewSessionBackspace => state.new_session_backspace(),
+            AppEvent::NewSessionCreate => {
+                // Mark for async processing
+                state.pending_async_action = Some(AsyncAction::CreateNewSession);
+            },
+            AppEvent::SearchWorkspaceInputChar(ch) => {
+                if let Some(ref mut session_state) = state.new_session_state {
+                    session_state.filter_text.push(ch);
+                    session_state.apply_filter();
+                }
+            },
+            AppEvent::SearchWorkspaceBackspace => {
+                if let Some(ref mut session_state) = state.new_session_state {
+                    session_state.filter_text.pop();
+                    session_state.apply_filter();
+                }
             },
             AppEvent::AttachSession => {
                 // TODO: Implement session attachment

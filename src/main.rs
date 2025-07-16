@@ -17,6 +17,8 @@ use std::{
 
 mod app;
 mod components;
+mod config;
+mod docker;
 mod git;
 mod models;
 
@@ -28,6 +30,7 @@ async fn main() -> Result<()> {
     setup_logging();
     
     let mut app = App::new();
+    app.init().await;
     let mut layout = LayoutComponent::new();
     
     run_tui(&mut app, &mut layout).await?;
@@ -70,7 +73,7 @@ async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
         }
 
         if last_tick.elapsed() >= tick_rate {
-            app.tick();
+            app.tick().await;
             last_tick = Instant::now();
         }
 

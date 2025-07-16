@@ -6,13 +6,14 @@ use ratatui::{
     style::{Color, Style},
 };
 
-use crate::app::AppState;
-use super::{SessionListComponent, LogsViewerComponent, HelpComponent};
+use crate::app::{AppState, state::View};
+use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent};
 
 pub struct LayoutComponent {
     session_list: SessionListComponent,
     logs_viewer: LogsViewerComponent,
     help: HelpComponent,
+    new_session: NewSessionComponent,
 }
 
 impl LayoutComponent {
@@ -21,6 +22,7 @@ impl LayoutComponent {
             session_list: SessionListComponent::new(),
             logs_viewer: LogsViewerComponent::new(),
             help: HelpComponent::new(),
+            new_session: NewSessionComponent::new(),
         }
     }
 
@@ -54,10 +56,15 @@ impl LayoutComponent {
         if state.help_visible {
             self.help.render(frame, frame.size());
         }
+
+        // Render new session overlay if visible
+        if state.current_view == View::NewSession || state.current_view == View::SearchWorkspace {
+            self.new_session.render(frame, frame.size(), state);
+        }
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        let menu_text = "[n]ew [a]ttach [s]tart/stop [d]elete [w]orkspace [?]help [q]uit";
+        let menu_text = "[n]ew [s]earch [a]ttach [r]un/stop [d]elete [w]orkspace [?]help [q]uit";
         
         let menu = Paragraph::new(menu_text)
             .block(
