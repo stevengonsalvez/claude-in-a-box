@@ -209,11 +209,17 @@ impl WorktreeManager {
     pub fn get_worktree_info(&self, session_id: Uuid) -> Result<WorktreeInfo, WorktreeError> {
         // Find the actual worktree path (might be in by-name directory)
         let session_path = self.base_worktree_dir.join("by-session").join(session_id.to_string());
+        tracing::debug!("Looking for session path: {:?}", session_path);
+        tracing::debug!("Session path exists: {}, is_symlink: {}", session_path.exists(), session_path.is_symlink());
+        
         let worktree_path = if session_path.exists() && session_path.is_symlink() {
-            std::fs::read_link(&session_path)?
+            let resolved_path = std::fs::read_link(&session_path)?;
+            tracing::debug!("Resolved symlink to: {:?}", resolved_path);
+            resolved_path
         } else {
             // Fallback to old location for backward compatibility
             let old_path = self.base_worktree_dir.join(session_id.to_string());
+            tracing::debug!("Using fallback path: {:?}", old_path);
             if old_path.exists() {
                 old_path
             } else {
@@ -221,6 +227,8 @@ impl WorktreeManager {
             }
         };
 
+        tracing::debug!("Final worktree path: {:?}", worktree_path);
+        
         if !worktree_path.exists() {
             return Err(WorktreeError::NotFound(worktree_path.display().to_string()));
         }
@@ -360,27 +368,99 @@ impl WorktreeManager {
 
     fn find_main_repository(&self, worktree_repo: &Repository) -> Result<PathBuf, WorktreeError> {
         // For worktrees, the .git file contains a path to the main repository
-        if let Ok(git_dir) = worktree_repo.path().parent().ok_or_else(|| {
-            WorktreeError::CommandFailed("Cannot find parent of git directory".to_string())
-        }) {
-            let git_file = git_dir.join(".git");
-            if git_file.is_file() {
-                if let Ok(content) = std::fs::read_to_string(&git_file) {
-                    // Parse "gitdir: /path/to/main/repo/.git/worktrees/name"
-                    if let Some(gitdir_line) = content.lines().find(|line| line.starts_with("gitdir:")) {
-                        if let Some(gitdir_path) = gitdir_line.strip_prefix("gitdir:").map(|s| s.trim()) {
-                            // Extract main repo path from worktree path
-                            let path = PathBuf::from(gitdir_path);
-                            if let Some(worktrees_parent) = path.parent().and_then(|p| p.parent()) {
-                                return Ok(worktrees_parent.to_path_buf());
-                            }
-                        }
-                    }
-                }
-            }
+        tracing::debug!("Repository path: {:?}", worktree_repo.path());
+        tracing::debug!("Repository workdir: {:?}", worktree_repo.workdir());
+        
+        // Use the working directory instead of the git directory for worktrees
+        let git_dir = worktree_repo.workdir().ok_or_else(|| {
+            WorktreeError::CommandFailed(format!(
+                "Cannot find working directory of worktree repository: {:?}",
+                worktree_repo.path()
+            ))
+        })?;
+
+        let git_file = git_dir.join(".git");
+        tracing::debug!("Looking for .git file at: {:?}", git_file);
+        
+        if !git_file.is_file() {
+            return Err(WorktreeError::CommandFailed(format!(
+                "No .git file found at: {:?}",
+                git_file
+            )));
         }
 
-        Err(WorktreeError::CommandFailed("Cannot determine main repository path".to_string()))
+        let content = std::fs::read_to_string(&git_file).map_err(|e| {
+            WorktreeError::CommandFailed(format!(
+                "Failed to read .git file at {:?}: {}",
+                git_file, e
+            ))
+        })?;
+
+        tracing::debug!("Content of .git file: {}", content);
+
+        // Parse "gitdir: /path/to/main/repo/.git/worktrees/name"
+        let gitdir_line = content.lines().find(|line| line.starts_with("gitdir:"))
+            .ok_or_else(|| WorktreeError::CommandFailed(format!(
+                "No 'gitdir:' line found in .git file at {:?}. Content: {}",
+                git_file, content
+            )))?;
+
+        let gitdir_path = gitdir_line.strip_prefix("gitdir:").map(|s| s.trim())
+            .ok_or_else(|| WorktreeError::CommandFailed(format!(
+                "Invalid gitdir line format: {}",
+                gitdir_line
+            )))?;
+
+        tracing::debug!("Parsed gitdir path: {}", gitdir_path);
+
+        // Extract main repo path from worktree path
+        let path = PathBuf::from(gitdir_path);
+        let main_repo_path = path.parent().and_then(|p| p.parent())
+            .ok_or_else(|| WorktreeError::CommandFailed(format!(
+                "Cannot extract main repository path from gitdir: {}. Expected format: /path/to/repo/.git/worktrees/name",
+                gitdir_path
+            )))?;
+
+        tracing::debug!("Computed main repository path: {:?}", main_repo_path);
+
+        // Validate that the computed path exists and is a git repository
+        if !main_repo_path.exists() {
+            return Err(WorktreeError::CommandFailed(format!(
+                "Computed main repository path does not exist: {:?}",
+                main_repo_path
+            )));
+        }
+
+        // Check if the computed path is a git repository
+        // It could be either a .git directory or a directory containing .git
+        let is_git_repo = if main_repo_path.file_name().and_then(|n| n.to_str()) == Some(".git") {
+            // The path is a .git directory, so the repo is the parent
+            if let Some(parent) = main_repo_path.parent() {
+                parent.join(".git").exists()
+            } else {
+                false
+            }
+        } else {
+            // The path is a repository directory, check for .git inside it
+            main_repo_path.join(".git").exists()
+        };
+
+        if !is_git_repo {
+            return Err(WorktreeError::CommandFailed(format!(
+                "Computed main repository path is not a git repository: {:?}",
+                main_repo_path
+            )));
+        }
+
+        // Return the repository directory (not the .git directory)
+        let final_repo_path = if main_repo_path.file_name().and_then(|n| n.to_str()) == Some(".git") {
+            main_repo_path.parent().unwrap().to_path_buf()
+        } else {
+            main_repo_path.to_path_buf()
+        };
+
+        tracing::debug!("Final main repository path: {:?}", final_repo_path);
+        Ok(final_repo_path)
     }
 
     fn generate_worktree_path(&self, session_id: Uuid, repository_path: &Path, branch_name: &str) -> Result<PathBuf, WorktreeError> {

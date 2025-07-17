@@ -1,0 +1,5 @@
+{
+  "version": "1.0.0",
+  "mode": "development",
+  "note": "This is a placeholder authentication file for building the Docker image. Replace with actual authentication in production."
+}

@@ -27,8 +27,8 @@ else \
 fi
 
 # Create a non-root user with matching host UID/GID
-ARG USER_UID=1000
-ARG USER_GID=1000
+ARG USER_UID=1001
+ARG USER_GID=1001
 RUN if getent group $USER_GID > /dev/null 2>&1; then \
         GROUP_NAME=$(getent group $USER_GID | cut -d: -f1); \
     else \
@@ -69,7 +69,8 @@ COPY .claude.json /tmp/.claude.json
 
 # Copy Gemini authentication files from host (if they exist)
 # Note: These are optional - Gemini CLI can use API key from .env
-COPY .gemini* /tmp/ 2>/dev/null || true
+# This is commented out since gemini files are optional
+# COPY .gemini* /tmp/ 2>/dev/null || true
 
 # Copy MCP server configuration files (as root)
 COPY mcp-servers.txt /app/
@@ -78,12 +79,7 @@ RUN chmod +x /app/install-mcp-servers.sh
 
 # Move auth files to proper location before switching user
 RUN cp /tmp/.claude.json /home/claude-user/.claude.json && \
-    rm -f /tmp/.claude.json && \
-    # Copy Gemini auth files if they exist
-    if [ -f /tmp/.gemini* ]; then \
-        cp /tmp/.gemini* /home/claude-user/ 2>/dev/null || true && \
-        rm -f /tmp/.gemini* 2>/dev/null || true; \
-    fi
+    rm -f /tmp/.claude.json
 
 # Set proper ownership for everything
 RUN chown -R claude-user /app /home/claude-user
