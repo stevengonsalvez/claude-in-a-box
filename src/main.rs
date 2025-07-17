@@ -124,13 +124,13 @@ fn setup_logging() {
     
     // Create log directory if it doesn't exist
     let log_dir = std::env::var("HOME")
-        .map(|home| PathBuf::from(home).join(".claude-box").join("logs"))
-        .unwrap_or_else(|_| PathBuf::from(".claude-box/logs"));
+        .map(|home| PathBuf::from(home).join(".claude-in-a-box").join("logs"))
+        .unwrap_or_else(|_| PathBuf::from(".claude-in-a-box/logs"));
     
     let _ = std::fs::create_dir_all(&log_dir);
     
     // Create log file with timestamp
-    let log_file = log_dir.join(format!("claude-box-{}.log", 
+    let log_file = log_dir.join(format!("claude-in-a-box-{}.log", 
         chrono::Local::now().format("%Y%m%d-%H%M%S")));
     
     // Open file for writing

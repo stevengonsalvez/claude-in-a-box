@@ -36,8 +36,8 @@ Claude-in-a-Box is a terminal-based development environment manager that provide
 
 ### 🆕 Phase 4.5: Configuration & Templates (COMPLETED)
 - [x] **JSON/TOML Configuration System**
-  - Global config: `~/.claude-box/config.toml`
-  - Project config: `.claude-box/project.toml`
+  - Global config: `~/.claude-in-a-box/config/config.toml`
+  - Project config: `.claude-in-a-box/project.toml`
   - Configuration merging and precedence
   
 - [x] **Container Templates**
@@ -137,7 +137,7 @@ show_git_status = true
 # MCP servers are loaded from defaults with environment validation
 ```
 
-#### Project Configuration (`.claude-box/project.toml`)
+#### Project Configuration (`.claude-in-a-box/project.toml`)
 ```toml
 container_template = "claude-dev"
 mount_claude_config = true
@@ -210,7 +210,7 @@ The project now has a complete configuration system, container templates based o
 - Use pre-configured templates or specify custom containers
 - Configure MCP servers with multiple initialization strategies
 - Mount host authentication and configuration as needed
-- Override settings per-project with `.claude-box/project.toml`
+- Override settings per-project with `.claude-in-a-box/project.toml`
 
 Ready for Phase 5: Interactive Features development.
 

@@ -182,7 +182,7 @@ impl AppConfig {
         
         // 1. Local project config
         if let Ok(cwd) = std::env::current_dir() {
-            paths.push(cwd.join(".claude-box").join("config.toml"));
+            paths.push(cwd.join(".claude-in-a-box").join("config.toml"));
         }
         
         // 2. User config (~/.claude-box/config.toml)
@@ -191,7 +191,7 @@ impl AppConfig {
         }
         
         // 3. System config
-        paths.push(PathBuf::from("/etc/claude-box/config.toml"));
+        paths.push(PathBuf::from("/etc/claude-in-a-box/config.toml"));
         
         paths
     }
@@ -200,7 +200,7 @@ impl AppConfig {
     fn get_user_config_dir() -> Result<PathBuf> {
         let home_dir = dirs::home_dir()
             .context("Failed to get home directory")?;
-        let config_dir = home_dir.join(".claude-box");
+        let config_dir = home_dir.join(".claude-in-a-box").join("config");
         Ok(config_dir)
     }
     
@@ -328,7 +328,7 @@ pub struct MountConfig {
 impl ProjectConfig {
     /// Load project configuration from a directory
     pub fn load_from_dir(dir: &Path) -> Result<Option<Self>> {
-        let config_path = dir.join(".claude-box").join("project.toml");
+        let config_path = dir.join(".claude-in-a-box").join("project.toml");
         if !config_path.exists() {
             return Ok(None);
         }
@@ -340,7 +340,7 @@ impl ProjectConfig {
     
     /// Save project configuration to a directory
     pub fn save_to_dir(&self, dir: &Path) -> Result<()> {
-        let config_dir = dir.join(".claude-box");
+        let config_dir = dir.join(".claude-in-a-box");
         fs::create_dir_all(&config_dir)?;
         
         let config_path = config_dir.join("project.toml");

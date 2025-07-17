@@ -70,13 +70,13 @@ cargo run
 
 Claude-in-a-Box uses a hierarchical configuration system:
 
-1. **System config**: `/etc/claude-box/config.toml`
-2. **User config**: `~/.claude-box/config.toml`
-3. **Project config**: `.claude-box/project.toml`
+1. **System config**: `/etc/claude-in-a-box/config.toml`
+2. **User config**: `~/.claude-in-a-box/config/config.toml`
+3. **Project config**: `.claude-in-a-box/project.toml`
 
 ### Global Configuration
 
-Create `~/.claude-box/config.toml`:
+Create `~/.claude-in-a-box/config/config.toml`:
 
 ```toml
 # Application version (automatically set)
@@ -141,7 +141,7 @@ show_git_status = true
 
 ### Project Configuration
 
-Create `.claude-box/project.toml` in your project root:
+Create `.claude-in-a-box/project.toml` in your project root:
 
 ```toml
 # Container template to use for this project
@@ -289,7 +289,7 @@ export DOCKER_HOST=npipe:////./pipe/docker_engine
 
 **Global Configuration:**
 ```toml
-# ~/.claude-box/config.toml
+# ~/.claude-in-a-box/config/config.toml
 [docker]
 host = "unix:///var/run/docker.sock"
 # or
@@ -309,7 +309,7 @@ client_key = "/path/to/key.pem"
 
 **Project Configuration:**
 ```toml
-# .claude-box/project.toml
+# .claude-in-a-box/project.toml
 [docker]
 host = "unix:///custom/docker.sock"
 timeout = 30
@@ -401,7 +401,7 @@ Claude-in-a-Box automatically scans for Git repositories in your system. By defa
 If your repositories are in custom locations (e.g., `/Users/you/d/git`), add them to your configuration:
 
 ```toml
-# ~/.claude-box/config.toml
+# ~/.claude-in-a-box/config/config.toml
 [workspace_defaults]
 workspace_scan_paths = [
     "/Users/you/d/git",
@@ -510,8 +510,8 @@ npm run dev               # Start development servers (ports auto-forwarded)
 
 ```bash
 # Create project config
-mkdir -p .claude-box
-cat > .claude-box/project.toml << EOF
+mkdir -p .claude-in-a-box
+cat > .claude-in-a-box/project.toml << EOF
 container_template = "node"
 mount_claude_config = true
 
@@ -532,8 +532,8 @@ cargo run
 
 ```bash
 # Create project config
-mkdir -p .claude-box
-cat > .claude-box/project.toml << EOF
+mkdir -p .claude-in-a-box
+cat > .claude-in-a-box/project.toml << EOF
 container_template = "python"
 mount_claude_config = true
 
@@ -580,8 +580,8 @@ docker/
     └── config/       # Container configuration files
 
 Configuration files:
-~/.claude-box/config.toml    # Global user configuration
-.claude-box/project.toml     # Project-specific configuration
+~/.claude-in-a-box/config/config.toml    # Global user configuration
+.claude-in-a-box/project.toml     # Project-specific configuration
 ```
 
 ### Development Phases
@@ -682,8 +682,8 @@ docker logs <container-id>
 2. **Manual Docker Configuration:**
    ```bash
    # Create config file
-   mkdir -p ~/.claude-box
-   cat > ~/.claude-box/config.toml << EOF
+   mkdir -p ~/.claude-in-a-box/config
+   cat > ~/.claude-in-a-box/config/config.toml << EOF
    [docker]
    host = "unix:///var/run/docker.sock"
    timeout = 60
@@ -736,7 +736,7 @@ git worktree list
 git worktree prune
 
 # Check claude-box worktrees and configuration
-ls -la ~/.claude-box/
+ls -la ~/.claude-in-a-box/
 ```
 
 ### Debug Mode

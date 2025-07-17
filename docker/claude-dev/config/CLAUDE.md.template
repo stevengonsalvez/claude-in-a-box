@@ -47,7 +47,7 @@ Provides access to library documentation and code examples:
 
 To customize this environment for your project:
 
-1. Create `.claude-box/project.toml` in your project root
+1. Create `.claude-in-a-box/project.toml` in your project root
 2. Specify container template, environment variables, and additional mounts
 3. Restart your claude-box session to apply changes
 
