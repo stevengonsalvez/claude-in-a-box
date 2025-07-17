@@ -11,6 +11,7 @@ pub enum AppEvent {
     NextWorkspace,
     PreviousWorkspace,
     ToggleHelp,
+    RefreshWorkspaces,  // Manual refresh of workspace data
     NewSession,         // Create session in current directory
     SearchWorkspace,    // Search all workspaces
     AttachSession,
@@ -93,6 +94,7 @@ impl EventHandler {
             KeyCode::Char('l') | KeyCode::Right => Some(AppEvent::NextWorkspace),
             KeyCode::Char('g') => Some(AppEvent::GoToTop),
             KeyCode::Char('G') => Some(AppEvent::GoToBottom),
+            KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces),  // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
@@ -159,6 +161,10 @@ impl EventHandler {
         match event {
             AppEvent::Quit => state.quit(),
             AppEvent::ToggleHelp => state.toggle_help(),
+            AppEvent::RefreshWorkspaces => {
+                // Mark for async processing to reload workspace data
+                state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
+            },
             AppEvent::NextSession => state.next_session(),
             AppEvent::PreviousSession => state.previous_session(),
             AppEvent::NextWorkspace => state.next_workspace(),

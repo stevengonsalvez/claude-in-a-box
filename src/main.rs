@@ -91,6 +91,14 @@ async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
             match app.tick().await {
                 Ok(()) => {
                     last_tick = Instant::now();
+                    
+                    // Check if UI needs immediate refresh after async operations
+                    if app.needs_ui_refresh() {
+                        // Force immediate redraw by skipping the timeout
+                        terminal.draw(|frame| {
+                            layout.render(frame, &app.state);
+                        })?;
+                    }
                 }
                 Err(e) => {
                     use tracing::error;

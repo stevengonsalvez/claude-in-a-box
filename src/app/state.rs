@@ -46,6 +46,8 @@ pub struct AppState {
     pub async_operation_cancelled: bool,
     // Confirmation dialog state
     pub confirmation_dialog: Option<ConfirmationDialog>,
+    // Flag to force UI refresh after workspace changes
+    pub ui_needs_refresh: bool,
 }
 
 #[derive(Debug)]
@@ -103,6 +105,7 @@ pub enum AsyncAction {
     NewSessionInCurrentDir, // New - create session in current directory
     CreateNewSession,
     DeleteSession(Uuid),   // New - delete session with container cleanup
+    RefreshWorkspaces,     // Manual refresh of workspace data
 }
 
 impl Default for AppState {
@@ -119,6 +122,7 @@ impl Default for AppState {
             pending_async_action: None,
             async_operation_cancelled: false,
             confirmation_dialog: None,
+            ui_needs_refresh: false,
         }
     }
 }
@@ -517,8 +521,11 @@ impl AppState {
         match self.create_session_internal(&repo_path, &branch_name).await {
             Ok(()) => {
                 info!("Session created successfully");
-                self.cancel_new_session();
+                // Reload workspaces BEFORE switching view to ensure UI shows new session immediately
                 self.load_real_workspaces().await;
+                // Force UI refresh to show new session immediately
+                self.ui_needs_refresh = true;
+                self.cancel_new_session();
             }
             Err(e) => {
                 warn!("Failed to create session: {}", e);
@@ -587,6 +594,8 @@ impl AppState {
         
         // Reload workspaces to ensure UI reflects the actual state
         self.load_real_workspaces().await;
+        // Force UI refresh to show updated session list immediately
+        self.ui_needs_refresh = true;
         
         // Log workspace count after deletion
         let workspace_count_after = self.workspaces.len();
@@ -628,6 +637,12 @@ impl AppState {
                         error!("Failed to delete session {}: {}", session_id, e);
                     }
                 }
+                AsyncAction::RefreshWorkspaces => {
+                    info!("Manual refresh triggered");
+                    // Reload workspace data and force UI refresh
+                    self.load_real_workspaces().await;
+                    self.ui_needs_refresh = true;
+                }
             }
         }
         Ok(())
@@ -664,6 +679,16 @@ impl App {
         
         // Update logic for the app (e.g., refresh container status)
         Ok(())
+    }
+
+    /// Check if UI needs immediate refresh and clear the flag
+    pub fn needs_ui_refresh(&mut self) -> bool {
+        if self.state.ui_needs_refresh {
+            self.state.ui_needs_refresh = false;
+            true
+        } else {
+            false
+        }
     }
 }
 

@@ -71,7 +71,7 @@ impl LayoutComponent {
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        let menu_text = "[n]ew [s]earch [a]ttach [r]un/stop [d]elete [w]orkspace [?]help [q]uit";
+        let menu_text = "[n]ew [s]earch [a]ttach [r]un/stop [d]elete [f]refresh [?]help [q]uit";
         
         let menu = Paragraph::new(menu_text)
             .block(

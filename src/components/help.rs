@@ -33,6 +33,7 @@ impl HelpComponent {
             ListItem::new("  a          Attach to session"),
             ListItem::new("  r          Run/Stop session"),
             ListItem::new("  d          Delete session"),
+            ListItem::new("  f          Refresh workspaces"),
             ListItem::new(""),
             ListItem::new("Views:").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ListItem::new("  Tab        Switch between views"),
