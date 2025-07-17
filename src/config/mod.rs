@@ -19,6 +19,7 @@ pub use mcp_init::{McpInitializer, McpInitResult, apply_mcp_init_result};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Application version
+    #[serde(default = "default_version")]
     pub version: String,
     
     /// Default container template to use if none specified
@@ -113,6 +114,10 @@ pub struct DockerTlsConfig {
     
     /// Path to client private key
     pub client_key: Option<String>,
+}
+
+fn default_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 fn default_container_template() -> String {

@@ -7,13 +7,14 @@ use ratatui::{
 };
 
 use crate::app::{AppState, state::View};
-use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent};
+use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent, ConfirmationDialogComponent};
 
 pub struct LayoutComponent {
     session_list: SessionListComponent,
     logs_viewer: LogsViewerComponent,
     help: HelpComponent,
     new_session: NewSessionComponent,
+    confirmation_dialog: ConfirmationDialogComponent,
 }
 
 impl LayoutComponent {
@@ -23,6 +24,7 @@ impl LayoutComponent {
             logs_viewer: LogsViewerComponent::new(),
             help: HelpComponent::new(),
             new_session: NewSessionComponent::new(),
+            confirmation_dialog: ConfirmationDialogComponent::new(),
         }
     }
 
@@ -60,6 +62,11 @@ impl LayoutComponent {
         // Render new session overlay if visible
         if state.current_view == View::NewSession || state.current_view == View::SearchWorkspace {
             self.new_session.render(frame, frame.size(), state);
+        }
+
+        // Render confirmation dialog if visible (highest priority overlay)
+        if state.confirmation_dialog.is_some() {
+            self.confirmation_dialog.render(frame, frame.size(), state);
         }
     }
 

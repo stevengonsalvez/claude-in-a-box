@@ -4,7 +4,7 @@ use crate::models::{Session, Workspace};
 use crate::app::SessionLoader;
 use std::collections::HashMap;
 use uuid::Uuid;
-use tracing::{warn, info};
+use tracing::{warn, info, error};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
@@ -14,6 +14,19 @@ pub enum View {
     Help,
     NewSession,
     SearchWorkspace,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConfirmationDialog {
+    pub title: String,
+    pub message: String,
+    pub confirm_action: ConfirmAction,
+    pub selected_option: bool, // true = Yes, false = No
+}
+
+#[derive(Debug, Clone)]
+pub enum ConfirmAction {
+    DeleteSession(Uuid),
 }
 
 #[derive(Debug)]
@@ -31,6 +44,8 @@ pub struct AppState {
     pub pending_async_action: Option<AsyncAction>,
     // Flag to track if user cancelled during async operation
     pub async_operation_cancelled: bool,
+    // Confirmation dialog state
+    pub confirmation_dialog: Option<ConfirmationDialog>,
 }
 
 #[derive(Debug)]
@@ -87,6 +102,7 @@ pub enum AsyncAction {
     StartWorkspaceSearch,   // New - search all workspaces
     NewSessionInCurrentDir, // New - create session in current directory
     CreateNewSession,
+    DeleteSession(Uuid),   // New - delete session with container cleanup
 }
 
 impl Default for AppState {
@@ -102,6 +118,7 @@ impl Default for AppState {
             new_session_state: None,
             pending_async_action: None,
             async_operation_cancelled: false,
+            confirmation_dialog: None,
         }
     }
 }
@@ -288,6 +305,15 @@ impl AppState {
 
     pub fn quit(&mut self) {
         self.should_quit = true;
+    }
+
+    pub fn show_delete_confirmation(&mut self, session_id: Uuid) {
+        self.confirmation_dialog = Some(ConfirmationDialog {
+            title: "Delete Session".to_string(),
+            message: "Are you sure you want to delete this session? This will stop the container and remove the git worktree.".to_string(),
+            confirm_action: ConfirmAction::DeleteSession(session_id),
+            selected_option: false, // Default to "No"
+        });
     }
 
     pub async fn new_session_in_current_dir(&mut self) {
@@ -525,6 +551,52 @@ impl AppState {
         Ok(())
     }
 
+    async fn delete_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
+        use crate::docker::SessionLifecycleManager;
+        use crate::git::WorktreeManager;
+        
+        info!("Deleting session: {}", session_id);
+        
+        // Log workspace count before deletion
+        let workspace_count_before = self.workspaces.len();
+        let session_count_before: usize = self.workspaces.iter().map(|w| w.sessions.len()).sum();
+        info!("Before deletion: {} workspaces, {} sessions", workspace_count_before, session_count_before);
+        
+        // Create session lifecycle manager
+        let mut manager = SessionLifecycleManager::new().await?;
+        
+        // Try to remove the session through lifecycle manager first
+        match manager.remove_session(session_id).await {
+            Ok(_) => {
+                info!("Session removed through lifecycle manager");
+            }
+            Err(e) => {
+                warn!("Session not found in lifecycle manager: {}", e);
+                info!("Attempting to remove orphaned worktree directly");
+                
+                // If session not found in lifecycle manager, it's likely an orphaned worktree
+                // Remove the worktree directly
+                let worktree_manager = WorktreeManager::new()?;
+                if let Err(worktree_err) = worktree_manager.remove_worktree(session_id) {
+                    warn!("Failed to remove worktree: {}", worktree_err);
+                } else {
+                    info!("Successfully removed orphaned worktree");
+                }
+            }
+        }
+        
+        // Reload workspaces to ensure UI reflects the actual state
+        self.load_real_workspaces().await;
+        
+        // Log workspace count after deletion
+        let workspace_count_after = self.workspaces.len();
+        let session_count_after: usize = self.workspaces.iter().map(|w| w.sessions.len()).sum();
+        info!("After deletion: {} workspaces, {} sessions", workspace_count_after, session_count_after);
+        
+        info!("Successfully deleted session: {}", session_id);
+        Ok(())
+    }
+
     pub async fn process_async_action(&mut self) -> anyhow::Result<()> {
         if let Some(action) = self.pending_async_action.take() {
             match action {
@@ -550,6 +622,11 @@ impl AppState {
                 }
                 AsyncAction::CreateNewSession => {
                     self.new_session_create().await;
+                }
+                AsyncAction::DeleteSession(session_id) => {
+                    if let Err(e) = self.delete_session(session_id).await {
+                        error!("Failed to delete session {}: {}", session_id, e);
+                    }
                 }
             }
         }

@@ -31,6 +31,10 @@ pub enum AppEvent {
     // Search workspace events
     SearchWorkspaceInputChar(char),
     SearchWorkspaceBackspace,
+    // Confirmation dialog events
+    ConfirmationToggle,     // Switch between Yes/No
+    ConfirmationConfirm,    // Confirm action
+    ConfirmationCancel,     // Cancel dialog
 }
 
 pub struct EventHandler;
@@ -38,6 +42,22 @@ pub struct EventHandler;
 impl EventHandler {
     pub fn handle_key_event(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
         use crate::app::state::View;
+        
+        // Handle confirmation dialog first (highest priority)
+        if state.confirmation_dialog.is_some() {
+            match key_event.code {
+                KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
+                    return Some(AppEvent::ConfirmationToggle);
+                },
+                KeyCode::Enter => {
+                    return Some(AppEvent::ConfirmationConfirm);
+                },
+                KeyCode::Esc => {
+                    return Some(AppEvent::ConfirmationCancel);
+                },
+                _ => return None,
+            }
+        }
         
         if state.help_visible {
             match key_event.code {
@@ -198,13 +218,37 @@ impl EventHandler {
                 // TODO: Implement start/stop session
             },
             AppEvent::DeleteSession => {
-                // TODO: Implement session deletion
+                // Show confirmation dialog
+                if let Some(session) = state.selected_session() {
+                    state.show_delete_confirmation(session.id);
+                }
             },
             AppEvent::SwitchToLogs => {
                 // TODO: Implement view switching
             },
             AppEvent::SwitchToTerminal => {
                 // TODO: Implement terminal view
+            },
+            AppEvent::ConfirmationToggle => {
+                if let Some(ref mut dialog) = state.confirmation_dialog {
+                    dialog.selected_option = !dialog.selected_option;
+                }
+            },
+            AppEvent::ConfirmationConfirm => {
+                if let Some(dialog) = state.confirmation_dialog.take() {
+                    if dialog.selected_option {
+                        // User confirmed, execute the action
+                        match dialog.confirm_action {
+                            crate::app::state::ConfirmAction::DeleteSession(session_id) => {
+                                state.pending_async_action = Some(AsyncAction::DeleteSession(session_id));
+                            }
+                        }
+                    }
+                    // If not confirmed, just close the dialog
+                }
+            },
+            AppEvent::ConfirmationCancel => {
+                state.confirmation_dialog = None;
             },
         }
     }
