@@ -41,9 +41,18 @@ impl EventHandler {
         
         if state.help_visible {
             match key_event.code {
-                KeyCode::Char('?') | KeyCode::Esc => return Some(AppEvent::ToggleHelp),
-                _ => return None,
+                KeyCode::Char('?') | KeyCode::Esc => {
+                    return Some(AppEvent::ToggleHelp);
+                },
+                _ => {
+                    return None;
+                }
             }
+        }
+
+        // Handle global help toggle first (should work from any view)
+        if let KeyCode::Char('?') = key_event.code {
+            return Some(AppEvent::ToggleHelp);
         }
 
         // Handle new session creation view
@@ -58,7 +67,6 @@ impl EventHandler {
 
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
-            KeyCode::Char('?') => Some(AppEvent::ToggleHelp),
             KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NextSession),
             KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::PreviousSession),
             KeyCode::Char('h') | KeyCode::Left => Some(AppEvent::PreviousWorkspace),
@@ -77,8 +85,11 @@ impl EventHandler {
     }
 
     fn handle_search_workspace_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
+        
         match key_event.code {
-            KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+            KeyCode::Esc => {
+                Some(AppEvent::NewSessionCancel)
+            },
             KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
             KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
             KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
@@ -153,8 +164,12 @@ impl EventHandler {
             AppEvent::SearchWorkspace => {
                 // Mark for async processing - search all workspaces
                 state.pending_async_action = Some(AsyncAction::StartWorkspaceSearch);
+                // Clear any previous cancellation flag
+                state.async_operation_cancelled = false;
             },
-            AppEvent::NewSessionCancel => state.cancel_new_session(),
+            AppEvent::NewSessionCancel => {
+                state.cancel_new_session();
+            },
             AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
             AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),
             AppEvent::NewSessionConfirmRepo => state.new_session_confirm_repo(),

@@ -28,6 +28,7 @@ use components::LayoutComponent;
 #[tokio::main]
 async fn main() -> Result<()> {
     setup_logging();
+    setup_panic_handler();
     
     let mut app = App::new();
     app.init().await;
@@ -39,6 +40,20 @@ async fn main() -> Result<()> {
 }
 
 async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
+    // Check if we're in a proper terminal
+    match crossterm::terminal::is_raw_mode_enabled() {
+        Ok(false) => {
+            // Raw mode is not enabled, which is normal - we'll enable it
+        }
+        Err(e) => {
+            eprintln!("Cannot check terminal raw mode: {}", e);
+            return Err(anyhow::anyhow!("Terminal not compatible: {}", e));
+        }
+        Ok(true) => {
+            // Raw mode is already enabled, continue
+        }
+    }
+    
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -73,8 +88,17 @@ async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
         }
 
         if last_tick.elapsed() >= tick_rate {
-            app.tick().await;
-            last_tick = Instant::now();
+            match app.tick().await {
+                Ok(()) => {
+                    last_tick = Instant::now();
+                }
+                Err(e) => {
+                    use tracing::error;
+                    error!("Error during app tick: {}", e);
+                    // Continue running instead of crashing
+                    last_tick = Instant::now();
+                }
+            }
         }
 
         if app.state.should_quit {
@@ -94,7 +118,56 @@ async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
 }
 
 fn setup_logging() {
-    tracing_subscriber::fmt()
-        .with_env_filter("claude_box=debug")
+    use tracing_subscriber::prelude::*;
+    use std::fs::OpenOptions;
+    use std::path::PathBuf;
+    
+    // Create log directory if it doesn't exist
+    let log_dir = std::env::var("HOME")
+        .map(|home| PathBuf::from(home).join(".claude-box").join("logs"))
+        .unwrap_or_else(|_| PathBuf::from(".claude-box/logs"));
+    
+    let _ = std::fs::create_dir_all(&log_dir);
+    
+    // Create log file with timestamp
+    let log_file = log_dir.join(format!("claude-box-{}.log", 
+        chrono::Local::now().format("%Y%m%d-%H%M%S")));
+    
+    // Open file for writing
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&log_file)
+        .expect("Failed to create log file");
+    
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .with_writer(file)
+                .with_ansi(false) // No ANSI colors in log file
+        )
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "claude_box=info".into())
+        )
         .init();
+}
+
+fn setup_panic_handler() {
+    use tracing::error;
+    
+    std::panic::set_hook(Box::new(|panic_info| {
+        // Ensure terminal is restored before logging the panic
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            std::io::stderr(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        );
+        
+        error!("Application panicked: {}", panic_info);
+        eprintln!("Application panicked: {}", panic_info);
+        eprintln!("Please check the logs for more details.");
+    }));
 }

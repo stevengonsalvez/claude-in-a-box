@@ -29,6 +29,8 @@ pub struct AppState {
     pub new_session_state: Option<NewSessionState>,
     // Async action processing
     pub pending_async_action: Option<AsyncAction>,
+    // Flag to track if user cancelled during async operation
+    pub async_operation_cancelled: bool,
 }
 
 #[derive(Debug)]
@@ -99,6 +101,7 @@ impl Default for AppState {
             help_visible: false,
             new_session_state: None,
             pending_async_action: None,
+            async_operation_cancelled: false,
         }
     }
 }
@@ -191,6 +194,23 @@ impl AppState {
                 self.selected_session_index = Some(0);
             }
         }
+    }
+
+    /// Load a large dataset to simulate the 353 repository scenario
+    pub fn load_large_mock_data(&mut self) {
+        // Load normal mock data first
+        self.load_mock_data();
+        
+        // Add many more workspaces to simulate large dataset
+        for i in 3..=200 {
+            let workspace = Workspace::new(
+                format!("test-project-{:03}", i),
+                format!("/Users/user/projects/test-project-{:03}", i).into(),
+            );
+            self.workspaces.push(workspace);
+        }
+        
+        info!("Loaded large mock dataset with {} workspaces", self.workspaces.len());
     }
 
     pub fn selected_session(&self) -> Option<&Session> {
@@ -324,6 +344,11 @@ impl AppState {
                         let filtered_repos: Vec<(usize, std::path::PathBuf)> = 
                             repos.iter().enumerate().map(|(idx, path)| (idx, path.clone())).collect();
                         
+                        // Check if user has already cancelled (e.g., pressed escape while loading)
+                        if self.async_operation_cancelled {
+                            return;
+                        }
+                        
                         self.new_session_state = Some(NewSessionState {
                             available_repos: repos,
                             filtered_repos,
@@ -384,6 +409,10 @@ impl AppState {
     pub fn cancel_new_session(&mut self) {
         self.new_session_state = None;
         self.current_view = View::SessionList;
+        // Also clear any pending async actions to prevent race conditions
+        self.pending_async_action = None;
+        // Set cancellation flag to prevent race conditions
+        self.async_operation_cancelled = true;
     }
 
     pub fn new_session_next_repo(&mut self) {
@@ -496,14 +525,25 @@ impl AppState {
         Ok(())
     }
 
-    pub async fn process_async_action(&mut self) {
+    pub async fn process_async_action(&mut self) -> anyhow::Result<()> {
         if let Some(action) = self.pending_async_action.take() {
             match action {
                 AsyncAction::StartNewSession => {
                     self.start_new_session().await;
                 }
                 AsyncAction::StartWorkspaceSearch => {
-                    self.start_workspace_search().await;
+                    // Add timeout to prevent hanging
+                    use tokio::time::{timeout, Duration};
+                    match timeout(Duration::from_secs(10), self.start_workspace_search()).await {
+                        Ok(_) => {}
+                        Err(_) => {
+                            warn!("Workspace search timed out after 10 seconds");
+                            // Return to safe state
+                            self.new_session_state = None;
+                            self.current_view = View::SessionList;
+                            return Err(anyhow::anyhow!("Workspace search timed out"));
+                        }
+                    }
                 }
                 AsyncAction::NewSessionInCurrentDir => {
                     self.new_session_in_current_dir().await;
@@ -513,6 +553,7 @@ impl AppState {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -531,11 +572,21 @@ impl App {
         self.state.load_real_workspaces().await;
     }
 
-    pub async fn tick(&mut self) {
+    pub async fn tick(&mut self) -> anyhow::Result<()> {
         // Process any pending async actions
-        self.state.process_async_action().await;
+        match self.state.process_async_action().await {
+            Ok(()) => {},
+            Err(e) => {
+                warn!("Error processing async action: {}", e);
+                // Return to safe state if there was an error
+                self.state.new_session_state = None;
+                self.state.current_view = View::SessionList;
+                self.state.pending_async_action = None;
+            }
+        }
         
         // Update logic for the app (e.g., refresh container status)
+        Ok(())
     }
 }
 
