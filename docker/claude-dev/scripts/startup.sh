@@ -129,10 +129,16 @@ CLI_ARGS="$CLAUDE_CONTINUE_FLAG --dangerously-skip-permissions"
 
 log "Using Claude CLI with args: $CLI_ARGS"
 
-# If no command specified, run the CLI (adapted from claude-docker)
+# If no command specified, run the CLI in interactive mode
 if [ $# -eq 0 ] || [ "$1" = "claude" ]; then
-    success "Starting ${CLI_CMD} CLI..."
-    exec $CLI_CMD $CLI_ARGS "$@"
+    success "Starting ${CLI_CMD} CLI in interactive mode..."
+    success "Container is ready! You can attach to it to interact with Claude CLI."
+    success "Use: docker exec -it <container-name> bash"
+    
+    # Keep the container running by sleeping indefinitely
+    # Users can attach to the container and run claude commands interactively
+    log "Container will stay running. Attach to interact with Claude CLI."
+    exec sleep infinity
 else
     # Run the specified command
     log "Running command: $*"
