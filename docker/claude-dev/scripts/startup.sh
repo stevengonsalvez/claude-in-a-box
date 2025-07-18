@@ -40,25 +40,61 @@ if [ "${CLAUDE_BOX_MODE}" = "true" ]; then
     log "Running in claude-box mode"
 fi
 
-# Check for existing authentication
+# Check for existing authentication (multiple sources)
 AUTH_OK=false
-if [ -f /home/claude-user/.claude.json ] && [ -s /home/claude-user/.claude.json ]; then
-    log "Found existing Claude authentication"
-    AUTH_OK=true
-elif [ -n "${ANTHROPIC_API_KEY}" ]; then
-    log "Found ANTHROPIC_API_KEY in environment"
+AUTH_SOURCES=()
+
+# Check for .claude.json in .claude directory (primary location)
+if [ -f /home/claude-user/.claude/.claude.json ] && [ -s /home/claude-user/.claude/.claude.json ]; then
+    AUTH_SOURCES+=(".claude/.claude.json")
     AUTH_OK=true
 fi
 
-if [ "${AUTH_OK}" = "false" ]; then
+# Check for .claude directory with credentials
+if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
+    AUTH_SOURCES+=(".claude/.credentials.json")
+    AUTH_OK=true
+fi
+
+# Check for environment variable
+if [ -n "${ANTHROPIC_API_KEY}" ]; then
+    AUTH_SOURCES+=("ANTHROPIC_API_KEY environment variable")
+    AUTH_OK=true
+fi
+
+if [ "${AUTH_OK}" = "true" ]; then
+    log "Found Claude authentication via: ${AUTH_SOURCES[*]}"
+else
     warn "No Claude authentication found!"
-    warn "Please ensure either:"
-    warn "  1. ~/.claude.json is mounted to /home/claude-user/.claude.json"
-    warn "  2. ANTHROPIC_API_KEY is set in environment"
+    warn "Please ensure one of:"
+    warn "  1. Have ~/.claude.json on host (copied to container)"
+    warn "  2. Have ~/.claude/.credentials.json on host (mounted to container)"
+    warn "  3. Set ANTHROPIC_API_KEY in environment"
 fi
 
 # Create .claude directory if it doesn't exist
 mkdir -p /home/claude-user/.claude
+
+# Configure GitHub CLI if GITHUB_TOKEN is provided
+if [ -n "${GITHUB_TOKEN}" ]; then
+    log "Configuring GitHub CLI with token authentication"
+    echo "${GITHUB_TOKEN}" | gh auth login --with-token
+    
+    # Configure git to use the token for authentication
+    git config --global credential.helper store
+    echo "https://oauth:${GITHUB_TOKEN}@github.com" > /home/claude-user/.git-credentials
+    
+    # Test gh CLI connection
+    if gh auth status > /dev/null 2>&1; then
+        success "GitHub CLI authenticated successfully"
+        log "Available commands: gh issue list, gh pr list, gh repo view, etc."
+    else
+        warn "GitHub CLI authentication failed"
+    fi
+else
+    warn "GITHUB_TOKEN not found - GitHub CLI and token-based git auth unavailable"
+    log "SSH keys will be used for git operations if available"
+fi
 
 # Copy CLAUDE.md template if it doesn't exist in workspace
 if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
@@ -66,28 +102,16 @@ if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
     cp /app/config/CLAUDE.md.template /workspace/CLAUDE.md
 fi
 
-# Determine which CLI to use
+# Determine which CLI to use (adapted from claude-docker startup.sh)
 CLI_CMD="claude"
-CLI_ARGS=("--no-git-ignore")
+CLI_ARGS="$CLAUDE_CONTINUE_FLAG --dangerously-skip-permissions"
 
-# Check if gemini mode is requested
-if [ "${USE_GEMINI}" = "true" ] || [ "$1" = "gemini" ]; then
-    CLI_CMD="gemini"
-    CLI_ARGS=("--no-git-ignore")
-    log "Using Gemini CLI"
-else
-    log "Using Claude CLI"
-fi
+log "Using Claude CLI with args: $CLI_ARGS"
 
-# Add claude-box specific arguments
-if [ "${CLAUDE_BOX_MODE}" = "true" ]; then
-    CLI_ARGS+=("--claude-box")
-fi
-
-# If no command specified, run the CLI
-if [ $# -eq 0 ] || [ "$1" = "claude" ] || [ "$1" = "gemini" ]; then
+# If no command specified, run the CLI (adapted from claude-docker)
+if [ $# -eq 0 ] || [ "$1" = "claude" ]; then
     success "Starting ${CLI_CMD} CLI..."
-    exec "${CLI_CMD}" "${CLI_ARGS[@]}"
+    exec $CLI_CMD $CLI_ARGS "$@"
 else
     # Run the specified command
     log "Running command: $*"

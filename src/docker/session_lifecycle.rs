@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 use tracing::{info, warn};
 use uuid::Uuid;
+use tokio::sync::mpsc;
 
 #[derive(Error, Debug)]
 pub enum SessionLifecycleError {
@@ -71,6 +72,11 @@ impl SessionLifecycleManager {
 
     /// Create a new development session with isolated worktree and container
     pub async fn create_session(&mut self, request: SessionRequest) -> Result<SessionState, SessionLifecycleError> {
+        self.create_session_with_logs(request, None).await
+    }
+    
+    /// Create a new development session with isolated worktree and container with optional log sender
+    pub async fn create_session_with_logs(&mut self, request: SessionRequest, log_sender: Option<mpsc::UnboundedSender<String>>) -> Result<SessionState, SessionLifecycleError> {
         info!("Creating new session {} for workspace {}", request.session_id, request.workspace_name);
 
         // Check if session already exists
@@ -182,7 +188,7 @@ impl SessionLifecycleManager {
                 }
                 
                 let container = self.container_manager
-                    .create_session_container(request.session_id, config)
+                    .create_session_container_with_logs(request.session_id, config, log_sender)
                     .await?;
 
                 session.container_id = container.container_id.clone();

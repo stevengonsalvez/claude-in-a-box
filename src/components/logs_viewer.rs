@@ -17,13 +17,13 @@ impl LogsViewerComponent {
 
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         if let Some(session) = state.selected_session() {
-            self.render_session_info(frame, area, session);
+            self.render_session_info(frame, area, state, session);
         } else {
             self.render_empty_state(frame, area);
         }
     }
 
-    fn render_session_info(&self, frame: &mut Frame, area: Rect, session: &crate::models::Session) {
+    fn render_session_info(&self, frame: &mut Frame, area: Rect, state: &AppState, session: &crate::models::Session) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -59,7 +59,7 @@ impl LogsViewerComponent {
         frame.render_widget(info_paragraph, chunks[0]);
 
         // Logs panel
-        let logs_items = self.get_mock_logs(session);
+        let logs_items = self.get_session_logs(state, session);
         let logs_list = List::new(logs_items)
             .block(
                 Block::default()
@@ -84,6 +84,20 @@ impl LogsViewerComponent {
             .wrap(Wrap { trim: true });
 
         frame.render_widget(paragraph, area);
+    }
+
+    fn get_session_logs(&self, state: &AppState, session: &crate::models::Session) -> Vec<ListItem> {
+        // First check if we have real logs for this session
+        if let Some(logs) = state.logs.get(&session.id) {
+            if !logs.is_empty() {
+                return logs.iter()
+                    .map(|log| ListItem::new(log.clone()))
+                    .collect();
+            }
+        }
+        
+        // Fallback to status-based mock logs
+        self.get_mock_logs(session)
     }
 
     fn get_mock_logs(&self, session: &crate::models::Session) -> Vec<ListItem> {

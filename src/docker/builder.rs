@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use tar::{Builder, Header};
 use tempfile::TempDir;
 use tracing::{debug, info, warn, error};
+use tokio::sync::mpsc;
 
 use crate::config::{ContainerTemplate, container::ImageSource};
 
@@ -38,6 +39,11 @@ impl ImageBuilder {
     
     /// Build an image from a container template
     pub async fn build_template(&self, template: &ContainerTemplate, tag: &str) -> Result<()> {
+        self.build_template_with_logs(template, tag, None).await
+    }
+    
+    /// Build an image from a container template with optional log sender
+    pub async fn build_template_with_logs(&self, template: &ContainerTemplate, tag: &str, log_sender: Option<mpsc::UnboundedSender<String>>) -> Result<()> {
         match &template.config.image_source {
             ImageSource::Image { name } => {
                 info!("Template uses pre-built image: {}", name);
@@ -53,11 +59,11 @@ impl ImageBuilder {
                     build_args: build_args.clone(),
                     tag: tag.to_string(),
                 };
-                self.build_from_dockerfile(&context).await
+                self.build_from_dockerfile_with_logs(&context, log_sender.as_ref()).await
             },
             ImageSource::ClaudeDocker { base_image, build_args } => {
                 info!("Building claude-docker based image");
-                self.build_claude_dev_image(tag, base_image.as_deref(), build_args).await
+                self.build_claude_dev_image_with_logs(tag, base_image.as_deref(), build_args, log_sender.as_ref()).await
             },
         }
     }
@@ -106,6 +112,11 @@ impl ImageBuilder {
     
     /// Build image from a standard Dockerfile
     async fn build_from_dockerfile(&self, context: &BuildContext) -> Result<()> {
+        self.build_from_dockerfile_with_logs(context, None).await
+    }
+    
+    /// Build image from a standard Dockerfile with optional log sender
+    async fn build_from_dockerfile_with_logs(&self, context: &BuildContext, log_sender: Option<&mpsc::UnboundedSender<String>>) -> Result<()> {
         // Create build context tar
         let tar_data = self.create_build_context(&context.context_dir, &context.dockerfile_path)?;
         
@@ -123,10 +134,20 @@ impl ImageBuilder {
             match result {
                 Ok(output) => {
                     if let Some(stream) = output.stream {
-                        print!("{}", stream);
+                        if let Some(sender) = log_sender {
+                            let _ = sender.send(stream.clone());
+                        } else {
+                            // Don't print to stdout when no log sender is provided
+                            // This prevents disrupting the TUI
+                            debug!("Docker build output: {}", stream.trim());
+                        }
                     }
                     if let Some(error) = output.error {
-                        error!("Build error: {}", error);
+                        let error_msg = format!("Build error: {}", error);
+                        if let Some(sender) = log_sender {
+                            let _ = sender.send(error_msg.clone());
+                        }
+                        error!("{}", error_msg);
                         return Err(anyhow::anyhow!("Docker build failed: {}", error));
                     }
                 },
@@ -147,6 +168,17 @@ impl ImageBuilder {
         tag: &str, 
         base_image: Option<&str>, 
         build_args: &HashMap<String, String>
+    ) -> Result<()> {
+        self.build_claude_dev_image_with_logs(tag, base_image, build_args, None).await
+    }
+    
+    /// Build claude-dev image based on our claude-docker setup with optional log sender
+    async fn build_claude_dev_image_with_logs(
+        &self, 
+        tag: &str, 
+        base_image: Option<&str>, 
+        build_args: &HashMap<String, String>,
+        log_sender: Option<&mpsc::UnboundedSender<String>>
     ) -> Result<()> {
         // Get the docker directory path
         let docker_dir = self.get_claude_dev_docker_dir()?;
@@ -185,7 +217,7 @@ impl ImageBuilder {
         // Copy authentication files if they exist
         self.prepare_auth_files(&context.context_dir)?;
         
-        self.build_from_dockerfile(&context).await
+        self.build_from_dockerfile_with_logs(&context, log_sender).await
     }
     
     /// Get the claude-dev docker directory

@@ -5,6 +5,8 @@ use crate::app::SessionLoader;
 use std::collections::HashMap;
 use uuid::Uuid;
 use tracing::{warn, info, error};
+use tokio::sync::mpsc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
@@ -496,13 +498,14 @@ impl AppState {
     }
 
     pub async fn new_session_create(&mut self) {
-        let (repo_path, branch_name) = {
+        let (repo_path, branch_name, session_id) = {
             if let Some(ref mut state) = self.new_session_state {
                 if state.step == NewSessionStep::InputBranch {
                     if let Some(repo_index) = state.selected_repo_index {
                         if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
                             state.step = NewSessionStep::Creating;
-                            (repo_path.clone(), state.branch_name.clone())
+                            let session_id = uuid::Uuid::new_v4();
+                            (repo_path.clone(), state.branch_name.clone(), session_id)
                         } else {
                             return;
                         }
@@ -517,8 +520,8 @@ impl AppState {
             }
         };
         
-        // Create the session
-        match self.create_session_internal(&repo_path, &branch_name).await {
+        // Create the session with log streaming
+        match self.create_session_with_logs(&repo_path, &branch_name, session_id).await {
             Ok(()) => {
                 info!("Session created successfully");
                 // Reload workspaces BEFORE switching view to ensure UI shows new session immediately
@@ -532,6 +535,76 @@ impl AppState {
                 self.cancel_new_session();
             }
         }
+    }
+
+    async fn create_session_with_logs(&mut self, repo_path: &std::path::Path, branch_name: &str, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
+        
+        // Create a channel for build logs
+        let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
+        
+        // Initialize logs for this session
+        self.logs.insert(session_id, vec!["Starting session creation...".to_string()]);
+        
+        // Create a shared vector for logs
+        let session_logs = Arc::new(Mutex::new(Vec::new()));
+        let logs_clone = session_logs.clone();
+        
+        // Spawn a task to collect logs
+        let session_id_clone = session_id;
+        tokio::spawn(async move {
+            while let Some(log_message) = log_receiver.recv().await {
+                if let Ok(mut logs) = logs_clone.lock() {
+                    logs.push(log_message.clone());
+                }
+                info!("Build log for session {}: {}", session_id_clone, log_message);
+            }
+        });
+        
+        let workspace_name = repo_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        
+        let request = SessionRequest {
+            session_id,
+            workspace_name,
+            workspace_path: repo_path.to_path_buf(),
+            branch_name: branch_name.to_string(),
+            base_branch: None,
+            container_config: None,
+        };
+        
+        // Add initial log message
+        if let Some(session_logs) = self.logs.get_mut(&session_id) {
+            session_logs.push("Creating worktree...".to_string());
+        }
+        
+        let mut manager = SessionLifecycleManager::new().await?;
+        
+        // Pass the log sender to the session lifecycle manager
+        let result = manager.create_session_with_logs(request, Some(log_sender)).await;
+        
+        // Wait a moment for logs to be collected
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        
+        // Transfer collected logs to our main logs HashMap
+        if let Ok(collected_logs) = session_logs.lock() {
+            if let Some(logs) = self.logs.get_mut(&session_id) {
+                logs.extend(collected_logs.clone());
+            }
+        }
+        
+        // Add completion log based on result
+        if let Some(logs) = self.logs.get_mut(&session_id) {
+            match &result {
+                Ok(_) => logs.push("Session created successfully!".to_string()),
+                Err(e) => logs.push(format!("Session creation failed: {}", e)),
+            }
+        }
+        
+        result.map(|_| ())?;
+        Ok(())
     }
 
     async fn create_session_internal(&self, repo_path: &std::path::Path, branch_name: &str) -> Result<(), Box<dyn std::error::Error>> {

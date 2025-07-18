@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
+use tokio::sync::mpsc;
 
 #[derive(Error, Debug)]
 pub enum ContainerError {
@@ -189,6 +190,15 @@ impl ContainerManager {
         session_id: Uuid,
         config: ContainerConfig,
     ) -> Result<SessionContainer, ContainerError> {
+        self.create_session_container_with_logs(session_id, config, None).await
+    }
+    
+    pub async fn create_session_container_with_logs(
+        &self,
+        session_id: Uuid,
+        config: ContainerConfig,
+        log_sender: Option<mpsc::UnboundedSender<String>>,
+    ) -> Result<SessionContainer, ContainerError> {
         info!("Creating container for session {}", session_id);
 
         // Generate a container name
@@ -200,7 +210,7 @@ impl ContainerManager {
         }
 
         // Ensure image exists
-        self.ensure_image_available(&config.image).await?;
+        self.ensure_image_available(&config.image, log_sender).await?;
 
         // Create port bindings
         let mut port_bindings = HashMap::new();
@@ -479,7 +489,7 @@ impl ContainerManager {
         Ok(!containers.is_empty())
     }
 
-    async fn ensure_image_available(&self, image: &str) -> Result<(), ContainerError> {
+    async fn ensure_image_available(&self, image: &str, log_sender: Option<mpsc::UnboundedSender<String>>) -> Result<(), ContainerError> {
         // Check if image exists locally
         let images = self
             .docker
@@ -495,6 +505,31 @@ impl ContainerManager {
 
         if !images.is_empty() {
             debug!("Image {} already exists locally", image);
+            return Ok(());
+        }
+
+        // Check if this is a local build image (claude-box:*)
+        if image.starts_with("claude-box:") {
+            info!("Building local image {}", image);
+            
+            // Extract template name from image tag
+            let template_name = image.strip_prefix("claude-box:").unwrap_or("claude-dev");
+            
+            // Get the appropriate template
+            let app_config = crate::config::AppConfig::load()
+                .map_err(|e| ContainerError::OperationFailed(format!("Failed to load config: {}", e)))?;
+            
+            let template = app_config.get_container_template(template_name)
+                .ok_or_else(|| ContainerError::OperationFailed(format!("Template '{}' not found", template_name)))?;
+            
+            // Build the image using ImageBuilder
+            let builder = super::ImageBuilder::new().await
+                .map_err(|e| ContainerError::OperationFailed(format!("Failed to create image builder: {}", e)))?;
+            
+            builder.build_template_with_logs(template, image, log_sender).await
+                .map_err(|e| ContainerError::OperationFailed(format!("Failed to build image: {}", e)))?;
+            
+            info!("Successfully built local image {}", image);
             return Ok(());
         }
 
