@@ -290,11 +290,19 @@ echo ""
 # Run the container with proper mounts
 # All authentication files are now in persistent directory with read-write access
 
+# Mount .claude.json separately if it exists in the persistent directory
+CLAUDE_JSON_MOUNT=""
+if [ -f "$HOME/.claude-box/claude-home/.claude.json" ]; then
+    CLAUDE_JSON_MOUNT="-v $HOME/.claude-box/claude-home/.claude.json:/home/claude-user/.claude.json:rw"
+    echo "✓ Mounting .claude.json for authentication"
+fi
+
 docker run -it --rm \
     $DOCKER_OPTS \
     -v "$CURRENT_DIR:/workspace" \
     -v "$HOME/.claude-box/claude-home:/home/claude-user/.claude:rw" \
     -v "$HOME/.claude-box/ssh:/home/claude-user/.ssh:rw" \
+    $CLAUDE_JSON_MOUNT \
     $ENV_ARGS \
     -e CLAUDE_BOX_MODE=true \
     -e CLAUDE_CONTINUE_FLAG="$CONTINUE_FLAG" \

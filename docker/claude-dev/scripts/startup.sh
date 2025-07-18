@@ -44,9 +44,9 @@ fi
 AUTH_OK=false
 AUTH_SOURCES=()
 
-# Check for .claude.json in .claude directory (primary location)
-if [ -f /home/claude-user/.claude/.claude.json ] && [ -s /home/claude-user/.claude/.claude.json ]; then
-    AUTH_SOURCES+=(".claude/.claude.json")
+# Check for .claude.json at root level (primary location for Claude CLI)
+if [ -f /home/claude-user/.claude.json ] && [ -s /home/claude-user/.claude.json ]; then
+    AUTH_SOURCES+=(".claude.json (mounted)")
     AUTH_OK=true
 fi
 
@@ -67,8 +67,8 @@ if [ "${AUTH_OK}" = "true" ]; then
 else
     warn "No Claude authentication found!"
     warn "Please ensure one of:"
-    warn "  1. Have ~/.claude.json on host (copied to container)"
-    warn "  2. Have ~/.claude/.credentials.json on host (mounted to container)"
+    warn "  1. Have ~/.claude.json on host (mounted to /home/claude-user/.claude.json)"
+    warn "  2. Have ~/.claude/.credentials.json on host (mounted to /home/claude-user/.claude/.credentials.json)"
     warn "  3. Set ANTHROPIC_API_KEY in environment"
 fi
 
@@ -100,6 +100,27 @@ fi
 if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
     log "Creating CLAUDE.md from template"
     cp /app/config/CLAUDE.md.template /workspace/CLAUDE.md
+fi
+
+# Ensure theme preferences are set to avoid theme prompt
+# Check if .claude.json exists and has theme settings
+if [ -f /home/claude-user/.claude.json ]; then
+    # Check if theme-command counter exists, if not add it
+    if ! grep -q '"theme-command"' /home/claude-user/.claude.json 2>/dev/null; then
+        log "Adding theme preferences to avoid theme prompt"
+        # Create a temporary file with theme preferences added
+        python3 -c "
+import json
+try:
+    with open('/home/claude-user/.claude.json', 'r') as f:
+        data = json.load(f)
+    data['theme-command'] = 10  # Set high enough to avoid theme prompt
+    with open('/home/claude-user/.claude.json', 'w') as f:
+        json.dump(data, f, indent=2)
+except:
+    pass
+" 2>/dev/null || true
+    fi
 fi
 
 # Determine which CLI to use (adapted from claude-docker startup.sh)
