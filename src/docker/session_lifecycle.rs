@@ -187,9 +187,13 @@ impl SessionLifecycleManager {
                 false,
             );
 
-            let container = self.container_manager
+            let mut container = self.container_manager
                 .create_session_container(request.session_id, final_config)
                 .await?;
+
+            // Start the container after creating it
+            self.container_manager.start_container(&mut container).await?;
+            info!("Started container for session {}", request.session_id);
 
             session.container_id = container.container_id.clone();
             Some(container)
@@ -260,9 +264,13 @@ impl SessionLifecycleManager {
                     }
                 }
                 
-                let container = self.container_manager
+                let mut container = self.container_manager
                     .create_session_container_with_logs(request.session_id, config, log_sender)
                     .await?;
+
+                // Start the container after creating it
+                self.container_manager.start_container(&mut container).await?;
+                info!("Started container for session {}", request.session_id);
 
                 session.container_id = container.container_id.clone();
                 Some(container)
@@ -271,6 +279,11 @@ impl SessionLifecycleManager {
                 None
             }
         };
+
+        // Set session status based on whether container was started
+        if container.is_some() {
+            session.set_status(SessionStatus::Running);
+        }
 
         let session_state = SessionState {
             session,
