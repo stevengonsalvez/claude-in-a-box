@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::{AppState, state::View};
-use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent, ConfirmationDialogComponent, NonGitNotificationComponent};
+use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent, ConfirmationDialogComponent, NonGitNotificationComponent, AttachedTerminalComponent};
 
 pub struct LayoutComponent {
     session_list: SessionListComponent,
@@ -16,6 +16,7 @@ pub struct LayoutComponent {
     new_session: NewSessionComponent,
     confirmation_dialog: ConfirmationDialogComponent,
     non_git_notification: NonGitNotificationComponent,
+    attached_terminal: AttachedTerminalComponent,
 }
 
 impl LayoutComponent {
@@ -27,6 +28,7 @@ impl LayoutComponent {
             new_session: NewSessionComponent::new(),
             confirmation_dialog: ConfirmationDialogComponent::new(),
             non_git_notification: NonGitNotificationComponent::new(),
+            attached_terminal: AttachedTerminalComponent::new(),
         }
     }
 
@@ -34,6 +36,12 @@ impl LayoutComponent {
         // Special handling for non-git notification view
         if state.current_view == View::NonGitNotification {
             self.non_git_notification.render(frame, frame.size(), state);
+            return;
+        }
+
+        // Special handling for attached terminal view (full screen)
+        if state.current_view == View::AttachedTerminal {
+            self.attached_terminal.render(frame, frame.size(), state);
             return;
         }
 

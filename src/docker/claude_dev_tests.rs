@@ -11,6 +11,7 @@ mod tests {
     use std::path::PathBuf;
     use tempfile::TempDir;
     use tokio::sync::mpsc;
+    use uuid;
     
     // Helper function to create a test workspace
     fn create_test_workspace() -> Result<TempDir> {
@@ -219,7 +220,8 @@ mod tests {
         let manager = ClaudeDevManager::new(config).await?;
         
         // Test container running
-        let result = manager.run_container(temp_workspace.path(), None).await;
+        let session_id = uuid::Uuid::new_v4();
+        let result = manager.run_container(temp_workspace.path(), session_id, None).await;
         assert!(result.is_ok());
         
         if let Ok(container_id) = result {
@@ -253,8 +255,9 @@ mod tests {
         // Test container running with progress tracking
         let run_task = tokio::spawn({
             let workspace_path = temp_workspace.path().to_path_buf();
+            let session_id = uuid::Uuid::new_v4();
             async move {
-                manager.run_container(&workspace_path, Some(tx)).await
+                manager.run_container(&workspace_path, session_id, Some(tx)).await
             }
         });
         
@@ -301,8 +304,9 @@ mod tests {
         // Test full session creation
         let session_task = tokio::spawn({
             let workspace_path = temp_workspace.path().to_path_buf();
+            let session_id = uuid::Uuid::new_v4();
             async move {
-                create_claude_dev_session(&workspace_path, config, Some(tx)).await
+                create_claude_dev_session(&workspace_path, config, session_id, Some(tx)).await
             }
         });
         
@@ -387,7 +391,8 @@ mod tests {
         let invalid_path = PathBuf::from("/nonexistent/path");
         let config = create_test_config();
         
-        let result = create_claude_dev_session(&invalid_path, config, None).await;
+        let session_id = uuid::Uuid::new_v4();
+        let result = create_claude_dev_session(&invalid_path, config, session_id, None).await;
         assert!(result.is_err());
         
         Ok(())
@@ -455,6 +460,54 @@ mod tests {
         Ok(())
     }
     
+    #[tokio::test]
+    #[ignore] // Requires Docker
+    async fn test_container_reaches_running_state() -> Result<()> {
+        let temp_workspace = create_test_workspace()?;
+        let config = create_test_config();
+        let manager = ClaudeDevManager::new(config).await?;
+        
+        let session_id = uuid::Uuid::new_v4();
+        
+        // Create container
+        let result = manager.run_container(temp_workspace.path(), session_id, None).await;
+        assert!(result.is_ok());
+        
+        if let Ok(container_id) = result {
+            // Verify container is running using docker inspect
+            let inspect_result = std::process::Command::new("docker")
+                .args(&["inspect", "--format", "{{.State.Running}}", &container_id])
+                .output();
+            
+            if let Ok(output) = inspect_result {
+                let is_running_output = String::from_utf8_lossy(&output.stdout);
+                let is_running = is_running_output.trim();
+                assert_eq!(is_running, "true", "Container should be in running state");
+                
+                // Also check container status
+                let status_result = std::process::Command::new("docker")
+                    .args(&["inspect", "--format", "{{.State.Status}}", &container_id])
+                    .output();
+                
+                if let Ok(status_output) = status_result {
+                    let status_string = String::from_utf8_lossy(&status_output.stdout);
+                    let status = status_string.trim();
+                    assert_eq!(status, "running", "Container status should be 'running'");
+                }
+            }
+            
+            // Cleanup
+            let _ = std::process::Command::new("docker")
+                .args(&["stop", &container_id])
+                .output();
+            let _ = std::process::Command::new("docker")
+                .args(&["rm", &container_id])
+                .output();
+        }
+        
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_concurrent_sessions() -> Result<()> {
         let _temp_workspace1 = create_test_workspace()?;

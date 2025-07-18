@@ -8,7 +8,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{info, warn, error};
 use uuid::Uuid;
 use tokio::sync::mpsc;
 
@@ -134,7 +134,26 @@ impl SessionLifecycleManager {
             }
         };
 
-        session.set_status(SessionStatus::Running);
+        // Verify container actually started by checking its status
+        let container_status = self.container_manager.get_container_status(&container_id).await;
+        match container_status {
+            Ok(ContainerStatus::Running) => {
+                session.set_status(SessionStatus::Running);
+                info!("Container {} is running successfully", container_id);
+            }
+            Ok(status) => {
+                warn!("Container {} is not running, status: {:?}", container_id, status);
+                session.set_status(match status {
+                    ContainerStatus::Stopped | ContainerStatus::NotFound => SessionStatus::Stopped,
+                    ContainerStatus::Error(msg) => SessionStatus::Error(msg),
+                    _ => SessionStatus::Stopped,
+                });
+            }
+            Err(e) => {
+                error!("Failed to check container status for {}: {}", container_id, e);
+                session.set_status(SessionStatus::Error(format!("Failed to verify container status: {}", e)));
+            }
+        }
 
         let session_state = SessionState {
             session,

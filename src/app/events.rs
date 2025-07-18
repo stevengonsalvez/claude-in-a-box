@@ -15,6 +15,8 @@ pub enum AppEvent {
     NewSession,         // Create session in current directory
     SearchWorkspace,    // Search all workspaces
     AttachSession,
+    DetachSession,
+    KillContainer,
     StartStopSession,
     DeleteSession,
     SwitchToLogs,
@@ -89,6 +91,11 @@ impl EventHandler {
         // Handle non-git notification view
         if state.current_view == View::NonGitNotification {
             return Self::handle_non_git_notification_keys(key_event, state);
+        }
+
+        // Handle attached terminal view
+        if state.current_view == View::AttachedTerminal {
+            return Self::handle_attached_terminal_keys(key_event, state);
         }
 
         match key_event.code {
@@ -170,6 +177,15 @@ impl EventHandler {
         }
     }
 
+    fn handle_attached_terminal_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
+        match key_event.code {
+            KeyCode::Char('d') => Some(AppEvent::DetachSession),
+            KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::DetachSession),
+            KeyCode::Char('k') => Some(AppEvent::KillContainer),
+            _ => None, // All other keys are passed through to the terminal
+        }
+    }
+
     pub fn process_event(event: AppEvent, state: &mut AppState) {
         match event {
             AppEvent::Quit => state.quit(),
@@ -231,7 +247,17 @@ impl EventHandler {
                 }
             },
             AppEvent::AttachSession => {
-                // TODO: Implement session attachment
+                if let Some(session_id) = state.get_selected_session_id() {
+                    state.pending_async_action = Some(AsyncAction::AttachToContainer(session_id));
+                }
+            },
+            AppEvent::DetachSession => {
+                state.detach_from_container();
+            },
+            AppEvent::KillContainer => {
+                if let Some(session_id) = state.attached_session_id {
+                    state.pending_async_action = Some(AsyncAction::KillContainer(session_id));
+                }
             },
             AppEvent::StartStopSession => {
                 // TODO: Implement start/stop session

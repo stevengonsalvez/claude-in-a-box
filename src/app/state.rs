@@ -17,6 +17,7 @@ pub enum View {
     NewSession,
     SearchWorkspace,
     NonGitNotification,
+    AttachedTerminal,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +56,9 @@ pub struct AppState {
     pub is_current_dir_git_repo: bool,
     // Track which session logs were last fetched to avoid unnecessary refetches
     pub last_logs_session_id: Option<Uuid>,
+    // Track attached terminal state
+    pub attached_session_id: Option<Uuid>,
+    pub terminal_process: Option<tokio::process::Child>,
 }
 
 #[derive(Debug)]
@@ -114,6 +118,8 @@ pub enum AsyncAction {
     DeleteSession(Uuid),   // New - delete session with container cleanup
     RefreshWorkspaces,     // Manual refresh of workspace data
     FetchContainerLogs(Uuid), // Fetch container logs for a session
+    AttachToContainer(Uuid), // Attach to a container session
+    KillContainer(Uuid), // Kill container for a session
 }
 
 impl Default for AppState {
@@ -133,6 +139,8 @@ impl Default for AppState {
             ui_needs_refresh: false,
             is_current_dir_git_repo: false,
             last_logs_session_id: None,
+            attached_session_id: None,
+            terminal_process: None,
         }
     }
 }
@@ -374,10 +382,131 @@ impl AppState {
     }
     
     /// Get the ID of the currently selected session without borrowing self
-    fn get_selected_session_id(&self) -> Option<Uuid> {
+    pub fn get_selected_session_id(&self) -> Option<Uuid> {
         let workspace_idx = self.selected_workspace_index?;
         let session_idx = self.selected_session_index?;
         self.workspaces.get(workspace_idx)?.sessions.get(session_idx).map(|s| s.id)
+    }
+
+    /// Attach to a container session using docker exec
+    pub async fn attach_to_container(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::docker::ContainerManager;
+        
+        // Find the session to get container ID
+        let container_id = self.workspaces
+            .iter()
+            .flat_map(|w| &w.sessions)
+            .find(|s| s.id == session_id)
+            .and_then(|s| s.container_id.as_ref())
+            .cloned();
+        
+        if let Some(container_id) = container_id {
+            info!("Attaching to container {} for session {}", container_id, session_id);
+            
+            // Check if container is running
+            let container_manager = ContainerManager::new().await?;
+            let status = container_manager.get_container_status(&container_id).await?;
+            
+            match status {
+                crate::docker::ContainerStatus::Running => {
+                    // Start an interactive shell session using docker exec
+                    let exec_command = vec![
+                        "/bin/bash".to_string(),
+                        "-l".to_string(), // Login shell to load proper environment
+                    ];
+                    
+                    match container_manager.exec_interactive(&container_id, exec_command).await {
+                        Ok(child) => {
+                            // Store the process handle and switch to attached view
+                            self.terminal_process = Some(child);
+                            self.attached_session_id = Some(session_id);
+                            self.current_view = View::AttachedTerminal;
+                            info!("Successfully attached to container {} for session {}", container_id, session_id);
+                            Ok(())
+                        }
+                        Err(e) => {
+                            error!("Failed to exec into container {}: {}", container_id, e);
+                            Err(format!("Failed to attach to container: {}", e).into())
+                        }
+                    }
+                }
+                _ => {
+                    warn!("Cannot attach to container {} - it is not running (status: {:?})", container_id, status);
+                    Err(format!("Container is not running (status: {:?})", status).into())
+                }
+            }
+        } else {
+            warn!("Cannot attach to session {} - no container ID found", session_id);
+            Err("No container associated with this session".into())
+        }
+    }
+    
+    /// Detach from the current container session
+    pub fn detach_from_container(&mut self) {
+        if let Some(session_id) = self.attached_session_id.take() {
+            info!("Detaching from session {}", session_id);
+            
+            // Kill the terminal process if it exists
+            if let Some(mut process) = self.terminal_process.take() {
+                let _ = process.kill();
+                let _ = process.wait();
+            }
+            
+            // Return to session list view
+            self.current_view = View::SessionList;
+            self.ui_needs_refresh = true;
+        }
+    }
+
+    /// Kill the container for a session (force stop and cleanup)
+    pub async fn kill_container(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::docker::ContainerManager;
+        
+        // Find the session to get container ID
+        let container_id = self.workspaces
+            .iter()
+            .flat_map(|w| &w.sessions)
+            .find(|s| s.id == session_id)
+            .and_then(|s| s.container_id.as_ref())
+            .cloned();
+        
+        if let Some(container_id) = container_id {
+            info!("Killing container {} for session {}", container_id, session_id);
+            
+            // First detach if we're currently attached to this session
+            if self.attached_session_id == Some(session_id) {
+                self.detach_from_container();
+            }
+            
+            let container_manager = ContainerManager::new().await?;
+            
+            // Force stop the container
+            if let Some(mut session_container) = self.find_session_container_mut(session_id) {
+                if let Err(e) = container_manager.stop_container(&mut session_container).await {
+                    warn!("Failed to stop container gracefully: {}", e);
+                }
+                
+                // Force remove the container
+                if let Err(e) = container_manager.remove_container(&mut session_container).await {
+                    error!("Failed to remove container: {}", e);
+                    return Err(format!("Failed to remove container: {}", e).into());
+                }
+                
+                info!("Successfully killed and removed container {} for session {}", container_id, session_id);
+            }
+            
+            Ok(())
+        } else {
+            warn!("Cannot kill container for session {} - no container ID found", session_id);
+            Err("No container associated with this session".into())
+        }
+    }
+
+    /// Helper method to find a session container by session ID
+    fn find_session_container_mut(&mut self, session_id: Uuid) -> Option<&mut crate::docker::SessionContainer> {
+        // This is a simplified approach - in a real implementation you'd need to track
+        // SessionContainer objects separately or modify the Session model to include them
+        None // Placeholder - would need container tracking
     }
 
     /// Fetch container logs for a session
@@ -860,6 +989,20 @@ impl AppState {
                     info!("Fetching container logs for session {}", session_id);
                     if let Err(e) = self.fetch_container_logs(session_id).await {
                         warn!("Failed to fetch container logs for session {}: {}", session_id, e);
+                    }
+                    self.ui_needs_refresh = true;
+                }
+                AsyncAction::AttachToContainer(session_id) => {
+                    info!("Attaching to container for session {}", session_id);
+                    if let Err(e) = self.attach_to_container(session_id).await {
+                        error!("Failed to attach to container for session {}: {}", session_id, e);
+                    }
+                    self.ui_needs_refresh = true;
+                }
+                AsyncAction::KillContainer(session_id) => {
+                    info!("Killing container for session {}", session_id);
+                    if let Err(e) = self.kill_container(session_id).await {
+                        error!("Failed to kill container for session {}: {}", session_id, e);
                     }
                     self.ui_needs_refresh = true;
                 }
