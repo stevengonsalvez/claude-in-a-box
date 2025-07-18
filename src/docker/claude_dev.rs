@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
+use uuid::Uuid;
 
 use super::builder::ImageBuilder;
 use super::container_manager::ContainerManager;
@@ -298,7 +299,7 @@ impl ClaudeDevManager {
     }
 
     /// Run claude-dev container
-    pub async fn run_container(&self, workspace_path: &Path, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<String> {
+    pub async fn run_container(&self, workspace_path: &Path, session_id: Uuid, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<String> {
         if let Some(ref tx) = progress_tx {
             let _ = tx.send(ClaudeDevProgress::StartingContainer).await;
         }
@@ -334,6 +335,9 @@ impl ClaudeDevManager {
         }
         
         // Container run options
+        let mut labels = std::collections::HashMap::new();
+        labels.insert("claude-session-id".to_string(), session_id.to_string());
+        
         let run_options = super::container_manager::RunOptions {
             image: self.config.image_name.clone(),
             command: vec![],
@@ -349,13 +353,11 @@ impl ClaudeDevManager {
             memory_limit: self.config.memory_limit.clone(),
             cpu_limit: None,
             gpu_access: self.config.gpu_access.clone(),
+            labels,
         };
         
-        // Generate container name
-        let workspace_name = workspace_path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-        let container_name = format!("claude-box-{}-{}", workspace_name, std::process::id());
+        // Generate container name with session ID
+        let container_name = format!("claude-session-{}", session_id);
         
         // Run the container
         let container_id = self.container_manager.run_container(&container_name, &run_options).await?;
@@ -441,6 +443,7 @@ Host gitlab.com
 pub async fn create_claude_dev_session(
     workspace_path: &Path,
     config: ClaudeDevConfig,
+    session_id: Uuid,
     progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
 ) -> Result<String> {
     let manager = ClaudeDevManager::new(config).await?;
@@ -455,7 +458,7 @@ pub async fn create_claude_dev_session(
     manager.build_image_if_needed(progress_tx.clone()).await?;
     
     // Run container
-    let container_id = manager.run_container(workspace_path, progress_tx).await?;
+    let container_id = manager.run_container(workspace_path, session_id, progress_tx).await?;
     
     Ok(container_id)
 }

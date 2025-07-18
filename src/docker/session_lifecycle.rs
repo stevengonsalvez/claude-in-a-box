@@ -119,7 +119,7 @@ impl SessionLifecycleManager {
         };
 
         // Create the claude-dev container using the native module
-        let container_id = match super::create_claude_dev_session(&worktree_info.path, claude_dev_config, progress_sender).await {
+        let container_id = match super::create_claude_dev_session(&worktree_info.path, claude_dev_config, request.session_id, progress_sender).await {
             Ok(id) => {
                 info!("Created claude-dev container: {}", id);
                 session.container_id = Some(id.clone());

@@ -47,6 +47,7 @@ pub struct RunOptions {
     pub memory_limit: Option<String>,
     pub cpu_limit: Option<f64>,
     pub gpu_access: Option<String>,
+    pub labels: HashMap<String, String>,
 }
 
 pub struct ContainerManager {
@@ -684,6 +685,10 @@ impl ContainerManager {
                 let mut labels = HashMap::new();
                 labels.insert("claude-managed".to_string(), "true".to_string());
                 labels.insert("claude-dev".to_string(), "true".to_string());
+                // Add any custom labels
+                for (key, value) in &options.labels {
+                    labels.insert(key.clone(), value.clone());
+                }
                 labels
             }),
             ..Default::default()

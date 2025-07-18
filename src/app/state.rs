@@ -53,6 +53,8 @@ pub struct AppState {
     pub ui_needs_refresh: bool,
     // Track if current directory is a git repository
     pub is_current_dir_git_repo: bool,
+    // Track which session logs were last fetched to avoid unnecessary refetches
+    pub last_logs_session_id: Option<Uuid>,
 }
 
 #[derive(Debug)]
@@ -111,6 +113,7 @@ pub enum AsyncAction {
     CreateNewSession,
     DeleteSession(Uuid),   // New - delete session with container cleanup
     RefreshWorkspaces,     // Manual refresh of workspace data
+    FetchContainerLogs(Uuid), // Fetch container logs for a session
 }
 
 impl Default for AppState {
@@ -129,6 +132,7 @@ impl Default for AppState {
             confirmation_dialog: None,
             ui_needs_refresh: false,
             is_current_dir_git_repo: false,
+            last_logs_session_id: None,
         }
     }
 }
@@ -168,6 +172,9 @@ impl AppState {
                     Ok(workspaces) => {
                         self.workspaces = workspaces;
                         info!("Loaded {} workspaces with active sessions", self.workspaces.len());
+                        
+                        // Queue logs fetch for the currently selected session if any
+                        self.queue_logs_fetch();
                         
                         // Set initial selection
                         if !self.workspaces.is_empty() {
@@ -277,6 +284,8 @@ impl AppState {
                 if !workspace.sessions.is_empty() {
                     let current = self.selected_session_index.unwrap_or(0);
                     self.selected_session_index = Some((current + 1) % workspace.sessions.len());
+                    // Queue container logs fetch for the newly selected session
+                    self.queue_logs_fetch();
                 }
             }
         }
@@ -294,6 +303,8 @@ impl AppState {
                             current - 1
                         }
                     );
+                    // Queue container logs fetch for the newly selected session
+                    self.queue_logs_fetch();
                 }
             }
         }
@@ -308,6 +319,8 @@ impl AppState {
             } else {
                 None
             };
+            // Queue container logs fetch for the newly selected session
+            self.queue_logs_fetch();
         }
     }
 
@@ -326,6 +339,8 @@ impl AppState {
             } else {
                 None
             };
+            // Queue container logs fetch for the newly selected session
+            self.queue_logs_fetch();
         }
     }
 
@@ -344,6 +359,53 @@ impl AppState {
             confirm_action: ConfirmAction::DeleteSession(session_id),
             selected_option: false, // Default to "No"
         });
+    }
+
+    /// Queue fetching container logs for the currently selected session if needed
+    fn queue_logs_fetch(&mut self) {
+        // Get session ID without borrowing self
+        if let Some(session_id) = self.get_selected_session_id() {
+            // Only fetch if we haven't already fetched logs for this session
+            if self.last_logs_session_id != Some(session_id) {
+                self.pending_async_action = Some(AsyncAction::FetchContainerLogs(session_id));
+                self.last_logs_session_id = Some(session_id);
+            }
+        }
+    }
+    
+    /// Get the ID of the currently selected session without borrowing self
+    fn get_selected_session_id(&self) -> Option<Uuid> {
+        let workspace_idx = self.selected_workspace_index?;
+        let session_idx = self.selected_session_index?;
+        self.workspaces.get(workspace_idx)?.sessions.get(session_idx).map(|s| s.id)
+    }
+
+    /// Fetch container logs for a session
+    pub async fn fetch_container_logs(&mut self, session_id: Uuid) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        use crate::docker::ContainerManager;
+        
+        // Find the session to get container ID
+        let container_id = self.workspaces
+            .iter()
+            .flat_map(|w| &w.sessions)
+            .find(|s| s.id == session_id)
+            .and_then(|s| s.container_id.as_ref())
+            .cloned();
+        
+        if let Some(container_id) = container_id {
+            let container_manager = ContainerManager::new().await?;
+            let logs = container_manager.get_container_logs(&container_id, Some(50)).await?;
+            
+            // Update the logs cache
+            self.logs.insert(session_id, logs.clone());
+            
+            Ok(logs)
+        } else {
+            // No container ID - return session creation logs if available
+            Ok(self.logs.get(&session_id).cloned().unwrap_or_else(|| {
+                vec!["No container associated with this session".to_string()]
+            }))
+        }
     }
 
     pub async fn new_session_in_current_dir(&mut self) {
@@ -792,6 +854,13 @@ impl AppState {
                     info!("Manual refresh triggered");
                     // Reload workspace data and force UI refresh
                     self.load_real_workspaces().await;
+                    self.ui_needs_refresh = true;
+                }
+                AsyncAction::FetchContainerLogs(session_id) => {
+                    info!("Fetching container logs for session {}", session_id);
+                    if let Err(e) = self.fetch_container_logs(session_id).await {
+                        warn!("Failed to fetch container logs for session {}: {}", session_id, e);
+                    }
                     self.ui_needs_refresh = true;
                 }
             }
