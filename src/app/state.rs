@@ -409,10 +409,10 @@ impl AppState {
             
             match status {
                 crate::docker::ContainerStatus::Running => {
-                    // Start an interactive shell session using docker exec
+                    // Start Claude CLI directly using docker exec
                     let exec_command = vec![
-                        "/bin/bash".to_string(),
-                        "-l".to_string(), // Login shell to load proper environment
+                        "claude".to_string(),
+                        "--dangerously-skip-permissions".to_string(),
                     ];
                     
                     match container_manager.exec_interactive(&container_id, exec_command).await {
@@ -455,6 +455,33 @@ impl AppState {
             // Return to session list view
             self.current_view = View::SessionList;
             self.ui_needs_refresh = true;
+        }
+    }
+
+    /// Check if the terminal process has exited and auto-detach if so
+    pub fn check_terminal_process_status(&mut self) {
+        if let Some(mut process) = self.terminal_process.as_mut() {
+            // Try to check if the process has exited without blocking
+            match process.try_wait() {
+                Ok(Some(_exit_status)) => {
+                    // Process has exited, auto-detach
+                    info!("Terminal process exited, auto-detaching from session");
+                    self.terminal_process = None;
+                    if let Some(session_id) = self.attached_session_id.take() {
+                        info!("Auto-detached from session {}", session_id);
+                    }
+                    self.current_view = View::SessionList;
+                    self.ui_needs_refresh = true;
+                }
+                Ok(None) => {
+                    // Process is still running, do nothing
+                }
+                Err(_) => {
+                    // Error checking process status, assume it's dead and detach
+                    warn!("Error checking terminal process status, detaching");
+                    self.detach_from_container();
+                }
+            }
         }
     }
 
@@ -1029,6 +1056,9 @@ impl App {
     }
 
     pub async fn tick(&mut self) -> anyhow::Result<()> {
+        // Check if terminal process has exited and auto-detach if needed
+        self.state.check_terminal_process_status();
+        
         // Process any pending async actions
         match self.state.process_async_action().await {
             Ok(()) => {},

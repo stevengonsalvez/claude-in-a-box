@@ -72,8 +72,8 @@ else
     warn "  3. Set ANTHROPIC_API_KEY in environment"
 fi
 
-# Create .claude directory if it doesn't exist
-mkdir -p /home/claude-user/.claude
+# Don't create .claude directory as it's mounted from host
+# mkdir -p /home/claude-user/.claude
 
 # Configure GitHub CLI if GITHUB_TOKEN is provided
 if [ -n "${GITHUB_TOKEN}" ]; then
@@ -102,26 +102,12 @@ if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
     cp /app/config/CLAUDE.md.template /workspace/CLAUDE.md
 fi
 
-# Ensure theme preferences are set to avoid theme prompt
-# Check if .claude.json exists and has theme settings
-if [ -f /home/claude-user/.claude.json ]; then
-    # Check if theme-command counter exists, if not add it
-    if ! grep -q '"theme-command"' /home/claude-user/.claude.json 2>/dev/null; then
-        log "Adding theme preferences to avoid theme prompt"
-        # Create a temporary file with theme preferences added
-        python3 -c "
-import json
-try:
-    with open('/home/claude-user/.claude.json', 'r') as f:
-        data = json.load(f)
-    data['theme-command'] = 10  # Set high enough to avoid theme prompt
-    with open('/home/claude-user/.claude.json', 'w') as f:
-        json.dump(data, f, indent=2)
-except:
-    pass
-" 2>/dev/null || true
-    fi
-fi
+# Skip theme preferences modification since .claude.json is mounted read-only from host
+# The user should configure their theme preferences on the host system
+# if [ -f /home/claude-user/.claude.json ]; then
+#     # Skip modification of mounted file
+#     :
+# fi
 
 # Determine which CLI to use (adapted from claude-docker startup.sh)
 CLI_CMD="claude"

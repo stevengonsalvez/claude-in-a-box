@@ -85,12 +85,15 @@ impl ClaudeDevManager {
         
         // Setup claude-box directories
         let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let claude_home_dir = home_dir.join(".claude-box").join("claude-home");
-        let ssh_dir = home_dir.join(".claude-box").join("ssh");
+        // Mount the actual .claude directory for proper authentication
+        let claude_home_dir = home_dir.join(".claude");
+        let ssh_dir = home_dir.join(".ssh");
         
-        // Ensure directories exist
-        std::fs::create_dir_all(&claude_home_dir)?;
-        std::fs::create_dir_all(&ssh_dir)?;
+        // Only create claude directory if it doesn't exist (be careful with user's actual config)
+        if !claude_home_dir.exists() {
+            std::fs::create_dir_all(&claude_home_dir)?;
+        }
+        // SSH directory is read from host, don't create it
         
         Ok(Self {
             config,
@@ -106,18 +109,18 @@ impl ClaudeDevManager {
         let home_dir = dirs::home_dir().context("Failed to get home directory")?;
         let mut sources = Vec::new();
         
-        // Check for .claude.json in persistent directory
-        let claude_json_path = self.claude_home_dir.join(".claude.json");
+        // Check for .claude.json in home directory  
+        let claude_json_path = home_dir.join(".claude.json");
         let claude_json_exists = claude_json_path.exists() && claude_json_path.metadata()?.len() > 0;
         if claude_json_exists {
-            sources.push(".claude.json (persistent)".to_string());
+            sources.push(".claude.json (host)".to_string());
         }
         
-        // Check for .credentials.json in persistent directory
+        // Check for .credentials.json in .claude directory
         let credentials_path = self.claude_home_dir.join(".credentials.json");
         let credentials_json_exists = credentials_path.exists() && credentials_path.metadata()?.len() > 0;
         if credentials_json_exists {
-            sources.push(".credentials.json (persistent)".to_string());
+            sources.push(".claude/.credentials.json (host)".to_string());
         }
         
         // Check for environment variables
@@ -141,51 +144,18 @@ impl ClaudeDevManager {
         })
     }
 
-    /// Sync authentication files from host to persistent directory
+    /// Check authentication files exist (no syncing needed since we mount directly)
     pub async fn sync_authentication_files(&self, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<()> {
         if let Some(ref tx) = progress_tx {
             let _ = tx.send(ClaudeDevProgress::SyncingAuthentication).await;
         }
         
-        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let mut sync_needed = false;
-        
-        // Check if we need to sync .claude.json
-        let host_claude_json = home_dir.join(".claude.json");
-        let persistent_claude_json = self.claude_home_dir.join(".claude.json");
-        
-        if host_claude_json.exists() {
-            if !persistent_claude_json.exists() || 
-               self.is_newer(&host_claude_json, &persistent_claude_json)? {
-                sync_needed = true;
-            }
-        }
-        
-        // Check if we need to sync .claude directory
-        let host_claude_dir = home_dir.join(".claude");
-        if host_claude_dir.exists() {
-            if !self.claude_home_dir.exists() ||
-               !self.claude_home_dir.join(".credentials.json").exists() ||
-               self.is_newer(&host_claude_dir, &self.claude_home_dir)? {
-                sync_needed = true;
-            }
-        }
-        
-        if sync_needed {
-            info!("Syncing Claude configuration to persistent directory");
-            
-            // Sync .claude.json if it exists
-            if host_claude_json.exists() {
-                tokio::fs::copy(&host_claude_json, &persistent_claude_json).await
-                    .context("Failed to copy .claude.json")?;
-                debug!("Copied .claude.json to persistent directory");
-            }
-            
-            // Sync .claude directory contents if they exist
-            if host_claude_dir.exists() {
-                self.sync_directory(&host_claude_dir, &self.claude_home_dir).await?;
-                debug!("Synced .claude directory to persistent directory");
-            }
+        // Just verify authentication files exist
+        let auth_status = self.get_authentication_status()?;
+        if auth_status.sources.is_empty() {
+            warn!("No Claude authentication found. Please ensure ~/.claude.json or ~/.claude/.credentials.json exists");
+        } else {
+            info!("Claude authentication found: {:?}", auth_status.sources);
         }
         
         Ok(())
@@ -327,8 +297,9 @@ impl ClaudeDevManager {
             (self.ssh_dir.clone(), PathBuf::from("/home/claude-user/.ssh")),
         ];
         
-        // Mount .claude.json separately if it exists
-        let claude_json_path = self.claude_home_dir.join(".claude.json");
+        // Mount .claude.json from home directory if it exists
+        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
+        let claude_json_path = home_dir.join(".claude.json");
         if claude_json_path.exists() {
             mounts.push((claude_json_path, PathBuf::from("/home/claude-user/.claude.json")));
             info!("Mounting .claude.json for authentication");

@@ -39,35 +39,35 @@ impl AttachedTerminalComponent {
         // Create a full-screen terminal view
         let terminal_content = if state.terminal_process.is_some() {
             vec![
-                "🔗 Container Terminal Active".to_string(),
+                "🔗 Claude CLI Active".to_string(),
                 "".to_string(),
-                "Terminal session is running in the background.".to_string(),
-                "Interactive shell (bash) is active in the container.".to_string(),
+                "You are now connected to the Claude CLI inside the container.".to_string(),
+                "Claude CLI is running in interactive mode with full access to MCP servers.".to_string(),
                 "".to_string(),
-                "The terminal is running via 'docker exec -it' with full TTY support.".to_string(),
-                "Input/output is handled by the docker process.".to_string(),
+                "Available MCP Servers:".to_string(),
+                "  • Serena - AI coding agent toolkit".to_string(),
+                "  • Context7 - Library documentation and examples".to_string(),
+                "  • Twilio - SMS notifications (if configured)".to_string(),
                 "".to_string(),
-                "Commands:".to_string(),
-                "  [d] - Detach from container (keeps container running)".to_string(),
-                "  [q] - Detach from container".to_string(),
-                "  [k] - Kill container (force stop and remove)".to_string(),
-                "  [Esc] - Detach from container".to_string(),
+                "How to detach:".to_string(),
+                "  • Type 'exit' in Claude CLI".to_string(),
+                "  • Press Ctrl+D to exit".to_string(),
+                "  • The container will keep running after you detach".to_string(),
                 "".to_string(),
-                "Status: ✅ Terminal process active".to_string(),
+                "Status: ✅ Claude CLI process active".to_string(),
             ]
         } else {
             vec![
-                "🔗 Container Terminal".to_string(),
+                "🔗 Claude CLI Connection".to_string(),
                 "".to_string(),
-                "No active terminal process found.".to_string(),
+                "No active Claude CLI process found.".to_string(),
                 "".to_string(),
-                "Commands:".to_string(),
-                "  [d] - Detach from container".to_string(),
-                "  [q] - Detach from container".to_string(),
-                "  [k] - Kill container (force stop and remove)".to_string(),
-                "  [Esc] - Detach from container".to_string(),
+                "To reconnect:".to_string(),
+                "  • Press [a] to attach to Claude CLI".to_string(),
+                "  • Press [k] to kill container".to_string(),
+                "  • Press [Esc] to return to session list".to_string(),
                 "".to_string(),
-                "Status: ❌ No terminal process".to_string(),
+                "Status: ❌ No Claude CLI process".to_string(),
             ]
         };
 
@@ -93,7 +93,7 @@ impl AttachedTerminalComponent {
             height: 3,
         };
 
-        let status_text = "[d] Detach  [k] Kill  [q] Quit  [Esc] Exit";
+        let status_text = "Claude CLI Active - Use 'exit' or Ctrl+D in Claude to detach  |  [k] Kill Container";
         let status_paragraph = Paragraph::new(status_text)
             .block(
                 Block::default()

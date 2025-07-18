@@ -290,10 +290,8 @@ impl McpInitializer {
     
     /// Get the default MCP initialization strategy
     pub fn default_strategy() -> McpInitStrategy {
-        McpInitStrategy::Hybrid {
-            config_path: "~/.claude".to_string(),
-            merge_configs: true,
-        }
+        // Use PerContainer strategy since we're already mounting ~/.claude directly
+        McpInitStrategy::PerContainer
     }
     
     /// Check if MCP servers are properly configured
