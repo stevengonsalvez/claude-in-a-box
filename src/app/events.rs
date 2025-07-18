@@ -86,6 +86,11 @@ impl EventHandler {
             return Self::handle_search_workspace_keys(key_event, state);
         }
 
+        // Handle non-git notification view
+        if state.current_view == View::NonGitNotification {
+            return Self::handle_non_git_notification_keys(key_event, state);
+        }
+
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
             KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NextSession),
@@ -154,6 +159,14 @@ impl EventHandler {
             }
         } else {
             None
+        }
+    }
+
+    fn handle_non_git_notification_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
+        match key_event.code {
+            KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
+            KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
+            _ => None,
         }
     }
 

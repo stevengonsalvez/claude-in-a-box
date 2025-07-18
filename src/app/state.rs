@@ -16,6 +16,7 @@ pub enum View {
     Help,
     NewSession,
     SearchWorkspace,
+    NonGitNotification,
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +51,8 @@ pub struct AppState {
     pub confirmation_dialog: Option<ConfirmationDialog>,
     // Flag to force UI refresh after workspace changes
     pub ui_needs_refresh: bool,
+    // Track if current directory is a git repository
+    pub is_current_dir_git_repo: bool,
 }
 
 #[derive(Debug)]
@@ -125,6 +128,7 @@ impl Default for AppState {
             async_operation_cancelled: false,
             confirmation_dialog: None,
             ui_needs_refresh: false,
+            is_current_dir_git_repo: false,
         }
     }
 }
@@ -132,6 +136,26 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn check_current_directory_status(&mut self) {
+        use std::env;
+        use crate::git::workspace_scanner::WorkspaceScanner;
+        
+        if let Ok(current_dir) = env::current_dir() {
+            self.is_current_dir_git_repo = WorkspaceScanner::validate_workspace(&current_dir).unwrap_or(false);
+            
+            if !self.is_current_dir_git_repo {
+                info!("Current directory is not a git repository: {:?}", current_dir);
+                self.current_view = View::NonGitNotification;
+            } else {
+                info!("Current directory is a valid git repository: {:?}", current_dir);
+            }
+        } else {
+            warn!("Could not determine current directory");
+            self.is_current_dir_git_repo = false;
+            self.current_view = View::NonGitNotification;
+        }
     }
 
     pub async fn load_real_workspaces(&mut self) {
@@ -326,20 +350,38 @@ impl AppState {
         use crate::git::WorkspaceScanner;
         use std::env;
         
+        info!("Starting new session in current directory");
+        
         // Check if current directory is a git repository
         let current_dir = match env::current_dir() {
-            Ok(dir) => dir,
+            Ok(dir) => {
+                info!("Current directory: {:?}", dir);
+                dir
+            }
             Err(e) => {
                 warn!("Failed to get current directory: {}", e);
                 return;
             }
         };
         
-        if !WorkspaceScanner::validate_workspace(&current_dir).unwrap_or(false) {
-            // Show error message - current directory is not a git repository
-            warn!("Current directory is not a git repository");
-            // TODO: Show error in UI
-            return;
+        match WorkspaceScanner::validate_workspace(&current_dir) {
+            Ok(true) => {
+                info!("Current directory is a valid git repository: {:?}", current_dir);
+            }
+            Ok(false) => {
+                warn!("Current directory is not a git repository: {:?}", current_dir);
+                info!("Falling back to workspace search");
+                // Fall back to workspace search since current directory is not a git repository
+                self.start_workspace_search().await;
+                return;
+            }
+            Err(e) => {
+                error!("Failed to validate workspace: {}", e);
+                info!("Falling back to workspace search due to validation error");
+                // Fall back to workspace search on validation error
+                self.start_workspace_search().await;
+                return;
+            }
         }
         
         // Generate branch name with UUID
@@ -350,41 +392,52 @@ impl AppState {
             available_repos: vec![current_dir.clone()],
             filtered_repos: vec![(0, current_dir)],
             selected_repo_index: Some(0),
-            branch_name: branch_base,
+            branch_name: branch_base.clone(),
             step: NewSessionStep::InputBranch,  // Skip repo selection
             filter_text: String::new(),
             is_current_dir_mode: true,
         });
         
         self.current_view = View::NewSession;
+        
+        info!("Successfully created new session state with branch: {}", branch_base);
     }
     
     pub async fn start_workspace_search(&mut self) {
+        info!("Starting workspace search from NonGitNotification view");
+        
+        // Always transition to SessionList first to get out of NonGitNotification
+        self.current_view = View::SessionList;
+        
         match SessionLoader::new().await {
             Ok(loader) => {
                 match loader.get_available_repositories().await {
                     Ok(repos) => {
                         if repos.is_empty() {
-                            warn!("No repositories found");
-                            return;
+                            warn!("No repositories found in default search paths");
+                            // Even with no repos, show the search interface with empty list
+                            // User can type to search or we can show helpful message
+                            info!("Showing empty search interface - user can type to add paths");
                         }
                         
                         // Generate branch name with UUID
                         let branch_base = format!("claude/{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session"));
                         
-                        // Initialize filtered repos with all repos
+                        // Initialize filtered repos with all repos (even if empty)
                         let filtered_repos: Vec<(usize, std::path::PathBuf)> = 
                             repos.iter().enumerate().map(|(idx, path)| (idx, path.clone())).collect();
                         
                         // Check if user has already cancelled (e.g., pressed escape while loading)
                         if self.async_operation_cancelled {
+                            info!("Operation was cancelled by user");
                             return;
                         }
                         
+                        let has_repos = !filtered_repos.is_empty();
                         self.new_session_state = Some(NewSessionState {
                             available_repos: repos,
                             filtered_repos,
-                            selected_repo_index: Some(0),
+                            selected_repo_index: if has_repos { Some(0) } else { None },
                             branch_name: branch_base,
                             step: NewSessionStep::SelectRepo,
                             filter_text: String::new(),
@@ -392,14 +445,39 @@ impl AppState {
                         });
                         
                         self.current_view = View::SearchWorkspace;
+                        info!("Successfully transitioned to SearchWorkspace view");
                     }
                     Err(e) => {
                         warn!("Failed to load repositories: {}", e);
+                        // Still transition to search view with empty state
+                        self.new_session_state = Some(NewSessionState {
+                            available_repos: vec![],
+                            filtered_repos: vec![],
+                            selected_repo_index: None,
+                            branch_name: format!("claude/{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")),
+                            step: NewSessionStep::SelectRepo,
+                            filter_text: String::new(),
+                            is_current_dir_mode: false,
+                        });
+                        self.current_view = View::SearchWorkspace;
+                        info!("Transitioned to SearchWorkspace view with empty state due to error");
                     }
                 }
             }
             Err(e) => {
                 warn!("Failed to create session loader: {}", e);
+                // Still transition to search view with empty state
+                self.new_session_state = Some(NewSessionState {
+                    available_repos: vec![],
+                    filtered_repos: vec![],
+                    selected_repo_index: None,
+                    branch_name: format!("claude/{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")),
+                    step: NewSessionStep::SelectRepo,
+                    filter_text: String::new(),
+                    is_current_dir_mode: false,
+                });
+                self.current_view = View::SearchWorkspace;
+                info!("Transitioned to SearchWorkspace view with empty state due to loader error");
             }
         }
     }
@@ -734,6 +812,7 @@ impl App {
     }
 
     pub async fn init(&mut self) {
+        self.state.check_current_directory_status();
         self.state.load_real_workspaces().await;
     }
 

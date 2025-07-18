@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::{AppState, state::View};
-use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent, ConfirmationDialogComponent};
+use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent, ConfirmationDialogComponent, NonGitNotificationComponent};
 
 pub struct LayoutComponent {
     session_list: SessionListComponent,
@@ -15,6 +15,7 @@ pub struct LayoutComponent {
     help: HelpComponent,
     new_session: NewSessionComponent,
     confirmation_dialog: ConfirmationDialogComponent,
+    non_git_notification: NonGitNotificationComponent,
 }
 
 impl LayoutComponent {
@@ -25,10 +26,17 @@ impl LayoutComponent {
             help: HelpComponent::new(),
             new_session: NewSessionComponent::new(),
             confirmation_dialog: ConfirmationDialogComponent::new(),
+            non_git_notification: NonGitNotificationComponent::new(),
         }
     }
 
     pub fn render(&mut self, frame: &mut Frame, state: &AppState) {
+        // Special handling for non-git notification view
+        if state.current_view == View::NonGitNotification {
+            self.non_git_notification.render(frame, frame.size(), state);
+            return;
+        }
+
         let main_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([

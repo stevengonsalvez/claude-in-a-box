@@ -64,23 +64,36 @@ impl NewSessionComponent {
         frame.render_widget(title, chunks[0]);
 
         // Repository list (showing only folder names)
-        let repos: Vec<ListItem> = session_state.filtered_repos
-            .iter()
-            .enumerate()
-            .map(|(display_idx, (_, repo))| {
-                let repo_name = repo.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("unknown");
-                
-                let style = if Some(display_idx) == session_state.selected_repo_index {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(Color::White)
-                };
-                
-                ListItem::new(repo_name).style(style)
-            })
-            .collect();
+        let repos: Vec<ListItem> = if session_state.filtered_repos.is_empty() {
+            vec![
+                ListItem::new("No repositories found in default paths")
+                    .style(Style::default().fg(Color::Gray)),
+                ListItem::new("Try searching in common directories like:")
+                    .style(Style::default().fg(Color::Gray)),
+                ListItem::new("  ~/projects, ~/code, ~/dev, ~/src")
+                    .style(Style::default().fg(Color::Gray)),
+                ListItem::new("Type to filter or add custom paths")
+                    .style(Style::default().fg(Color::Yellow)),
+            ]
+        } else {
+            session_state.filtered_repos
+                .iter()
+                .enumerate()
+                .map(|(display_idx, (_, repo))| {
+                    let repo_name = repo.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("unknown");
+                    
+                    let style = if Some(display_idx) == session_state.selected_repo_index {
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    
+                    ListItem::new(repo_name).style(style)
+                })
+                .collect()
+        };
 
         let repo_list = List::new(repos)
             .block(
