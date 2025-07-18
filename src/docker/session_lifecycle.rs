@@ -1,6 +1,6 @@
 // ABOUTME: Session lifecycle management that coordinates worktrees and Docker containers
 
-use super::{ContainerManager, SessionContainer, ContainerConfig, ContainerStatus};
+use super::{ContainerManager, SessionContainer, ContainerConfig, ContainerStatus, ClaudeDevManager, ClaudeDevConfig, ClaudeDevProgress};
 use crate::config::{AppConfig, ProjectConfig, ContainerTemplate, McpInitializer, apply_mcp_init_result};
 use crate::git::{WorktreeManager, WorktreeInfo};
 use crate::models::{Session, SessionStatus};
@@ -75,6 +75,79 @@ impl SessionLifecycleManager {
         self.create_session_with_logs(request, None).await
     }
     
+    /// Create a new claude-dev session using the native claude_dev module
+    pub async fn create_claude_dev_session(&mut self, request: SessionRequest) -> Result<SessionState, SessionLifecycleError> {
+        self.create_claude_dev_session_with_logs(request, None).await
+    }
+    
+    /// Create a new claude-dev session using the native claude_dev module with progress tracking
+    pub async fn create_claude_dev_session_with_logs(&mut self, request: SessionRequest, progress_sender: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<SessionState, SessionLifecycleError> {
+        info!("Creating new claude-dev session {} for workspace {}", request.session_id, request.workspace_name);
+
+        // Check if session already exists
+        if self.active_sessions.contains_key(&request.session_id) {
+            return Err(SessionLifecycleError::SessionAlreadyExists(request.session_id));
+        }
+
+        // Create worktree
+        let worktree_info = self.worktree_manager.create_worktree(
+            request.session_id,
+            &request.workspace_path,
+            &request.branch_name,
+            request.base_branch.as_deref(),
+        )?;
+
+        info!("Created worktree at: {}", worktree_info.path.display());
+
+        // Create session model
+        let mut session = Session::new(
+            format!("{}-{}", request.workspace_name, request.branch_name),
+            request.workspace_path.to_string_lossy().to_string(),
+        );
+        session.id = request.session_id;
+        session.branch_name = request.branch_name.clone();
+
+        // Use claude_dev module to create container
+        let claude_dev_config = ClaudeDevConfig {
+            image_name: "claude-box:claude-dev".to_string(),
+            memory_limit: None,
+            gpu_access: None,
+            force_rebuild: false,
+            no_cache: false,
+            continue_session: false,
+            env_vars: std::collections::HashMap::new(),
+        };
+
+        // Create the claude-dev container using the native module
+        let container_id = match super::create_claude_dev_session(&worktree_info.path, claude_dev_config, progress_sender).await {
+            Ok(id) => {
+                info!("Created claude-dev container: {}", id);
+                session.container_id = Some(id.clone());
+                id
+            }
+            Err(e) => {
+                // Clean up worktree if container creation fails
+                if let Err(cleanup_err) = self.worktree_manager.remove_worktree(request.session_id) {
+                    warn!("Failed to cleanup worktree after container creation failure: {}", cleanup_err);
+                }
+                return Err(SessionLifecycleError::ConfigError(format!("Failed to create claude-dev container: {}", e)));
+            }
+        };
+
+        session.set_status(SessionStatus::Running);
+
+        let session_state = SessionState {
+            session,
+            worktree_info: Some(worktree_info),
+            container: None, // claude_dev module manages the container directly
+        };
+
+        self.active_sessions.insert(request.session_id, session_state.clone());
+        
+        info!("Successfully created claude-dev session {}", request.session_id);
+        Ok(session_state)
+    }
+
     /// Create a new development session with isolated worktree and container with optional log sender
     pub async fn create_session_with_logs(&mut self, request: SessionRequest, log_sender: Option<mpsc::UnboundedSender<String>>) -> Result<SessionState, SessionLifecycleError> {
         info!("Creating new session {} for workspace {}", request.session_id, request.workspace_name);
@@ -565,5 +638,133 @@ mod tests {
         // Remove session
         manager.remove_session(session_id).await.unwrap();
         assert!(manager.get_session(session_id).is_none());
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker
+    async fn test_claude_dev_session_lifecycle() {
+        let mut manager = SessionLifecycleManager::new().await.unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create a test git repository
+        let repo = git2::Repository::init(temp_dir.path()).unwrap();
+        let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
+        
+        // Create a test file
+        std::fs::write(temp_dir.path().join("test.py"), "print('Hello claude-dev!')\n").unwrap();
+        
+        let tree_id = {
+            let mut index = repo.index().unwrap();
+            index.add_path(std::path::Path::new("test.py")).unwrap();
+            index.write().unwrap();
+            index.write_tree().unwrap()
+        };
+        let tree = repo.find_tree(tree_id).unwrap();
+        repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "Initial commit",
+            &tree,
+            &[],
+        ).unwrap();
+
+        let session_id = Uuid::new_v4();
+        let request = SessionRequest::claude_dev_session(
+            session_id,
+            "test-workspace".to_string(),
+            temp_dir.path().to_path_buf(),
+            "test-branch".to_string(),
+        );
+
+        // Create claude-dev session
+        let session_state = manager.create_claude_dev_session(request).await.unwrap();
+        assert_eq!(session_state.session.id, session_id);
+        assert!(session_state.worktree_info.is_some());
+        assert!(session_state.session.container_id.is_some());
+
+        // Session should be running (claude-dev starts automatically)
+        let session = manager.get_session(session_id).unwrap();
+        assert!(session.session.status.is_running());
+
+        // Remove session (includes container cleanup)
+        manager.remove_session(session_id).await.unwrap();
+        assert!(manager.get_session(session_id).is_none());
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker
+    async fn test_claude_dev_session_with_progress() {
+        let mut manager = SessionLifecycleManager::new().await.unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        
+        // Create a test git repository
+        let repo = git2::Repository::init(temp_dir.path()).unwrap();
+        let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
+        
+        // Create a test file
+        std::fs::write(temp_dir.path().join("package.json"), r#"{"name": "test-workspace"}"#).unwrap();
+        
+        let tree_id = {
+            let mut index = repo.index().unwrap();
+            index.add_path(std::path::Path::new("package.json")).unwrap();
+            index.write().unwrap();
+            index.write_tree().unwrap()
+        };
+        let tree = repo.find_tree(tree_id).unwrap();
+        repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            "Initial commit",
+            &tree,
+            &[],
+        ).unwrap();
+
+        let session_id = Uuid::new_v4();
+        let request = SessionRequest::claude_dev_session(
+            session_id,
+            "test-workspace".to_string(),
+            temp_dir.path().to_path_buf(),
+            "test-branch".to_string(),
+        );
+
+        // Create progress channel
+        let (tx, mut rx) = mpsc::channel(100);
+        
+        // Create claude-dev session with progress tracking
+        let session_task = tokio::spawn(async move {
+            manager.create_claude_dev_session_with_logs(request, Some(tx)).await
+        });
+
+        // Collect progress messages
+        let mut progress_messages = Vec::new();
+        while let Some(progress) = rx.recv().await {
+            let should_break = matches!(progress, ClaudeDevProgress::Ready);
+            progress_messages.push(progress);
+            if should_break {
+                break;
+            }
+        }
+
+        // Wait for session creation
+        let session_state = session_task.await.unwrap().unwrap();
+        assert_eq!(session_state.session.id, session_id);
+        assert!(session_state.worktree_info.is_some());
+
+        // Should have received progress messages
+        assert!(!progress_messages.is_empty());
+        
+        // Should have authentication sync progress
+        let has_auth_sync = progress_messages.iter().any(|p| {
+            matches!(p, ClaudeDevProgress::SyncingAuthentication)
+        });
+        assert!(has_auth_sync);
+
+        // Should have environment check progress
+        let has_env_check = progress_messages.iter().any(|p| {
+            matches!(p, ClaudeDevProgress::CheckingEnvironment)
+        });
+        assert!(has_env_check);
     }
 }

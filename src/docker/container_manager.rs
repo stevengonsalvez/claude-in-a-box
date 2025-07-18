@@ -10,6 +10,7 @@ use bollard::image::{CreateImageOptions, ListImagesOptions};
 use bollard::models::{ContainerSummary, HostConfig, HostConfigLogConfig, Mount, MountTypeEnum, PortBinding};
 use bollard::Docker;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
@@ -27,6 +28,25 @@ pub enum ContainerError {
     InvalidConfig(String),
     #[error("Container operation failed: {0}")]
     OperationFailed(String),
+}
+
+/// Options for running a container
+#[derive(Debug, Clone)]
+pub struct RunOptions {
+    pub image: String,
+    pub command: Vec<String>,
+    pub env_vars: HashMap<String, String>,
+    pub mounts: Vec<(PathBuf, PathBuf)>, // (host_path, container_path)
+    pub working_dir: Option<String>,
+    pub user: Option<String>,
+    pub network: Option<String>,
+    pub ports: Vec<(u16, u16)>, // (host_port, container_port)
+    pub remove_on_exit: bool,
+    pub interactive: bool,
+    pub tty: bool,
+    pub memory_limit: Option<String>,
+    pub cpu_limit: Option<f64>,
+    pub gpu_access: Option<String>,
 }
 
 pub struct ContainerManager {
@@ -581,6 +601,114 @@ impl ContainerManager {
         }
 
         Ok(port_mappings)
+    }
+
+    /// Run a container with the given options
+    pub async fn run_container(&self, name: &str, options: &RunOptions) -> Result<String, ContainerError> {
+        info!("Running container: {}", name);
+        
+        // Check if container already exists
+        if self.container_exists(name).await? {
+            return Err(ContainerError::AlreadyExists(name.to_string()));
+        }
+
+        // Create volume mounts
+        let mut mounts = Vec::new();
+        for (host_path, container_path) in &options.mounts {
+            mounts.push(Mount {
+                target: Some(container_path.to_string_lossy().to_string()),
+                source: Some(host_path.to_string_lossy().to_string()),
+                typ: Some(MountTypeEnum::BIND),
+                read_only: Some(false),
+                consistency: Some("delegated".to_string()),
+                ..Default::default()
+            });
+        }
+
+        // Create port bindings
+        let mut port_bindings = HashMap::new();
+        for (host_port, container_port) in &options.ports {
+            let container_port_key = format!("{}/tcp", container_port);
+            port_bindings.insert(
+                container_port_key,
+                Some(vec![PortBinding {
+                    host_ip: Some("127.0.0.1".to_string()),
+                    host_port: Some(host_port.to_string()),
+                }]),
+            );
+        }
+
+        // Parse memory limit
+        let memory_limit = options.memory_limit.as_ref().and_then(|limit| {
+            // Parse formats like "4g", "2048m", "1024"
+            let limit = limit.to_lowercase();
+            if limit.ends_with("g") {
+                limit[..limit.len()-1].parse::<f64>().ok().map(|g| (g * 1024.0 * 1024.0 * 1024.0) as i64)
+            } else if limit.ends_with("m") {
+                limit[..limit.len()-1].parse::<f64>().ok().map(|m| (m * 1024.0 * 1024.0) as i64)
+            } else {
+                limit.parse::<i64>().ok()
+            }
+        });
+
+        // Create host config
+        let host_config = HostConfig {
+            port_bindings: Some(port_bindings),
+            mounts: Some(mounts),
+            memory: memory_limit,
+            nano_cpus: options.cpu_limit.map(|c| (c * 1_000_000_000.0) as i64),
+            auto_remove: Some(options.remove_on_exit),
+            ..Default::default()
+        };
+
+        // Prepare environment variables
+        let env: Vec<String> = options.env_vars
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
+
+        // Create container config
+        let container_config = Config {
+            image: Some(options.image.clone()),
+            working_dir: options.working_dir.clone(),
+            env: Some(env),
+            cmd: if options.command.is_empty() { None } else { Some(options.command.clone()) },
+            user: options.user.clone(),
+            attach_stdin: Some(options.interactive),
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
+            tty: Some(options.tty),
+            open_stdin: Some(options.interactive),
+            host_config: Some(host_config),
+            labels: Some({
+                let mut labels = HashMap::new();
+                labels.insert("claude-managed".to_string(), "true".to_string());
+                labels.insert("claude-dev".to_string(), "true".to_string());
+                labels
+            }),
+            ..Default::default()
+        };
+
+        // Create the container
+        let create_options = CreateContainerOptions {
+            name: name.to_string(),
+            platform: None,
+        };
+
+        let create_response = self
+            .docker
+            .create_container(Some(create_options), container_config)
+            .await?;
+
+        info!("Created container {} with ID {}", name, create_response.id);
+
+        // Start the container
+        self.docker
+            .start_container(&create_response.id, None::<StartContainerOptions<String>>)
+            .await?;
+
+        info!("Started container: {}", create_response.id);
+        Ok(create_response.id)
     }
 }
 

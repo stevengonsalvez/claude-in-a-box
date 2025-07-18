@@ -39,6 +39,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4.4", features = ["derive"] }
 tempfile = "3.8"
+nix = { version = "0.27", features = ["user"] }
 
 [dev-dependencies]
 mockall = "0.12"

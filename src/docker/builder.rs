@@ -11,6 +11,7 @@ use tar::{Builder, Header};
 use tempfile::TempDir;
 use tracing::{debug, info, warn, error};
 use tokio::sync::mpsc;
+use tokio::io::AsyncReadExt;
 
 use crate::config::{ContainerTemplate, container::ImageSource};
 
@@ -26,6 +27,18 @@ pub struct BuildContext {
     pub tag: String,
 }
 
+/// Options for building Docker images
+#[derive(Debug, Clone)]
+pub struct BuildOptions {
+    pub dockerfile_path: Option<PathBuf>,
+    pub context_path: PathBuf,
+    pub build_args: Vec<(String, String)>,
+    pub no_cache: bool,
+    pub target: Option<String>,
+    pub labels: Vec<(String, String)>,
+    pub pull: bool,
+}
+
 impl ImageBuilder {
     pub async fn new() -> Result<Self> {
         let docker = Docker::connect_with_local_defaults()
@@ -35,6 +48,143 @@ impl ImageBuilder {
         docker.ping().await.context("Failed to ping Docker daemon")?;
         
         Ok(Self { docker })
+    }
+
+    /// Build a Docker image with the given options
+    pub async fn build_image(
+        &self,
+        tag: &str,
+        options: &BuildOptions,
+        log_sender: Option<mpsc::Sender<String>>,
+    ) -> Result<()> {
+        info!("Building Docker image: {}", tag);
+        
+        // Create build context tar
+        let build_context = self.create_build_context(options).await?;
+        
+        // Prepare build arguments
+        let build_args: HashMap<&str, &str> = options.build_args
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        
+        // Prepare labels
+        let mut labels = HashMap::new();
+        for (key, value) in &options.labels {
+            labels.insert(key.clone(), value.clone());
+        }
+        
+        let build_image_options = BuildImageOptions {
+            dockerfile: options.dockerfile_path
+                .as_ref()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                .unwrap_or("Dockerfile"),
+            t: tag,
+            pull: options.pull,
+            nocache: options.no_cache,
+            buildargs: build_args,
+            labels: labels.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect(),
+            ..Default::default()
+        };
+        
+        // Build the image
+        let mut build_stream = self.docker.build_image(build_image_options, None, Some(build_context.into()));
+        
+        while let Some(build_result) = build_stream.next().await {
+            match build_result {
+                Ok(build_info) => {
+                    if let Some(stream) = &build_info.stream {
+                        debug!("Build: {}", stream.trim());
+                        if let Some(ref sender) = log_sender {
+                            let _ = sender.send(stream.clone()).await;
+                        }
+                    }
+                    if let Some(error) = &build_info.error {
+                        error!("Build error: {}", error);
+                        return Err(anyhow::anyhow!("Build failed: {}", error));
+                    }
+                }
+                Err(e) => {
+                    error!("Build stream error: {}", e);
+                    return Err(anyhow::anyhow!("Build stream error: {}", e));
+                }
+            }
+        }
+        
+        info!("Successfully built image: {}", tag);
+        Ok(())
+    }
+
+    /// Create build context tar from the given options
+    async fn create_build_context(&self, options: &BuildOptions) -> Result<Vec<u8>> {
+        let mut build_context = Vec::new();
+        
+        // Collect all files first
+        let mut files = Vec::new();
+        self.collect_files(&options.context_path, "", &mut files).await?;
+        
+        // Create tar archive
+        let mut tar_builder = Builder::new(&mut build_context);
+        
+        for (tar_path, file_path, is_dir) in files {
+            if is_dir {
+                let mut header = Header::new_gnu();
+                header.set_path(&format!("{}/", tar_path))?;
+                header.set_size(0);
+                header.set_mode(0o755);
+                header.set_entry_type(tar::EntryType::Directory);
+                header.set_cksum();
+                tar_builder.append(&header, std::io::empty())?;
+            } else {
+                let mut file = tokio::fs::File::open(&file_path).await?;
+                let metadata = file.metadata().await?;
+                let mut header = Header::new_gnu();
+                header.set_path(&tar_path)?;
+                header.set_size(metadata.len());
+                header.set_mode(0o644);
+                header.set_cksum();
+                
+                let mut buffer = Vec::new();
+                file.read_to_end(&mut buffer).await?;
+                tar_builder.append(&header, std::io::Cursor::new(buffer))?;
+            }
+        }
+        
+        tar_builder.finish()?;
+        drop(tar_builder);
+        Ok(build_context)
+    }
+
+    /// Collect all files to add to tar
+    fn collect_files<'a>(&'a self, dir_path: &'a Path, prefix: &'a str, files: &'a mut Vec<(String, PathBuf, bool)>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut entries = tokio::fs::read_dir(dir_path).await?;
+            
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                let name = entry.file_name();
+                let tar_path = if prefix.is_empty() {
+                    name.to_string_lossy().to_string()
+                } else {
+                    format!("{}/{}", prefix, name.to_string_lossy())
+                };
+                
+                if path.is_file() {
+                    files.push((tar_path, path, false));
+                } else if path.is_dir() {
+                    // Skip common directories that shouldn't be in build context
+                    if name == ".git" || name == "node_modules" || name == "target" || name == ".cache" {
+                        continue;
+                    }
+                    
+                    files.push((tar_path.clone(), path.clone(), true));
+                    self.collect_files(&path, &tar_path, files).await?;
+                }
+            }
+            
+            Ok(())
+        })
     }
     
     /// Build an image from a container template
@@ -118,7 +268,7 @@ impl ImageBuilder {
     /// Build image from a standard Dockerfile with optional log sender
     async fn build_from_dockerfile_with_logs(&self, context: &BuildContext, log_sender: Option<&mpsc::UnboundedSender<String>>) -> Result<()> {
         // Create build context tar
-        let tar_data = self.create_build_context(&context.context_dir, &context.dockerfile_path)?;
+        let tar_data = self.create_build_context_sync(&context.context_dir, &context.dockerfile_path)?;
         
         let build_options = BuildImageOptions {
             dockerfile: "Dockerfile",
@@ -287,13 +437,13 @@ impl ImageBuilder {
         Ok(())
     }
     
-    /// Create a tar archive for the build context
-    fn create_build_context(&self, context_dir: &Path, dockerfile: &Path) -> Result<Vec<u8>> {
+    /// Create a tar archive for the build context (sync version)
+    fn create_build_context_sync(&self, context_dir: &Path, dockerfile: &Path) -> Result<Vec<u8>> {
         let mut tar_data = Vec::new();
         let mut builder = Builder::new(&mut tar_data);
         
         // Add the Dockerfile
-        let dockerfile_name = dockerfile.file_name()
+        let _dockerfile_name = dockerfile.file_name()
             .unwrap_or_else(|| std::ffi::OsStr::new("Dockerfile"));
         
         let mut dockerfile_file = std::fs::File::open(dockerfile)?;
@@ -308,7 +458,7 @@ impl ImageBuilder {
         builder.append(&header, &mut dockerfile_file)?;
         
         // Add all files from context directory recursively
-        self.add_directory_to_tar(&mut builder, context_dir, "")?;
+        self.add_directory_to_tar_sync(&mut builder, context_dir, "")?;
         
         builder.finish()?;
         drop(builder);
@@ -317,7 +467,7 @@ impl ImageBuilder {
     }
     
     /// Recursively add directory contents to tar
-    fn add_directory_to_tar(
+    fn add_directory_to_tar_sync(
         &self,
         builder: &mut Builder<&mut Vec<u8>>,
         dir: &Path,
@@ -341,7 +491,7 @@ impl ImageBuilder {
             };
             
             if path.is_dir() {
-                self.add_directory_to_tar(builder, &path, &tar_path)?;
+                self.add_directory_to_tar_sync(builder, &path, &tar_path)?;
             } else {
                 let mut file = std::fs::File::open(&path)?;
                 let metadata = file.metadata()?;
@@ -393,8 +543,8 @@ mod tests {
         assert!(builder.is_ok());
     }
     
-    #[test]
-    fn test_build_context_creation() {
+    #[tokio::test]
+    async fn test_build_context_creation() {
         let temp_dir = TempDir::new().unwrap();
         let dockerfile = temp_dir.path().join("Dockerfile");
         std::fs::write(&dockerfile, "FROM alpine\nRUN echo hello").unwrap();
@@ -402,7 +552,16 @@ mod tests {
         let builder = ImageBuilder { 
             docker: Docker::connect_with_local_defaults().unwrap() 
         };
-        let tar_data = builder.create_build_context(temp_dir.path(), &dockerfile);
+        let build_options = BuildOptions {
+            dockerfile_path: Some(dockerfile.clone()),
+            context_path: temp_dir.path().to_path_buf(),
+            build_args: vec![],
+            no_cache: false,
+            target: None,
+            labels: vec![],
+            pull: false,
+        };
+        let tar_data = builder.create_build_context(&build_options).await;
         assert!(tar_data.is_ok());
         assert!(!tar_data.unwrap().is_empty());
     }

@@ -45,6 +45,49 @@ fn test_navigation_key_events() {
     assert!(right_event.is_some());
 }
 
+#[tokio::test]
+async fn test_n_key_triggers_new_session() {
+    use claude_box::app::state::{AsyncAction, View};
+    
+    let mut state = AppState::default();
+    
+    // Simulate pressing 'n' key
+    let key_event = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE);
+    
+    // Handle the key event
+    let app_event = EventHandler::handle_key_event(key_event, &mut state);
+    
+    // Should return NewSession event
+    assert!(app_event.is_some());
+    
+    // Process the event
+    if let Some(event) = app_event {
+        EventHandler::process_event(event, &mut state);
+    }
+    
+    // Should have set pending async action
+    assert!(state.pending_async_action.is_some());
+    
+    // Should be NewSessionInCurrentDir
+    if let Some(AsyncAction::NewSessionInCurrentDir) = state.pending_async_action {
+        // Test passed
+    } else {
+        panic!("Expected AsyncAction::NewSessionInCurrentDir, got: {:?}", state.pending_async_action);
+    }
+    
+    // Process the async action to complete the flow
+    if let Err(e) = state.process_async_action().await {
+        panic!("Failed to process async action: {}", e);
+    }
+    
+    // After processing, the behavior depends on whether current dir is a git repo
+    // If it is, we should be in NewSession view with current dir
+    // If it's not, we should be in SearchWorkspace view
+    assert!(state.current_view == View::NewSession || state.current_view == View::SearchWorkspace);
+    assert!(state.new_session_state.is_some());
+    assert!(state.pending_async_action.is_none());
+}
+
 #[test]
 fn test_arrow_key_navigation() {
     let mut state = AppState::default();
