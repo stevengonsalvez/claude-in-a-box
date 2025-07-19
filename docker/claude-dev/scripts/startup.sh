@@ -102,12 +102,14 @@ if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
     cp /app/config/CLAUDE.md.template /workspace/CLAUDE.md
 fi
 
-# Skip theme preferences modification since .claude.json is mounted read-only from host
-# The user should configure their theme preferences on the host system
-# if [ -f /home/claude-user/.claude.json ]; then
-#     # Skip modification of mounted file
-#     :
-# fi
+# Ensure theme preferences are set to avoid Claude CLI theme prompt
+# Check if theme is already configured
+if ! claude config get -g theme >/dev/null 2>&1; then
+    log "Setting default theme to avoid theme selection prompt"
+    claude config set -g theme dark
+else
+    log "Theme already configured: $(claude config get -g theme 2>/dev/null || echo 'unknown')"
+fi
 
 # Determine which CLI to use (adapted from claude-docker startup.sh)
 CLI_CMD="claude"

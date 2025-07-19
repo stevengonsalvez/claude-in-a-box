@@ -922,7 +922,7 @@ impl AppState {
         };
         
         let mut manager = SessionLifecycleManager::new().await?;
-        manager.create_session(request).await?;
+        manager.create_session(request, None).await?;
         
         Ok(())
     }

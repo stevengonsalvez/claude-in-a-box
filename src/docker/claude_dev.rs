@@ -269,7 +269,7 @@ impl ClaudeDevManager {
     }
 
     /// Run claude-dev container
-    pub async fn run_container(&self, workspace_path: &Path, session_id: Uuid, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<String> {
+    pub async fn run_container(&self, workspace_path: &Path, session_id: Uuid, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>, mount_claude_config: bool) -> Result<String> {
         if let Some(ref tx) = progress_tx {
             let _ = tx.send(ClaudeDevProgress::StartingContainer).await;
         }
@@ -297,12 +297,18 @@ impl ClaudeDevManager {
             (self.ssh_dir.clone(), PathBuf::from("/home/claude-user/.ssh")),
         ];
         
-        // Mount .claude.json from home directory if it exists
-        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let claude_json_path = home_dir.join(".claude.json");
-        if claude_json_path.exists() {
-            mounts.push((claude_json_path, PathBuf::from("/home/claude-user/.claude.json")));
-            info!("Mounting .claude.json for authentication");
+        // Mount .claude.json from home directory if it exists and mount_claude_config is true
+        if mount_claude_config {
+            let home_dir = dirs::home_dir().context("Failed to get home directory")?;
+            let claude_json_path = home_dir.join(".claude.json");
+            if claude_json_path.exists() {
+                mounts.push((claude_json_path, PathBuf::from("/home/claude-user/.claude.json")));
+                info!("Mounting .claude.json for authentication");
+            } else {
+                warn!("mount_claude_config is true but ~/.claude.json not found");
+            }
+        } else {
+            info!("Skipping .claude.json mount (mount_claude_config is false)");
         }
         
         // Container run options
@@ -416,6 +422,7 @@ pub async fn create_claude_dev_session(
     config: ClaudeDevConfig,
     session_id: Uuid,
     progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+    mount_claude_config: bool,
 ) -> Result<String> {
     let manager = ClaudeDevManager::new(config).await?;
     
@@ -429,7 +436,7 @@ pub async fn create_claude_dev_session(
     manager.build_image_if_needed(progress_tx.clone()).await?;
     
     // Run container
-    let container_id = manager.run_container(workspace_path, session_id, progress_tx).await?;
+    let container_id = manager.run_container(workspace_path, session_id, progress_tx, mount_claude_config).await?;
     
     Ok(container_id)
 }

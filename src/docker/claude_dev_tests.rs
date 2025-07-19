@@ -221,7 +221,7 @@ mod tests {
         
         // Test container running
         let session_id = uuid::Uuid::new_v4();
-        let result = manager.run_container(temp_workspace.path(), session_id, None).await;
+        let result = manager.run_container(temp_workspace.path(), session_id, None, true).await;
         assert!(result.is_ok());
         
         if let Ok(container_id) = result {
@@ -257,7 +257,7 @@ mod tests {
             let workspace_path = temp_workspace.path().to_path_buf();
             let session_id = uuid::Uuid::new_v4();
             async move {
-                manager.run_container(&workspace_path, session_id, Some(tx)).await
+                manager.run_container(&workspace_path, session_id, Some(tx), true).await
             }
         });
         
@@ -306,7 +306,7 @@ mod tests {
             let workspace_path = temp_workspace.path().to_path_buf();
             let session_id = uuid::Uuid::new_v4();
             async move {
-                create_claude_dev_session(&workspace_path, config, session_id, Some(tx)).await
+                create_claude_dev_session(&workspace_path, config, session_id, Some(tx), true).await
             }
         });
         
@@ -392,7 +392,7 @@ mod tests {
         let config = create_test_config();
         
         let session_id = uuid::Uuid::new_v4();
-        let result = create_claude_dev_session(&invalid_path, config, session_id, None).await;
+        let result = create_claude_dev_session(&invalid_path, config, session_id, None, true).await;
         assert!(result.is_err());
         
         Ok(())
@@ -470,7 +470,7 @@ mod tests {
         let session_id = uuid::Uuid::new_v4();
         
         // Create container
-        let result = manager.run_container(temp_workspace.path(), session_id, None).await;
+        let result = manager.run_container(temp_workspace.path(), session_id, None, true).await;
         assert!(result.is_ok());
         
         if let Ok(container_id) = result {
