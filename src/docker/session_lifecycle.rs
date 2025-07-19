@@ -658,16 +658,16 @@ impl SessionLifecycleManager {
                 }
             }
             
-            // Also mount .claude.json individually if it exists
+            // Mount .claude.json directly as read-write for OAuth tokens (like manual claude-dev.sh)
             if let Some(home_dir) = dirs::home_dir() {
                 let claude_json_path = home_dir.join(".claude.json");
                 if claude_json_path.exists() {
                     *config = config.clone().with_volume(
                         claude_json_path,
                         "/home/claude-user/.claude.json".to_string(),
-                        false, // read-write mount (needed for Claude CLI theme config)
+                        false, // read-write mount for Claude CLI organic updates (theme, etc.)
                     );
-                    info!("Mounting .claude.json for authentication (read-write for theme config)");
+                    info!("Mounting .claude.json as read-write for Claude CLI organic updates");
                 } else {
                     warn!("mount_claude_config is true but ~/.claude.json not found");
                 }

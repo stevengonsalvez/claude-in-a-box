@@ -58,7 +58,6 @@ pub struct AppState {
     pub last_logs_session_id: Option<Uuid>,
     // Track attached terminal state
     pub attached_session_id: Option<Uuid>,
-    pub terminal_process: Option<tokio::process::Child>,
 }
 
 #[derive(Debug)]
@@ -140,7 +139,6 @@ impl Default for AppState {
             is_current_dir_git_repo: false,
             last_logs_session_id: None,
             attached_session_id: None,
-            terminal_process: None,
         }
     }
 }
@@ -388,7 +386,7 @@ impl AppState {
         self.workspaces.get(workspace_idx)?.sessions.get(session_idx).map(|s| s.id)
     }
 
-    /// Attach to a container session using docker exec
+    /// Attach to a container session using docker exec with proper terminal handling
     pub async fn attach_to_container(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
         use crate::docker::ContainerManager;
         
@@ -409,19 +407,16 @@ impl AppState {
             
             match status {
                 crate::docker::ContainerStatus::Running => {
-                    // Start Claude CLI directly using docker exec
+                    // Start Claude CLI directly using docker exec with proper terminal handling
                     let exec_command = vec![
                         "claude".to_string(),
                         "--dangerously-skip-permissions".to_string(),
                     ];
                     
-                    match container_manager.exec_interactive(&container_id, exec_command).await {
-                        Ok(child) => {
-                            // Store the process handle and switch to attached view
-                            self.terminal_process = Some(child);
-                            self.attached_session_id = Some(session_id);
-                            self.current_view = View::AttachedTerminal;
-                            info!("Successfully attached to container {} for session {}", container_id, session_id);
+                    match container_manager.exec_interactive_blocking(&container_id, exec_command).await {
+                        Ok(_exit_status) => {
+                            info!("Successfully detached from container {} for session {}", container_id, session_id);
+                            // The container session has ended, stay in current view
                             Ok(())
                         }
                         Err(e) => {
@@ -441,49 +436,6 @@ impl AppState {
         }
     }
     
-    /// Detach from the current container session
-    pub fn detach_from_container(&mut self) {
-        if let Some(session_id) = self.attached_session_id.take() {
-            info!("Detaching from session {}", session_id);
-            
-            // Kill the terminal process if it exists
-            if let Some(mut process) = self.terminal_process.take() {
-                let _ = process.kill();
-                let _ = process.wait();
-            }
-            
-            // Return to session list view
-            self.current_view = View::SessionList;
-            self.ui_needs_refresh = true;
-        }
-    }
-
-    /// Check if the terminal process has exited and auto-detach if so
-    pub fn check_terminal_process_status(&mut self) {
-        if let Some(mut process) = self.terminal_process.as_mut() {
-            // Try to check if the process has exited without blocking
-            match process.try_wait() {
-                Ok(Some(_exit_status)) => {
-                    // Process has exited, auto-detach
-                    info!("Terminal process exited, auto-detaching from session");
-                    self.terminal_process = None;
-                    if let Some(session_id) = self.attached_session_id.take() {
-                        info!("Auto-detached from session {}", session_id);
-                    }
-                    self.current_view = View::SessionList;
-                    self.ui_needs_refresh = true;
-                }
-                Ok(None) => {
-                    // Process is still running, do nothing
-                }
-                Err(_) => {
-                    // Error checking process status, assume it's dead and detach
-                    warn!("Error checking terminal process status, detaching");
-                    self.detach_from_container();
-                }
-            }
-        }
-    }
 
     /// Kill the container for a session (force stop and cleanup)
     pub async fn kill_container(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
@@ -500,9 +452,11 @@ impl AppState {
         if let Some(container_id) = container_id {
             info!("Killing container {} for session {}", container_id, session_id);
             
-            // First detach if we're currently attached to this session
+            // Clear attached session if we're currently attached to this session
             if self.attached_session_id == Some(session_id) {
-                self.detach_from_container();
+                self.attached_session_id = None;
+                self.current_view = crate::app::state::View::SessionList;
+                self.ui_needs_refresh = true;
             }
             
             let container_manager = ContainerManager::new().await?;
@@ -1056,9 +1010,6 @@ impl App {
     }
 
     pub async fn tick(&mut self) -> anyhow::Result<()> {
-        // Check if terminal process has exited and auto-detach if needed
-        self.state.check_terminal_process_status();
-        
         // Process any pending async actions
         match self.state.process_async_action().await {
             Ok(()) => {},

@@ -44,21 +44,23 @@ fi
 AUTH_OK=false
 AUTH_SOURCES=()
 
-# Check for .claude.json at root level (primary location for Claude CLI)
+# Handle authentication for parallel sessions
+# Priority: 1. Mounted .claude.json (OAuth tokens), 2. Environment variable, 3. Credentials file
+
+# Check for mounted .claude.json first (OAuth tokens from Claude Max)
 if [ -f /home/claude-user/.claude.json ] && [ -s /home/claude-user/.claude.json ]; then
-    AUTH_SOURCES+=(".claude.json (mounted)")
+    AUTH_SOURCES+=(".claude.json (OAuth tokens)")
     AUTH_OK=true
-fi
-
-# Check for .claude directory with credentials
-if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
-    AUTH_SOURCES+=(".claude/.credentials.json")
-    AUTH_OK=true
-fi
-
-# Check for environment variable
-if [ -n "${ANTHROPIC_API_KEY}" ]; then
+    log "Using mounted .claude.json with OAuth authentication"
+elif [ -n "${ANTHROPIC_API_KEY}" ]; then
     AUTH_SOURCES+=("ANTHROPIC_API_KEY environment variable")
+    AUTH_OK=true
+    log "Using ANTHROPIC_API_KEY environment variable for authentication"
+fi
+
+# Check for .claude directory with credentials (if no auth found yet)
+if [ "${AUTH_OK}" = "false" ] && [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
+    AUTH_SOURCES+=(".claude/.credentials.json")
     AUTH_OK=true
 fi
 
@@ -67,7 +69,7 @@ if [ "${AUTH_OK}" = "true" ]; then
 else
     warn "No Claude authentication found!"
     warn "Please ensure one of:"
-    warn "  1. Have ~/.claude.json on host (mounted to /home/claude-user/.claude.json)"
+    warn "  1. Have ~/.claude.json on host (will be copied to container)"
     warn "  2. Have ~/.claude/.credentials.json on host (mounted to /home/claude-user/.claude/.credentials.json)"
     warn "  3. Set ANTHROPIC_API_KEY in environment"
 fi

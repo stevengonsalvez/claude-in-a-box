@@ -1,7 +1,7 @@
 // ABOUTME: Event handling system for keyboard input and app actions
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::app::{AppState, state::AsyncAction};
+use crate::app::{AppState, state::{AsyncAction, View}};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -252,7 +252,10 @@ impl EventHandler {
                 }
             },
             AppEvent::DetachSession => {
-                state.detach_from_container();
+                // Clear attached session and return to session list
+                state.attached_session_id = None;
+                state.current_view = View::SessionList;
+                state.ui_needs_refresh = true;
             },
             AppEvent::KillContainer => {
                 if let Some(session_id) = state.attached_session_id {

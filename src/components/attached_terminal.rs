@@ -36,40 +36,25 @@ impl AttachedTerminalComponent {
             format!("Attached to session: {}", session_id.to_string()[..8].to_string())
         };
 
-        // Create a full-screen terminal view
-        let terminal_content = if state.terminal_process.is_some() {
-            vec![
-                "🔗 Claude CLI Active".to_string(),
-                "".to_string(),
-                "You are now connected to the Claude CLI inside the container.".to_string(),
-                "Claude CLI is running in interactive mode with full access to MCP servers.".to_string(),
-                "".to_string(),
-                "Available MCP Servers:".to_string(),
-                "  • Serena - AI coding agent toolkit".to_string(),
-                "  • Context7 - Library documentation and examples".to_string(),
-                "  • Twilio - SMS notifications (if configured)".to_string(),
-                "".to_string(),
-                "How to detach:".to_string(),
-                "  • Type 'exit' in Claude CLI".to_string(),
-                "  • Press Ctrl+D to exit".to_string(),
-                "  • The container will keep running after you detach".to_string(),
-                "".to_string(),
-                "Status: ✅ Claude CLI process active".to_string(),
-            ]
-        } else {
-            vec![
-                "🔗 Claude CLI Connection".to_string(),
-                "".to_string(),
-                "No active Claude CLI process found.".to_string(),
-                "".to_string(),
-                "To reconnect:".to_string(),
-                "  • Press [a] to attach to Claude CLI".to_string(),
-                "  • Press [k] to kill container".to_string(),
-                "  • Press [Esc] to return to session list".to_string(),
-                "".to_string(),
-                "Status: ❌ No Claude CLI process".to_string(),
-            ]
-        };
+        // Display session information since we use blocking execution
+        let terminal_content = vec![
+            "🔗 Session Container".to_string(),
+            "".to_string(),
+            "This session has an active container with Claude CLI and MCP servers.".to_string(),
+            "".to_string(),
+            "Available MCP Servers:".to_string(),
+            "  • Serena - AI coding agent toolkit".to_string(),
+            "  • Context7 - Library documentation and examples".to_string(),
+            "  • Twilio - SMS notifications (if configured)".to_string(),
+            "".to_string(),
+            "Actions:".to_string(),
+            "  • Press [a] to attach to Claude CLI".to_string(),
+            "  • Press [k] to kill container".to_string(),
+            "  • Press [Esc] to return to session list".to_string(),
+            "".to_string(),
+            "Note: Attaching will temporarily exit this interface".to_string(),
+            "and give you full terminal control inside the container.".to_string(),
+        ];
 
         let content_text = terminal_content.join("\n");
 
@@ -93,7 +78,7 @@ impl AttachedTerminalComponent {
             height: 3,
         };
 
-        let status_text = "Claude CLI Active - Use 'exit' or Ctrl+D in Claude to detach  |  [k] Kill Container";
+        let status_text = "[a] Attach to Claude CLI  |  [k] Kill Container  |  [Esc] Return to Session List";
         let status_paragraph = Paragraph::new(status_text)
             .block(
                 Block::default()

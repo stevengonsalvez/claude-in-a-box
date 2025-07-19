@@ -303,7 +303,7 @@ impl ClaudeDevManager {
             let claude_json_path = home_dir.join(".claude.json");
             if claude_json_path.exists() {
                 mounts.push((claude_json_path, PathBuf::from("/home/claude-user/.claude.json")));
-                info!("Mounting .claude.json for authentication");
+                info!("Mounting .claude.json as read-write for Claude CLI organic updates");
             } else {
                 warn!("mount_claude_config is true but ~/.claude.json not found");
             }
