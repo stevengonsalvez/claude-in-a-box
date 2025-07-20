@@ -4,6 +4,9 @@
 
 set -e
 
+# Check if running in non-interactive mode
+NON_INTERACTIVE=${NON_INTERACTIVE:-false}
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -48,13 +51,51 @@ if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/
 fi
 
 log "No valid credentials found. Starting OAuth login process..."
-log ""
-log "This will open your browser to authenticate with Claude."
-log "After authentication, credentials will be stored for all claude-box sessions."
-log ""
 
-# Run Claude login
-if claude auth login; then
+if [ "$NON_INTERACTIVE" = "true" ]; then
+    log ""
+    log "Running in non-interactive mode."
+    log "The OAuth URL will be displayed below for you to open manually."
+    log ""
+    
+    # Run Claude login with --no-open flag to prevent browser auto-open
+    # Capture the output to extract the OAuth URL
+    AUTH_OUTPUT=$(claude auth login --no-open 2>&1 | tee /dev/tty)
+    
+    # Extract OAuth URL from output (Claude outputs something like "Visit: https://...")
+    OAUTH_URL=$(echo "$AUTH_OUTPUT" | grep -E "(Visit:|Open:|URL:)" | grep -oE 'https://[^ ]+' | head -1)
+    
+    if [ -n "$OAUTH_URL" ]; then
+        log ""
+        success "=========================================="
+        success "OAuth Authentication URL:"
+        success "$OAUTH_URL"
+        success "=========================================="
+        log ""
+        log "Please open this URL in your browser to complete authentication."
+        log "This container will wait for you to complete the login process."
+        log ""
+        
+        # Wait for authentication to complete (claude auth login will block until done)
+        wait
+        AUTH_SUCCESS=$?
+    else
+        error "Failed to extract OAuth URL from Claude output"
+        error "You may need to run 'claude auth login' manually"
+        exit 1
+    fi
+else
+    log ""
+    log "This will open your browser to authenticate with Claude."
+    log "After authentication, credentials will be stored for all claude-box sessions."
+    log ""
+    
+    # Run Claude login normally (will open browser)
+    claude auth login
+    AUTH_SUCCESS=$?
+fi
+
+if [ $AUTH_SUCCESS -eq 0 ]; then
     success "Authentication successful!"
     
     # Verify credentials were created
@@ -74,5 +115,8 @@ if claude auth login; then
 else
     error "Authentication failed!"
     error "Please try running the auth setup again."
+    if [ "$NON_INTERACTIVE" = "true" ]; then
+        error "Make sure you completed the OAuth flow in your browser."
+    fi
     exit 1
 fi

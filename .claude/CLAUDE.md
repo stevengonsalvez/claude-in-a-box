@@ -139,6 +139,124 @@ src/
 - Efficient data structures
 - Monitor container resource usage
 
+
+
+## Development Guidelines
+
+### TTY Conflict Prevention Rule 🚨
+
+**CRITICAL**: When implementing TUI applications that need to spawn interactive processes, always check for TTY conflicts during planning phase.
+
+#### Problem Description
+Running interactive processes (especially Docker with `-it` flag) from within a TUI application causes terminal control conflicts:
+- **Symptoms**: Garbled ANSI escape sequences in TUI input fields
+- **Root Cause**: Multiple processes competing for TTY control (Ratatui vs subprocess)
+- **Common Triggers**: `docker run -it`, `ssh -t`, interactive shells, CLI tools expecting TTY
+
+#### Implementation Strategy
+
+**When Planning Interactive Features:**
+1. **Identify TTY Dependencies**: List all subprocess calls that might need TTY
+2. **Plan Isolation Strategy**: Choose appropriate isolation method
+3. **Design Fallback Options**: Always provide non-interactive alternatives
+
+**TTY Isolation Techniques:**
+
+1. **New Terminal Window** (Recommended for user-facing interactions)
+   ```rust
+   // macOS
+   std::process::Command::new("osascript")
+       .args(["-e", "tell application \"Terminal\" to do script \"docker run -it ...\""])
+       .status()?;
+   
+   // Linux - try common terminals
+   for terminal in ["gnome-terminal", "xterm", "konsole"] {
+       if let Ok(_) = std::process::Command::new(terminal)
+           .args(["--", "bash", "-c", "docker run -it ..."])
+           .status() { break; }
+   }
+   ```
+
+2. **TTY Detachment** (For background processes)
+   ```rust
+   // Use setsid to create new session
+   std::process::Command::new("setsid")
+       .args(["docker", "run", "--rm", "image"])
+       .status()?;
+   
+   // Or spawn without TTY allocation
+   std::process::Command::new("docker")
+       .args(["run", "--rm", "image"])  // No -it flags
+       .status()?;
+   ```
+
+3. **Alternative Interfaces** (API-based approaches)
+   ```rust
+   // Use Docker API instead of CLI
+   use bollard::Docker;
+   let docker = Docker::connect_with_local_defaults()?;
+   
+   // Use REST APIs instead of interactive CLIs
+   // Use file-based authentication instead of interactive login
+   ```
+
+#### Real-World Example
+
+**Authentication Setup Implementation:**
+- **Problem**: OAuth login via `docker run -it` caused TUI garbled input
+- **Solution**: Platform-specific terminal spawning with automatic status monitoring
+- **Files**: `src/app/state.rs:1077-1125`, `src/components/auth_setup.rs`
+- **Result**: Clean TUI + separate terminal for OAuth flow
+
+#### Checklist for Interactive Features ✅
+
+Before implementing any feature that spawns processes:
+
+- [ ] **TTY Analysis**: Does this process expect interactive terminal?
+- [ ] **User Experience**: Should this be visible to user or background?
+- [ ] **Platform Support**: How will this work on macOS/Linux/Windows?
+- [ ] **Fallback Strategy**: What if terminal spawning fails?
+- [ ] **Status Monitoring**: How will TUI know when process completes?
+- [ ] **Error Handling**: How to handle process failures gracefully?
+- [ ] **Testing Strategy**: How to test without actual TTY conflicts?
+
+#### Common Patterns to Avoid ❌
+
+```rust
+// DON'T: This will cause TTY conflicts in TUI
+std::process::Command::new("docker")
+    .args(["run", "-it", "image"])
+    .status()?;
+
+// DON'T: Interactive shells from TUI
+std::process::Command::new("bash")
+    .arg("-i")  // Interactive flag
+    .status()?;
+
+// DON'T: SSH with TTY allocation
+std::process::Command::new("ssh")
+    .args(["-t", "user@host"])
+    .status()?;
+```
+
+#### Safe Patterns to Use ✅
+
+```rust
+// DO: Spawn in new terminal for user interactions
+spawn_in_new_terminal("docker run -it image");
+
+// DO: Use non-interactive modes when possible
+std::process::Command::new("docker")
+    .args(["run", "--rm", "image", "non-interactive-command"])
+    .output()?;
+
+// DO: Use APIs instead of CLI when available
+use bollard::Docker;
+let docker = Docker::connect_with_local_defaults()?;
+```
+
+This rule prevents a class of bugs that are difficult to debug and significantly impact user experience in TUI applications.
+
 ### Troubleshooting Guide
 
 #### Common Issues

@@ -1062,11 +1062,11 @@ impl AppState {
     
     /// Run OAuth authentication setup
     async fn run_oauth_setup(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Set processing state
-        if let Some(ref mut auth_state) = self.auth_setup_state {
-            auth_state.is_processing = true;
-            auth_state.error_message = None;
-        }
+        use bollard::container::{Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions};
+        use bollard::exec::{CreateExecOptions, StartExecResults};
+        use bollard::Docker;
+        use futures_util::stream::StreamExt;
+        use std::collections::HashMap;
         
         // Create auth directory
         let home_dir = dirs::home_dir()
@@ -1074,22 +1074,163 @@ impl AppState {
         let auth_dir = home_dir.join(".claude-in-a-box/auth");
         std::fs::create_dir_all(&auth_dir)?;
         
-        // Run OAuth container (blocking to allow interactive terminal)
-        let status = std::process::Command::new("docker")
-            .args([
-                "run",
-                "--rm",
-                "-it",
-                "-v",
-                &format!("{}:/home/claude-user/.claude", auth_dir.display()),
-                "--entrypoint",
-                "/app/scripts/auth-setup.sh",
-                "claude-box:claude-dev",
-            ])
-            .status()?;
+        // Update UI state to show we're starting
+        if let Some(ref mut auth_state) = self.auth_setup_state {
+            auth_state.is_processing = true;
+            auth_state.error_message = Some("Starting authentication container...".to_string());
+        }
         
-        if status.success() {
-            // Success - transition to main view
+        // Connect to Docker
+        let docker = Docker::connect_with_local_defaults()?;
+        
+        // Create container configuration for non-interactive OAuth
+        let container_name = format!("claude-box-auth-{}", uuid::Uuid::new_v4());
+        
+        let mut env = vec![
+            "NON_INTERACTIVE=true".to_string(),
+        ];
+        
+        let mut mounts = vec![
+            bollard::models::Mount {
+                target: Some("/home/claude-user/.claude".to_string()),
+                source: Some(auth_dir.to_string_lossy().to_string()),
+                typ: Some(bollard::models::MountTypeEnum::BIND),
+                read_only: Some(false),
+                ..Default::default()
+            },
+        ];
+        
+        let host_config = bollard::models::HostConfig {
+            mounts: Some(mounts),
+            auto_remove: Some(true),
+            ..Default::default()
+        };
+        
+        let config = Config {
+            image: Some("claude-box:claude-dev".to_string()),
+            env: Some(env),
+            host_config: Some(host_config),
+            entrypoint: Some(vec!["/app/scripts/auth-setup.sh".to_string()]),
+            // No AttachStdin, AttachStdout, AttachStderr, Tty, or OpenStdin
+            // This makes it non-interactive
+            ..Default::default()
+        };
+        
+        // Create the container
+        let create_options = CreateContainerOptions {
+            name: container_name.clone(),
+            platform: None,
+        };
+        
+        let container_id = match docker.create_container(Some(create_options), config).await {
+            Ok(response) => response.id,
+            Err(e) => {
+                if let Some(ref mut auth_state) = self.auth_setup_state {
+                    auth_state.error_message = Some(format!("Failed to create auth container: {}", e));
+                    auth_state.is_processing = false;
+                }
+                return Err(Box::new(e));
+            }
+        };
+        
+        // Start the container
+        if let Err(e) = docker.start_container::<String>(&container_id, None).await {
+            if let Some(ref mut auth_state) = self.auth_setup_state {
+                auth_state.error_message = Some(format!("Failed to start auth container: {}", e));
+                auth_state.is_processing = false;
+            }
+            // Clean up
+            let _ = docker.remove_container(&container_id, Some(RemoveContainerOptions {
+                force: true,
+                ..Default::default()
+            })).await;
+            return Err(Box::new(e));
+        }
+        
+        // Stream logs to capture OAuth URL
+        let log_options = LogsOptions::<String> {
+            stdout: true,
+            stderr: true,
+            follow: true,
+            ..Default::default()
+        };
+        
+        let mut log_stream = docker.logs(&container_id, Some(log_options));
+        let mut oauth_url: Option<String> = None;
+        let mut full_output = String::new();
+        
+        // Process log stream to find OAuth URL
+        while let Some(log_result) = log_stream.next().await {
+            match log_result {
+                Ok(log_output) => {
+                    let log_str = log_output.to_string();
+                    full_output.push_str(&log_str);
+                    
+                    // Look for OAuth URL in the output
+                    if oauth_url.is_none() {
+                        // Check for common OAuth URL patterns
+                        if let Some(url_match) = log_str.find("https://") {
+                            let url_start = &log_str[url_match..];
+                            if let Some(url_end) = url_start.find(|c: char| c.is_whitespace() || c == '"' || c == '\'') {
+                                let url = url_start[..url_end].trim().to_string();
+                                if url.contains("oauth") || url.contains("auth") || url.contains("login") {
+                                    oauth_url = Some(url);
+                                    
+                                    // Update UI with OAuth URL
+                                    if let Some(ref mut auth_state) = self.auth_setup_state {
+                                        auth_state.error_message = Some(format!(
+                                            "🔗 OAuth Authentication Required\n\n\
+                                             Please open this URL in your browser:\n\n\
+                                             {}\n\n\
+                                             Complete the login process, then press 'r' to refresh.",
+                                            oauth_url.as_ref().unwrap()
+                                        ));
+                                        auth_state.is_processing = false; // Allow user to refresh
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Check if authentication completed successfully
+                    if log_str.contains("Authentication setup complete") || 
+                       log_str.contains("Authentication successful") {
+                        // Auth completed!
+                        if let Some(ref mut auth_state) = self.auth_setup_state {
+                            auth_state.error_message = Some("✅ Authentication successful! Finishing setup...".to_string());
+                        }
+                        break;
+                    }
+                    
+                    // Check for errors
+                    if log_str.contains("Authentication failed") || 
+                       log_str.contains("error") && !log_str.contains("[claude-box auth]") {
+                        if let Some(ref mut auth_state) = self.auth_setup_state {
+                            auth_state.error_message = Some(format!(
+                                "❌ Authentication failed\n\n\
+                                 Error output:\n{}\n\n\
+                                 Please try again.",
+                                log_str
+                            ));
+                            auth_state.is_processing = false;
+                        }
+                        break;
+                    }
+                }
+                Err(e) => {
+                    error!("Error reading container logs: {}", e);
+                    break;
+                }
+            }
+        }
+        
+        // Wait for container to finish
+        let _ = docker.wait_container::<String>(&container_id, None).next().await;
+        
+        // Check if credentials were created
+        let credentials_path = auth_dir.join(".credentials.json");
+        if credentials_path.exists() && credentials_path.metadata()?.len() > 0 {
+            // Success!
             self.auth_setup_state = None;
             self.current_view = View::SessionList;
             self.check_current_directory_status();
@@ -1097,7 +1238,15 @@ impl AppState {
         } else {
             // Failed
             if let Some(ref mut auth_state) = self.auth_setup_state {
-                auth_state.error_message = Some("Authentication failed. Please try again.".to_string());
+                if oauth_url.is_none() {
+                    auth_state.error_message = Some(format!(
+                        "❌ Authentication failed\n\n\
+                         Could not extract OAuth URL from container output.\n\n\
+                         Full output:\n{}\n\n\
+                         Please check the container logs.",
+                        full_output
+                    ));
+                }
                 auth_state.is_processing = false;
             }
         }
@@ -1177,6 +1326,12 @@ impl App {
                 self.state.current_view = View::SessionList;
                 self.state.pending_async_action = None;
             }
+        }
+        
+        // Check authentication status if we're in auth setup mode
+        if self.state.auth_setup_state.is_some() {
+            use crate::app::events::{EventHandler, AppEvent};
+            EventHandler::process_event(AppEvent::AuthSetupCheckStatus, &mut self.state);
         }
         
         // Update logic for the app (e.g., refresh container status)

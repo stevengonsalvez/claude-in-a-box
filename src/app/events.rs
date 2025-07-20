@@ -45,6 +45,9 @@ pub enum AppEvent {
     AuthSetupCancel,        // Cancel auth setup (skip)
     AuthSetupInputChar(char), // Input character for API key
     AuthSetupBackspace,     // Backspace in API key input
+    AuthSetupCheckStatus,   // Check authentication status
+    AuthSetupRefresh,       // Manual refresh to check auth completion
+    AuthSetupShowCommand,   // Show manual CLI command
 }
 
 pub struct EventHandler;
@@ -210,12 +213,14 @@ impl EventHandler {
                     _ => None,
                 }
             } else {
-                // Method selection mode
+                // Method selection mode or waiting for auth completion
                 match key_event.code {
                     KeyCode::Esc => Some(AppEvent::AuthSetupCancel),
                     KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::AuthSetupPrevious),
                     KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::AuthSetupNext),
                     KeyCode::Enter => Some(AppEvent::AuthSetupSelect),
+                    KeyCode::Char('r') => Some(AppEvent::AuthSetupRefresh), // Manual refresh
+                    KeyCode::Char('c') => Some(AppEvent::AuthSetupShowCommand), // Show CLI command
                     _ => None,
                 }
             }
@@ -403,6 +408,45 @@ impl EventHandler {
                     } else {
                         auth_state.api_key_input.pop();
                     }
+                }
+            },
+            AppEvent::AuthSetupCheckStatus => {
+                // Check if authentication was completed and transition if so
+                if state.auth_setup_state.is_some() && !AppState::is_first_time_setup() {
+                    // Authentication completed!
+                    state.auth_setup_state = None;
+                    state.current_view = View::SessionList;
+                    state.check_current_directory_status();
+                    state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
+                }
+            },
+            AppEvent::AuthSetupRefresh => {
+                // Manual refresh - check authentication status immediately
+                if let Some(ref mut auth_state) = state.auth_setup_state {
+                    if !AppState::is_first_time_setup() {
+                        // Authentication completed!
+                        state.auth_setup_state = None;
+                        state.current_view = View::SessionList;
+                        state.check_current_directory_status();
+                        state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
+                    } else {
+                        // Still waiting - update message
+                        auth_state.error_message = Some("Still waiting for authentication. Complete the process in the terminal window.\n\nPress 'r' to refresh or 'Esc' to cancel.".to_string());
+                    }
+                }
+            },
+            AppEvent::AuthSetupShowCommand => {
+                // Show alternative authentication methods
+                if let Some(ref mut auth_state) = state.auth_setup_state {
+                    auth_state.error_message = Some(
+                        "📋 Alternative Authentication Methods:\n\n\
+                         1. If the OAuth URL didn't appear, check the container logs\n\n\
+                         2. Use API Key authentication instead (press Up/Down to switch)\n\n\
+                         3. Run authentication manually in a terminal:\n\
+                            docker exec -it claude-box-auth /bin/bash\n\
+                            claude auth login\n\n\
+                         Press 'Esc' to go back.".to_string()
+                    );
                 }
             },
         }

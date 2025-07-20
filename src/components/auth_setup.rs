@@ -67,13 +67,22 @@ impl AuthSetupComponent {
             self.render_method_selection(frame, chunks[2], auth_state);
         }
         
-        // Error message if any
+        // Status/Error message if any
         if let Some(error_msg) = &auth_state.error_message {
-            let error = Paragraph::new(error_msg.as_str())
-                .style(Style::default().fg(Color::Red))
+            // Use different colors based on message type
+            let color = if error_msg.contains("terminal opened") || error_msg.contains("Complete the login") {
+                Color::Cyan  // Informational message
+            } else if error_msg.contains("Failed") || error_msg.contains("Could not") {
+                Color::Red   // Error message
+            } else {
+                Color::Yellow // Warning/instruction message
+            };
+            
+            let message = Paragraph::new(error_msg.as_str())
+                .style(Style::default().fg(color))
                 .alignment(Alignment::Center)
                 .wrap(Wrap { trim: true });
-            frame.render_widget(error, chunks[3]);
+            frame.render_widget(message, chunks[3]);
         } else {
             // Instructions
             let instructions = match auth_state.selected_method {
@@ -164,7 +173,9 @@ impl AuthSetupComponent {
     }
     
     fn render_processing(&self, frame: &mut Frame, area: Rect) {
-        let processing_msg = "Starting authentication setup...\nPlease wait...";
+        let processing_msg = "🔄 Starting authentication container...\n\n\
+                             Setting up OAuth authentication flow.\n\
+                             Please wait...";
         
         let processing = Paragraph::new(processing_msg)
             .style(Style::default().fg(Color::Cyan))
