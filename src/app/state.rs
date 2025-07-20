@@ -1150,8 +1150,10 @@ impl AppState {
             env: Some(env),
             host_config: Some(host_config),
             entrypoint: Some(entrypoint),
-            // No AttachStdin, AttachStdout, AttachStderr, Tty, or OpenStdin
-            // This makes it non-interactive
+            // We need these for the OAuth process to work properly
+            attach_stdout: Some(true),
+            attach_stderr: Some(true),
+            tty: Some(true), // Needed for Claude CLI to work
             ..Default::default()
         };
         
