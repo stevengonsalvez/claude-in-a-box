@@ -1136,7 +1136,8 @@ impl AppState {
         println!("This will guide you through the OAuth authentication process.");
         println!("You'll be prompted to open a URL in your browser to complete authentication.\n");
         
-        // Run the auth container interactively (just like in the CLI command)
+        // Run the auth container interactively 
+        // Use inherit for stdin/stdout/stderr to ensure proper TTY forwarding
         let status = std::process::Command::new("docker")
             .args([
                 "run",
@@ -1160,6 +1161,9 @@ impl AppState {
                 "-c",
                 "/app/scripts/auth-setup.sh",
             ])
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
             .status()?;
         
         // Check if authentication was successful

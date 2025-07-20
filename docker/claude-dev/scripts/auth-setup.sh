@@ -56,12 +56,49 @@ if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/
     
     # Test existing credentials
     if claude auth status >/dev/null 2>&1; then
-        success "Existing credentials are valid!"
-        success "Authentication setup complete - you can now use claude-box sessions"
-        exit 0
+        # Check if we have .claude.json config file AND it's in the mounted auth directory
+        if [ -f /home/claude-user/.claude/.claude.json ] && [ -s /home/claude-user/.claude/.claude.json ]; then
+            success "Existing credentials and configuration are valid!"
+            success "Authentication setup complete - you can now use claude-box sessions"
+            exit 0
+        else
+            warn "Credentials valid but missing .claude.json configuration file"
+            log "Will attempt to find or recreate .claude.json..."
+            
+            # Check if .claude.json exists in other locations
+            CLAUDE_JSON_FOUND=false
+            
+            # Check claude-user home directory and copy to mounted auth directory
+            if [ -f /home/claude-user/.claude.json ] && [ -s /home/claude-user/.claude.json ]; then
+                log "Found .claude.json at: /home/claude-user/.claude.json"
+                if cp /home/claude-user/.claude.json /home/claude-user/.claude/.claude.json; then
+                    success "Configuration copied to ~/.claude-in-a-box/auth/.claude.json"
+                    success "Authentication setup complete - you can now use claude-box sessions"
+                    exit 0
+                else
+                    warn "Failed to copy .claude.json configuration file to mounted auth directory"
+                fi
+            fi
+            
+            # Check actual HOME directory and copy to mounted auth directory
+            if [ -n "$HOME" ] && [ -f "$HOME/.claude.json" ] && [ -s "$HOME/.claude.json" ]; then
+                log "Found .claude.json at: $HOME/.claude.json"
+                if cp "$HOME/.claude.json" /home/claude-user/.claude/.claude.json; then
+                    success "Configuration copied to ~/.claude-in-a-box/auth/.claude.json (from HOME)"
+                    success "Authentication setup complete - you can now use claude-box sessions"
+                    exit 0
+                else
+                    warn "Failed to copy .claude.json from HOME directory to mounted auth directory"
+                fi
+            fi
+            
+            warn ".claude.json not found anywhere. Starting OAuth to recreate it..."
+            log "This will preserve your existing valid credentials."
+        fi
     else
         warn "Existing credentials are invalid or expired. Setting up new authentication..."
         rm -f /home/claude-user/.claude/.credentials.json
+        rm -f /home/claude-user/.claude/.claude.json
     fi
 fi
 
@@ -99,26 +136,94 @@ fi
 if [ $AUTH_SUCCESS -eq 0 ]; then
     success "Authentication successful!"
     
-    # Give Claude CLI a moment to finish writing files
-    sleep 2
+    # Wait for credentials file to be created and contain OAuth data
+    log "Waiting for OAuth credentials to be written..."
+    
+    while true; do
+        if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
+            # Check if credentials contain OAuth data
+            if grep -q "claudeAiOauth" /home/claude-user/.claude/.credentials.json 2>/dev/null; then
+                success "✓ OAuth credentials file created successfully"
+                break
+            fi
+        fi
+        sleep 1
+        echo -n "."
+    done
+    echo ""
     
     # Verify credentials were created
     if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
         success "Credentials saved to ~/.claude-in-a-box/auth/.credentials.json"
         
-        # Always try to copy .claude.json if it exists (for theme preferences and OAuth tokens)
-        if [ -f /home/claude-user/.claude.json ]; then
-            if cp /home/claude-user/.claude.json /home/claude-user/.claude/.claude.json; then
-                success "Configuration saved to ~/.claude-in-a-box/auth/.claude.json"
-            else
-                warn "Failed to copy .claude.json configuration file"
+        # Now wait for .claude.json to be updated with OAuth configuration
+        # Check multiple possible locations where Claude CLI might create the file
+        CLAUDE_JSON_FOUND=false
+        log "Waiting for .claude.json OAuth configuration to be written..."
+        log "Please complete the OAuth flow in your browser if you haven't already."
+        log "This session will remain active until OAuth configuration is complete..."
+        
+        # Function to check if .claude.json has proper OAuth configuration
+        check_oauth_config() {
+            local file_path="$1"
+            if [ ! -f "$file_path" ] || [ ! -s "$file_path" ]; then
+                return 1
             fi
-        else
+            
+            # Check for actual OAuth configuration fields (not placeholder data)
+            # Look for either userID that's NOT the placeholder, or other OAuth-specific fields
+            if grep -q '"userID": "oauth_user_id"' "$file_path" 2>/dev/null; then
+                # This is still placeholder data
+                return 1
+            elif grep -q '"userID":' "$file_path" 2>/dev/null && grep -q '"installMethod":' "$file_path" 2>/dev/null; then
+                # Has userID field that's not placeholder + other config = likely real OAuth config
+                return 0
+            fi
+            
+            return 1
+        }
+        
+        while true; do
+            # Primary location (claude-user home) - copy to mounted auth directory
+            if check_oauth_config "/home/claude-user/.claude.json"; then
+                log "Found valid .claude.json with OAuth configuration at: /home/claude-user/.claude.json"
+                if cp /home/claude-user/.claude.json /home/claude-user/.claude/.claude.json; then
+                    success "Configuration saved to ~/.claude-in-a-box/auth/.claude.json"
+                    CLAUDE_JSON_FOUND=true
+                    break
+                else
+                    warn "Failed to copy .claude.json configuration file to mounted auth directory"
+                fi
+            fi
+            
+            # Alternative: Check if Claude CLI used actual HOME directory and copy to mounted auth directory
+            if [ "$CLAUDE_JSON_FOUND" = false ] && [ -n "$HOME" ] && check_oauth_config "$HOME/.claude.json"; then
+                log "Found valid .claude.json with OAuth configuration at: $HOME/.claude.json"
+                if cp "$HOME/.claude.json" /home/claude-user/.claude/.claude.json; then
+                    success "Configuration saved to ~/.claude-in-a-box/auth/.claude.json (from HOME)"
+                    CLAUDE_JSON_FOUND=true
+                    break
+                else
+                    warn "Failed to copy .claude.json from HOME directory to mounted auth directory"
+                fi
+            fi
+            
+            # Show progress indicator and status
+            echo -n "."
+            sleep 2  # Check every 2 seconds instead of every 1 second
+        done
+        echo ""
+        
+        if [ "$CLAUDE_JSON_FOUND" = false ]; then
             warn ".claude.json not found - Claude CLI configuration may not be available"
-            log "Expected location: /home/claude-user/.claude.json"
+            log "Searched locations:"
+            log "  - /home/claude-user/.claude.json"
+            log "  - $HOME/.claude.json"
             log "Note: Claude CLI currently ignores XDG Base Directory specification"
-            log "Available files in home:"
+            log "Available files in claude-user home:"
             ls -la /home/claude-user/ | grep -E "\.(json|credentials)" || log "No config files found"
+            log "Available files in HOME ($HOME):"
+            ls -la "$HOME/" | grep -E "\.(json|credentials)" || log "No config files found in HOME"
             
             # Future-proofing: check XDG locations too
             if [ -n "$XDG_CONFIG_HOME" ] && [ -f "$XDG_CONFIG_HOME/claude/config.json" ]; then

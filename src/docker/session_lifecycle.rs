@@ -674,10 +674,10 @@ impl SessionLifecycleManager {
                 if claude_json_auth_path.exists() {
                     *config = config.clone().with_volume(
                         claude_json_auth_path,
-                        "/home/claude-user/.claude.json".to_string(),
+                        "/home/claude-user/.claude.json".to_string(), // Mount to home directory for Claude CLI access
                         false, // read-write mount for Claude CLI organic updates (theme, etc.)
                     );
-                    info!("Mounting claude-in-a-box .claude.json from auth directory");
+                    info!("Mounting claude-in-a-box .claude.json from auth directory to ~/.claude.json");
                 } else {
                     info!("No .claude.json found in auth directory - theme preferences will be set in container");
                 }
