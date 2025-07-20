@@ -102,6 +102,13 @@ if [ $AUTH_SUCCESS -eq 0 ]; then
     # Verify credentials were created
     if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
         success "Credentials saved to ~/.claude-in-a-box/auth/.credentials.json"
+        
+        # Also copy .claude.json if it exists (for theme preferences and OAuth tokens)
+        if [ -f /home/claude-user/.claude.json ]; then
+            cp /home/claude-user/.claude.json /home/claude-user/.claude/.claude.json
+            success "Configuration saved to ~/.claude-in-a-box/auth/.claude.json"
+        fi
+        
         success ""
         success "🎉 Authentication setup complete!"
         success "You can now use claude-box sessions with these credentials."
