@@ -31,7 +31,7 @@ impl HelpComponent {
             ListItem::new("  n          New session (current directory)"),
             ListItem::new("  s          Search & select workspace"),
             ListItem::new("  a          Attach to session"),
-            ListItem::new("  r          Run/Stop session"),
+            ListItem::new("  r          Re-authenticate credentials"),
             ListItem::new("  d          Delete session"),
             ListItem::new("  f          Refresh workspaces"),
             ListItem::new(""),

@@ -2,6 +2,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::app::{AppState, state::{AsyncAction, View, AuthMethod}};
+use tracing::info;
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -17,7 +18,7 @@ pub enum AppEvent {
     AttachSession,
     DetachSession,
     KillContainer,
-    StartStopSession,
+    ReauthenticateCredentials,
     DeleteSession,
     SwitchToLogs,
     SwitchToTerminal,
@@ -125,7 +126,7 @@ impl EventHandler {
             KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
-            KeyCode::Char('r') => Some(AppEvent::StartStopSession),  // Changed from 's' to 'r' (run/stop)
+            KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),  // Re-authenticate Claude credentials
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Tab => Some(AppEvent::SwitchToLogs),
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
@@ -305,8 +306,9 @@ impl EventHandler {
                     state.pending_async_action = Some(AsyncAction::KillContainer(session_id));
                 }
             },
-            AppEvent::StartStopSession => {
-                // TODO: Implement start/stop session
+            AppEvent::ReauthenticateCredentials => {
+                info!("Queueing re-authentication request");
+                state.pending_async_action = Some(AsyncAction::ReauthenticateCredentials);
             },
             AppEvent::DeleteSession => {
                 // Show confirmation dialog

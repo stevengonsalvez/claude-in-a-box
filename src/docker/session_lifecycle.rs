@@ -647,11 +647,24 @@ impl SessionLifecycleManager {
                 let credentials_path = home_dir.join(".claude-in-a-box/auth/.credentials.json");
                 if credentials_path.exists() {
                     *config = config.clone().with_volume(
-                        credentials_path,
+                        credentials_path.clone(),
                         "/home/claude-user/.claude/.credentials.json".to_string(),
                         true, // read-only for security
                     );
                     info!("Mounting claude-in-a-box auth credentials from ~/.claude-in-a-box/auth/.credentials.json");
+                    
+                    // ALSO set OAuth token as environment variable for redundancy
+                    if let Ok(creds_content) = std::fs::read_to_string(&credentials_path) {
+                        if let Ok(creds_json) = serde_json::from_str::<serde_json::Value>(&creds_content) {
+                            if let Some(access_token) = creds_json
+                                .get("claudeAiOauth")
+                                .and_then(|oauth| oauth.get("accessToken"))
+                                .and_then(|token| token.as_str()) {
+                                info!("Found OAuth access token in credentials, setting CLAUDE_CODE_OAUTH_TOKEN environment variable");
+                                config.environment_vars.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), access_token.to_string());
+                            }
+                        }
+                    }
                 } else {
                     warn!("mount_claude_config is true but ~/.claude-in-a-box/auth/.credentials.json not found - run 'claude-box auth' first");
                 }

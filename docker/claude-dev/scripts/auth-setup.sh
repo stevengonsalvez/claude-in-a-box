@@ -99,14 +99,37 @@ fi
 if [ $AUTH_SUCCESS -eq 0 ]; then
     success "Authentication successful!"
     
+    # Give Claude CLI a moment to finish writing files
+    sleep 2
+    
     # Verify credentials were created
     if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
         success "Credentials saved to ~/.claude-in-a-box/auth/.credentials.json"
         
-        # Also copy .claude.json if it exists (for theme preferences and OAuth tokens)
+        # Always try to copy .claude.json if it exists (for theme preferences and OAuth tokens)
         if [ -f /home/claude-user/.claude.json ]; then
-            cp /home/claude-user/.claude.json /home/claude-user/.claude/.claude.json
-            success "Configuration saved to ~/.claude-in-a-box/auth/.claude.json"
+            if cp /home/claude-user/.claude.json /home/claude-user/.claude/.claude.json; then
+                success "Configuration saved to ~/.claude-in-a-box/auth/.claude.json"
+            else
+                warn "Failed to copy .claude.json configuration file"
+            fi
+        else
+            warn ".claude.json not found - Claude CLI configuration may not be available"
+            log "Expected location: /home/claude-user/.claude.json"
+            log "Note: Claude CLI currently ignores XDG Base Directory specification"
+            log "Available files in home:"
+            ls -la /home/claude-user/ | grep -E "\.(json|credentials)" || log "No config files found"
+            
+            # Future-proofing: check XDG locations too
+            if [ -n "$XDG_CONFIG_HOME" ] && [ -f "$XDG_CONFIG_HOME/claude/config.json" ]; then
+                log "Found XDG config at: $XDG_CONFIG_HOME/claude/config.json"
+                cp "$XDG_CONFIG_HOME/claude/config.json" /home/claude-user/.claude/.claude.json
+                success "Copied XDG configuration to auth directory"
+            elif [ -f /home/claude-user/.config/claude/config.json ]; then
+                log "Found XDG config at: ~/.config/claude/config.json"
+                cp /home/claude-user/.config/claude/config.json /home/claude-user/.claude/.claude.json
+                success "Copied XDG configuration to auth directory"
+            fi
         fi
         
         success ""
