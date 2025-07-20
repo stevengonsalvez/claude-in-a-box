@@ -1063,10 +1063,8 @@ impl AppState {
     /// Run OAuth authentication setup
     async fn run_oauth_setup(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         use bollard::container::{Config, CreateContainerOptions, LogsOptions, RemoveContainerOptions};
-        use bollard::exec::{CreateExecOptions, StartExecResults};
         use bollard::Docker;
         use futures_util::stream::StreamExt;
-        use std::collections::HashMap;
         
         // Create auth directory
         let home_dir = dirs::home_dir()
@@ -1080,17 +1078,42 @@ impl AppState {
             auth_state.error_message = Some("Starting authentication container...".to_string());
         }
         
+        // First check if Docker is available
+        if !self.is_docker_available().await {
+            warn!("Docker is not available or not running");
+            // Fallback to terminal-based authentication
+            return self.run_oauth_setup_fallback().await;
+        }
+        
         // Connect to Docker
-        let docker = Docker::connect_with_local_defaults()?;
+        let docker = match Docker::connect_with_local_defaults() {
+            Ok(docker) => docker,
+            Err(e) => {
+                error!("Failed to connect to Docker API: {}", e);
+                if let Some(ref mut auth_state) = self.auth_setup_state {
+                    auth_state.error_message = Some(format!(
+                        "❌ Docker API connection failed\n\n\
+                         Error: {}\n\n\
+                         Falling back to terminal-based authentication.\n\
+                         Press Enter to continue.",
+                        e
+                    ));
+                    auth_state.is_processing = false;
+                }
+                // Wait a moment then fallback
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                return self.run_oauth_setup_fallback().await;
+            }
+        };
         
         // Create container configuration for non-interactive OAuth
         let container_name = format!("claude-box-auth-{}", uuid::Uuid::new_v4());
         
-        let mut env = vec![
+        let env = vec![
             "NON_INTERACTIVE=true".to_string(),
         ];
         
-        let mut mounts = vec![
+        let mounts = vec![
             bollard::models::Mount {
                 target: Some("/home/claude-user/.claude".to_string()),
                 source: Some(auth_dir.to_string_lossy().to_string()),
@@ -1125,11 +1148,25 @@ impl AppState {
         let container_id = match docker.create_container(Some(create_options), config).await {
             Ok(response) => response.id,
             Err(e) => {
+                error!("Failed to create auth container: {}", e);
                 if let Some(ref mut auth_state) = self.auth_setup_state {
-                    auth_state.error_message = Some(format!("Failed to create auth container: {}", e));
+                    let error_msg = if e.to_string().contains("No such image") {
+                        "❌ Claude-dev image not found\n\n\
+                         Please build the claude-box image first:\n\
+                         cargo run -- build\n\n\
+                         Or use API Key authentication instead.".to_string()
+                    } else {
+                        format!(
+                            "❌ Failed to create authentication container\n\n\
+                             Error: {}\n\n\
+                             Try using API Key authentication instead.",
+                            e
+                        )
+                    };
+                    auth_state.error_message = Some(error_msg);
                     auth_state.is_processing = false;
                 }
-                return Err(Box::new(e));
+                return Ok(()); // Don't propagate error, let user try other methods
             }
         };
         
@@ -1248,6 +1285,129 @@ impl AppState {
                     ));
                 }
                 auth_state.is_processing = false;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Check if Docker is available and running
+    async fn is_docker_available(&self) -> bool {
+        // Try to run a simple docker command to check if Docker is available
+        match std::process::Command::new("docker")
+            .args(["version", "--format", "{{.Server.Version}}"])
+            .output()
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout);
+                    info!("Docker is available, version: {}", version.trim());
+                    true
+                } else {
+                    let error = String::from_utf8_lossy(&output.stderr);
+                    warn!("Docker command failed: {}", error);
+                    false
+                }
+            }
+            Err(e) => {
+                warn!("Docker not found or not accessible: {}", e);
+                false
+            }
+        }
+    }
+    
+    /// Fallback OAuth setup when Docker API is not available
+    async fn run_oauth_setup_fallback(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Update UI to show fallback mode
+        if let Some(ref mut auth_state) = self.auth_setup_state {
+            auth_state.error_message = Some(
+                "⚠️  Docker API not available - using fallback method\n\n\
+                 We'll run the authentication using docker CLI instead.\n\
+                 This will open a terminal window for OAuth authentication.\n\n\
+                 Press Enter to continue or Esc to cancel.".to_string()
+            );
+            auth_state.is_processing = false;
+        }
+        
+        // Create auth directory
+        let home_dir = dirs::home_dir()
+            .ok_or("Could not determine home directory")?;
+        let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        std::fs::create_dir_all(&auth_dir)?;
+        
+        let docker_command = format!(
+            "docker run --rm -it -v {}:/home/claude-user/.claude --entrypoint /app/scripts/auth-setup.sh claude-box:claude-dev",
+            auth_dir.display()
+        );
+        
+        // Try different terminal approaches based on platform
+        let terminal_result = if cfg!(target_os = "macos") {
+            // Use osascript to open a new Terminal window on macOS
+            std::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    &format!(
+                        "tell application \"Terminal\"\n\
+                         activate\n\
+                         do script \"{}\"\n\
+                         end tell",
+                        docker_command.replace("\"", "\\\"")
+                    )
+                ])
+                .status()
+        } else if cfg!(target_os = "linux") {
+            // Try common Linux terminal emulators
+            let terminals = ["gnome-terminal", "xterm", "konsole", "alacritty"];
+            let mut terminal_opened = false;
+            
+            for terminal in &terminals {
+                if let Ok(_) = std::process::Command::new(terminal)
+                    .args(["--", "bash", "-c", &format!("{} && echo 'Authentication complete! Press Enter to close.' && read", docker_command)])
+                    .status()
+                {
+                    terminal_opened = true;
+                    break;
+                }
+            }
+            
+            if !terminal_opened {
+                // Provide CLI instructions
+                if let Some(ref mut auth_state) = self.auth_setup_state {
+                    auth_state.error_message = Some(format!(
+                        "Could not open terminal automatically.\n\nPlease run this command manually:\n\n{}\n\nPress 'r' to refresh when complete.",
+                        docker_command
+                    ));
+                }
+                return Ok(());
+            }
+            std::process::Command::new("true").status()
+        } else {
+            // Windows or other platforms
+            std::process::Command::new("cmd")
+                .args(["/C", "start", "cmd", "/K", &format!("{} && pause", docker_command)])
+                .status()
+        };
+        
+        // Check if terminal was opened successfully
+        match terminal_result {
+            Ok(_) => {
+                if let Some(ref mut auth_state) = self.auth_setup_state {
+                    auth_state.error_message = Some(
+                        "🚀 Terminal window opened!\n\n\
+                         Complete the OAuth login in the terminal window.\n\n\
+                         Press 'r' to refresh when done, or 'Esc' to cancel.".to_string()
+                    );
+                    auth_state.is_processing = false;
+                }
+            }
+            Err(e) => {
+                if let Some(ref mut auth_state) = self.auth_setup_state {
+                    auth_state.error_message = Some(format!(
+                        "❌ Failed to open terminal: {}\n\nRun manually: {}\n\nPress 'r' to refresh when complete.",
+                        e, docker_command
+                    ));
+                    auth_state.is_processing = false;
+                }
             }
         }
         
