@@ -1161,9 +1161,9 @@ impl AppState {
                 "-c",
                 "/app/scripts/auth-setup.sh",
             ])
-            .stdin(std::process::Stdio::inherit())
-            .stdout(std::process::Stdio::inherit())
-            .stderr(std::process::Stdio::inherit())
+            // .stdin(std::process::Stdio::inherit())
+            // .stdout(std::process::Stdio::inherit())
+            // .stderr(std::process::Stdio::inherit())
             .status()?;
         
         // Check if authentication was successful
