@@ -114,7 +114,7 @@ async fn run_auth_setup() -> Result<()> {
     // Execute the auth container
     println!();
     println!("🚀 Running authentication setup...");
-    println!("   This will open your browser to authenticate with Claude.");
+    println!("   This will prompt you to enter your Anthropic API token.");
     println!();
     
     let status = std::process::Command::new("docker")
@@ -124,9 +124,19 @@ async fn run_auth_setup() -> Result<()> {
             "-it",
             "-v",
             &format!("{}:/home/claude-user/.claude", auth_dir.display()),
+            "-e",
+            "PATH=/home/claude-user/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "-e",
+            "HOME=/home/claude-user",
+            "-w",
+            "/home/claude-user",
+            "--user",
+            "claude-user",
             "--entrypoint",
-            "/app/scripts/auth-setup.sh",
+            "bash",
             "claude-box:claude-dev",
+            "-c",
+            "/app/scripts/auth-setup.sh",
         ])
         .status()
         .map_err(|e| anyhow::anyhow!("Failed to run auth container: {}", e))?;

@@ -32,6 +32,21 @@ success() {
 
 log "Starting Claude authentication setup for claude-in-a-box"
 
+# Set up environment for claude-user
+export PATH="/home/claude-user/.npm-global/bin:$PATH"
+export HOME=/home/claude-user
+
+# Check if claude command is available
+if ! command -v claude >/dev/null 2>&1; then
+    error "Claude CLI not found in PATH: $PATH"
+    error "Available commands:"
+    ls -la /home/claude-user/.npm-global/bin/
+    exit 1
+fi
+
+log "Claude CLI found at: $(which claude)"
+log "Claude CLI version: $(claude --version 2>&1 || echo 'version check failed')"
+
 # Ensure the .claude directory exists
 mkdir -p /home/claude-user/.claude
 
@@ -50,49 +65,35 @@ if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/
     fi
 fi
 
-log "No valid credentials found. Starting OAuth login process..."
+log "No valid credentials found. Starting authentication process..."
 
-if [ "$NON_INTERACTIVE" = "true" ]; then
+# Check which authentication method to use (OAuth by default)
+AUTH_METHOD=${AUTH_METHOD:-oauth}
+
+if [ "$AUTH_METHOD" = "oauth" ]; then
     log ""
-    log "Running in non-interactive mode."
-    log "The OAuth URL will be displayed below for you to open manually."
-    log ""
-    
-    # Run Claude login with --no-open flag to prevent browser auto-open
-    # Capture the output to extract the OAuth URL
-    AUTH_OUTPUT=$(claude auth login --no-open 2>&1 | tee /dev/tty)
-    
-    # Extract OAuth URL from output (Claude outputs something like "Visit: https://...")
-    OAUTH_URL=$(echo "$AUTH_OUTPUT" | grep -E "(Visit:|Open:|URL:)" | grep -oE 'https://[^ ]+' | head -1)
-    
-    if [ -n "$OAUTH_URL" ]; then
-        log ""
-        success "=========================================="
-        success "OAuth Authentication URL:"
-        success "$OAUTH_URL"
-        success "=========================================="
-        log ""
-        log "Please open this URL in your browser to complete authentication."
-        log "This container will wait for you to complete the login process."
-        log ""
-        
-        # Wait for authentication to complete (claude auth login will block until done)
-        wait
-        AUTH_SUCCESS=$?
-    else
-        error "Failed to extract OAuth URL from Claude output"
-        error "You may need to run 'claude auth login' manually"
-        exit 1
-    fi
-else
-    log ""
-    log "This will open your browser to authenticate with Claude."
-    log "After authentication, credentials will be stored for all claude-box sessions."
+    log "Starting OAuth authentication flow..."
+    log "You'll be prompted to open a URL in your browser to complete authentication."
     log ""
     
-    # Run Claude login normally (will open browser)
+    # Run Claude OAuth login command (interactive)
     claude auth login
     AUTH_SUCCESS=$?
+elif [ "$AUTH_METHOD" = "token" ]; then
+    log ""
+    log "Starting API token authentication..."
+    log "You'll be prompted to enter your Anthropic API token."
+    log ""
+    log "If you don't have an API token, get one from: https://console.anthropic.com/"
+    log ""
+    
+    # Run Claude setup-token command (interactive)
+    claude setup-token
+    AUTH_SUCCESS=$?
+else
+    error "Unknown authentication method: $AUTH_METHOD"
+    error "Supported methods: oauth, token"
+    exit 1
 fi
 
 if [ $AUTH_SUCCESS -eq 0 ]; then

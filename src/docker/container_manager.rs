@@ -68,7 +68,7 @@ impl ContainerManager {
         Ok(Self { docker })
     }
 
-    fn connect_to_docker() -> Result<Docker, bollard::errors::Error> {
+    pub fn connect_to_docker() -> Result<Docker, bollard::errors::Error> {
         // Try configuration file first
         if let Ok(config) = crate::config::AppConfig::load() {
             if let Some(docker_host) = &config.docker.host {
