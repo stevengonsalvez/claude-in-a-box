@@ -1070,7 +1070,13 @@ impl AppState {
         let home_dir = dirs::home_dir()
             .ok_or("Could not determine home directory")?;
         let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        
+        info!("Creating auth directory: {}", auth_dir.display());
         std::fs::create_dir_all(&auth_dir)?;
+        
+        // Check directory permissions
+        let metadata = std::fs::metadata(&auth_dir)?;
+        info!("Auth directory created successfully, permissions: {:?}", metadata.permissions());
         
         // Update UI state to show we're starting
         if let Some(ref mut auth_state) = self.auth_setup_state {
@@ -1108,6 +1114,10 @@ impl AppState {
         
         // Create container configuration for non-interactive OAuth
         let container_name = format!("claude-box-auth-{}", uuid::Uuid::new_v4());
+        let image_name = "claude-box:claude-dev";
+        
+        info!("Creating auth container: {}", container_name);
+        info!("Using image: {}", image_name);
         
         let env = vec![
             "NON_INTERACTIVE=true".to_string(),
@@ -1123,17 +1133,23 @@ impl AppState {
             },
         ];
         
+        info!("Mount configuration: {} -> /home/claude-user/.claude", auth_dir.display());
+        info!("Environment variables: {:?}", env);
+        
         let host_config = bollard::models::HostConfig {
             mounts: Some(mounts),
             auto_remove: Some(true),
             ..Default::default()
         };
         
+        let entrypoint = vec!["/app/scripts/auth-setup.sh".to_string()];
+        info!("Container entrypoint: {:?}", entrypoint);
+        
         let config = Config {
-            image: Some("claude-box:claude-dev".to_string()),
+            image: Some(image_name.to_string()),
             env: Some(env),
             host_config: Some(host_config),
-            entrypoint: Some(vec!["/app/scripts/auth-setup.sh".to_string()]),
+            entrypoint: Some(entrypoint),
             // No AttachStdin, AttachStdout, AttachStderr, Tty, or OpenStdin
             // This makes it non-interactive
             ..Default::default()
@@ -1145,22 +1161,48 @@ impl AppState {
             platform: None,
         };
         
+        info!("Attempting to create container with name: {}", container_name);
+        
         let container_id = match docker.create_container(Some(create_options), config).await {
-            Ok(response) => response.id,
+            Ok(response) => {
+                info!("Successfully created auth container with ID: {}", response.id);
+                response.id
+            },
             Err(e) => {
                 error!("Failed to create auth container: {}", e);
+                error!("Docker error details: {:?}", e);
+                
+                // Check if image exists
+                let image_exists = docker.inspect_image(image_name).await.is_ok();
+                error!("Image '{}' exists: {}", image_name, image_exists);
+                
                 if let Some(ref mut auth_state) = self.auth_setup_state {
-                    let error_msg = if e.to_string().contains("No such image") {
-                        "❌ Claude-dev image not found\n\n\
-                         Please build the claude-box image first:\n\
-                         cargo run -- build\n\n\
-                         Or use API Key authentication instead.".to_string()
+                    let error_msg = if e.to_string().contains("No such image") || !image_exists {
+                        format!(
+                            "❌ Claude-dev image not found\n\n\
+                             Image '{}' does not exist.\n\
+                             Please build the claude-box image first:\n\
+                             cargo run -- build\n\n\
+                             Or use API Key authentication instead.",
+                            image_name
+                        )
+                    } else if e.to_string().contains("permission") || e.to_string().contains("Permission") {
+                        format!(
+                            "❌ Permission error creating container\n\n\
+                             Error: {}\n\n\
+                             Check that Docker has permission to access {}\n\n\
+                             Try using API Key authentication instead.",
+                            e, auth_dir.display()
+                        )
                     } else {
                         format!(
                             "❌ Failed to create authentication container\n\n\
                              Error: {}\n\n\
+                             Container name: {}\n\
+                             Image: {}\n\
+                             Mount: {} -> /home/claude-user/.claude\n\n\
                              Try using API Key authentication instead.",
-                            e
+                            e, container_name, image_name, auth_dir.display()
                         )
                     };
                     auth_state.error_message = Some(error_msg);
@@ -1171,9 +1213,17 @@ impl AppState {
         };
         
         // Start the container
+        info!("Starting auth container: {}", container_id);
         if let Err(e) = docker.start_container::<String>(&container_id, None).await {
+            error!("Failed to start auth container: {}", e);
             if let Some(ref mut auth_state) = self.auth_setup_state {
-                auth_state.error_message = Some(format!("Failed to start auth container: {}", e));
+                auth_state.error_message = Some(format!(
+                    "❌ Failed to start authentication container\n\n\
+                     Error: {}\n\n\
+                     Container ID: {}\n\n\
+                     Try using API Key authentication instead.",
+                    e, container_id
+                ));
                 auth_state.is_processing = false;
             }
             // Clean up
@@ -1181,8 +1231,10 @@ impl AppState {
                 force: true,
                 ..Default::default()
             })).await;
-            return Err(Box::new(e));
+            return Ok(()); // Don't propagate error, let user try other methods
         }
+        
+        info!("Auth container started successfully");
         
         // Stream logs to capture OAuth URL
         let log_options = LogsOptions::<String> {
