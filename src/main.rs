@@ -1,6 +1,7 @@
-// ABOUTME: Main entry point for Claude-in-a-Box TUI application
+// ABOUTME: Main entry point for Claude-in-a-Box with TUI and CLI support
 
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
@@ -25,16 +26,124 @@ mod models;
 use app::{App, EventHandler};
 use components::LayoutComponent;
 
+#[derive(Parser)]
+#[command(name = "claude-box")]
+#[command(about = "Terminal-based development environment manager for Claude Code containers")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Set up Claude authentication for containers
+    Auth,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     setup_logging();
     setup_panic_handler();
     
-    let mut app = App::new();
-    app.init().await;
-    let mut layout = LayoutComponent::new();
+    let cli = Cli::parse();
     
-    run_tui(&mut app, &mut layout).await?;
+    match cli.command {
+        Some(Commands::Auth) => {
+            run_auth_setup().await?;
+        }
+        None => {
+            // No command specified, run TUI
+            let mut app = App::new();
+            app.init().await;
+            let mut layout = LayoutComponent::new();
+            
+            run_tui(&mut app, &mut layout).await?;
+        }
+    }
+    
+    Ok(())
+}
+
+async fn run_auth_setup() -> Result<()> {
+    println!("🔐 Setting up Claude authentication for claude-in-a-box...");
+    println!();
+    
+    // Create the auth directory structure
+    let home_dir = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
+    let claude_box_dir = home_dir.join(".claude-in-a-box");
+    let auth_dir = claude_box_dir.join("auth");
+    
+    std::fs::create_dir_all(&auth_dir)
+        .map_err(|e| anyhow::anyhow!("Failed to create auth directory: {}", e))?;
+    
+    // Check if credentials already exist
+    let credentials_path = auth_dir.join(".credentials.json");
+    if credentials_path.exists() {
+        println!("✅ Authentication already set up!");
+        println!("   Credentials found at: {}", credentials_path.display());
+        println!();
+        println!("To re-authenticate, delete the credentials file and run this command again:");
+        println!("   rm {}", credentials_path.display());
+        return Ok(());
+    }
+    
+    println!("📁 Creating auth directories...");
+    println!("   Auth directory: {}", auth_dir.display());
+    
+    // Check if Docker is available
+    let docker_version = std::process::Command::new("docker")
+        .args(["--version"])
+        .output()
+        .map_err(|e| anyhow::anyhow!("Docker not found: {}. Please install Docker and try again.", e))?;
+    
+    if !docker_version.status.success() {
+        return Err(anyhow::anyhow!("Docker is not running. Please start Docker and try again."));
+    }
+    
+    println!("🏗️  Building authentication container (claude-dev)...");
+    let build_status = std::process::Command::new("docker")
+        .args(["build", "-t", "claude-box:claude-dev", "docker/claude-dev"])
+        .status()
+        .map_err(|e| anyhow::anyhow!("Failed to build container: {}", e))?;
+    
+    if !build_status.success() {
+        return Err(anyhow::anyhow!("Container build failed. Please check Docker and try again."));
+    }
+    
+    // Execute the auth container
+    println!();
+    println!("🚀 Running authentication setup...");
+    println!("   This will open your browser to authenticate with Claude.");
+    println!();
+    
+    let status = std::process::Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "-it",
+            "-v",
+            &format!("{}:/home/claude-user/.claude", auth_dir.display()),
+            "--entrypoint",
+            "/app/scripts/auth-setup.sh",
+            "claude-box:claude-dev",
+        ])
+        .status()
+        .map_err(|e| anyhow::anyhow!("Failed to run auth container: {}", e))?;
+    
+    if status.success() {
+        println!();
+        println!("🎉 Authentication setup complete!");
+        println!("   Credentials saved to: {}", credentials_path.display());
+        println!();
+        println!("You can now create claude-box development sessions with:");
+        println!("   claude-box");
+    } else {
+        println!();
+        println!("❌ Authentication setup failed!");
+        println!("   Please check the output above for errors and try again.");
+        std::process::exit(1);
+    }
     
     Ok(())
 }

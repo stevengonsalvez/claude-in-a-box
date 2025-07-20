@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::{AppState, state::View};
-use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent, ConfirmationDialogComponent, NonGitNotificationComponent, AttachedTerminalComponent};
+use super::{SessionListComponent, LogsViewerComponent, HelpComponent, NewSessionComponent, ConfirmationDialogComponent, NonGitNotificationComponent, AttachedTerminalComponent, AuthSetupComponent};
 
 pub struct LayoutComponent {
     session_list: SessionListComponent,
@@ -17,6 +17,7 @@ pub struct LayoutComponent {
     confirmation_dialog: ConfirmationDialogComponent,
     non_git_notification: NonGitNotificationComponent,
     attached_terminal: AttachedTerminalComponent,
+    auth_setup: AuthSetupComponent,
 }
 
 impl LayoutComponent {
@@ -29,10 +30,18 @@ impl LayoutComponent {
             confirmation_dialog: ConfirmationDialogComponent::new(),
             non_git_notification: NonGitNotificationComponent::new(),
             attached_terminal: AttachedTerminalComponent::new(),
+            auth_setup: AuthSetupComponent::new(),
         }
     }
 
     pub fn render(&mut self, frame: &mut Frame, state: &AppState) {
+        // Special handling for auth setup view (full screen)
+        if state.current_view == View::AuthSetup {
+            let centered_area = centered_rect(60, 60, frame.size());
+            self.auth_setup.render(frame, centered_area, state);
+            return;
+        }
+        
         // Special handling for non-git notification view
         if state.current_view == View::NonGitNotification {
             self.non_git_notification.render(frame, frame.size(), state);
@@ -106,4 +115,25 @@ impl Default for LayoutComponent {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Helper function to create a centered rectangle
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }

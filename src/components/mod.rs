@@ -8,6 +8,7 @@ pub mod new_session;
 pub mod confirmation_dialog;
 pub mod non_git_notification;
 pub mod attached_terminal;
+pub mod auth_setup;
 
 pub use session_list::SessionListComponent;
 pub use logs_viewer::LogsViewerComponent;
@@ -17,3 +18,4 @@ pub use new_session::NewSessionComponent;
 pub use confirmation_dialog::ConfirmationDialogComponent;
 pub use non_git_notification::NonGitNotificationComponent;
 pub use attached_terminal::AttachedTerminalComponent;
+pub use auth_setup::AuthSetupComponent;

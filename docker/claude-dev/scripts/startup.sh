@@ -60,7 +60,7 @@ fi
 
 # Check for .claude directory with credentials (if no auth found yet)
 if [ "${AUTH_OK}" = "false" ] && [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
-    AUTH_SOURCES+=(".claude/.credentials.json")
+    AUTH_SOURCES+=(".claude/.credentials.json (claude-in-a-box)")
     AUTH_OK=true
 fi
 
@@ -69,8 +69,8 @@ if [ "${AUTH_OK}" = "true" ]; then
 else
     warn "No Claude authentication found!"
     warn "Please ensure one of:"
-    warn "  1. Have ~/.claude.json on host (will be copied to container)"
-    warn "  2. Have ~/.claude/.credentials.json on host (mounted to /home/claude-user/.claude/.credentials.json)"
+    warn "  1. Run 'claude-box auth' to set up authentication"
+    warn "  2. Have ~/.claude-in-a-box/auth/.credentials.json (mounted to /home/claude-user/.claude/.credentials.json)"
     warn "  3. Set ANTHROPIC_API_KEY in environment"
 fi
 

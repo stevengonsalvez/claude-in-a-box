@@ -1,7 +1,7 @@
 // ABOUTME: Event handling system for keyboard input and app actions
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::app::{AppState, state::{AsyncAction, View}};
+use crate::app::{AppState, state::{AsyncAction, View, AuthMethod}};
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -38,6 +38,13 @@ pub enum AppEvent {
     ConfirmationToggle,     // Switch between Yes/No
     ConfirmationConfirm,    // Confirm action
     ConfirmationCancel,     // Cancel dialog
+    // Auth setup events
+    AuthSetupNext,          // Next auth method
+    AuthSetupPrevious,      // Previous auth method
+    AuthSetupSelect,        // Select current method
+    AuthSetupCancel,        // Cancel auth setup (skip)
+    AuthSetupInputChar(char), // Input character for API key
+    AuthSetupBackspace,     // Backspace in API key input
 }
 
 pub struct EventHandler;
@@ -96,6 +103,11 @@ impl EventHandler {
         // Handle attached terminal view
         if state.current_view == View::AttachedTerminal {
             return Self::handle_attached_terminal_keys(key_event, state);
+        }
+        
+        // Handle auth setup view
+        if state.current_view == View::AuthSetup {
+            return Self::handle_auth_setup_keys(key_event, state);
         }
 
         match key_event.code {
@@ -183,6 +195,32 @@ impl EventHandler {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::DetachSession),
             KeyCode::Char('k') => Some(AppEvent::KillContainer),
             _ => None, // All other keys are passed through to the terminal
+        }
+    }
+    
+    fn handle_auth_setup_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        if let Some(ref auth_state) = state.auth_setup_state {
+            // If we're inputting API key, handle text input
+            if auth_state.selected_method == AuthMethod::ApiKey && !auth_state.api_key_input.is_empty() {
+                match key_event.code {
+                    KeyCode::Enter => Some(AppEvent::AuthSetupSelect),
+                    KeyCode::Backspace => Some(AppEvent::AuthSetupBackspace),
+                    KeyCode::Esc => Some(AppEvent::AuthSetupBackspace), // Clear input
+                    KeyCode::Char(ch) => Some(AppEvent::AuthSetupInputChar(ch)),
+                    _ => None,
+                }
+            } else {
+                // Method selection mode
+                match key_event.code {
+                    KeyCode::Esc => Some(AppEvent::AuthSetupCancel),
+                    KeyCode::Up | KeyCode::Char('k') => Some(AppEvent::AuthSetupPrevious),
+                    KeyCode::Down | KeyCode::Char('j') => Some(AppEvent::AuthSetupNext),
+                    KeyCode::Enter => Some(AppEvent::AuthSetupSelect),
+                    _ => None,
+                }
+            }
+        } else {
+            None
         }
     }
 
@@ -297,6 +335,75 @@ impl EventHandler {
             },
             AppEvent::ConfirmationCancel => {
                 state.confirmation_dialog = None;
+            },
+            AppEvent::AuthSetupNext => {
+                if let Some(ref mut auth_state) = state.auth_setup_state {
+                    auth_state.selected_method = match auth_state.selected_method {
+                        AuthMethod::OAuth => AuthMethod::ApiKey,
+                        AuthMethod::ApiKey => AuthMethod::Skip,
+                        AuthMethod::Skip => AuthMethod::OAuth,
+                    };
+                }
+            },
+            AppEvent::AuthSetupPrevious => {
+                if let Some(ref mut auth_state) = state.auth_setup_state {
+                    auth_state.selected_method = match auth_state.selected_method {
+                        AuthMethod::OAuth => AuthMethod::Skip,
+                        AuthMethod::ApiKey => AuthMethod::OAuth,
+                        AuthMethod::Skip => AuthMethod::ApiKey,
+                    };
+                }
+            },
+            AppEvent::AuthSetupSelect => {
+                if let Some(ref auth_state) = state.auth_setup_state {
+                    match auth_state.selected_method {
+                        AuthMethod::OAuth => {
+                            // Mark for async OAuth processing
+                            state.pending_async_action = Some(AsyncAction::AuthSetupOAuth);
+                        },
+                        AuthMethod::ApiKey => {
+                            if auth_state.api_key_input.is_empty() {
+                                // Enter API key input mode
+                                if let Some(ref mut auth_state) = state.auth_setup_state {
+                                    auth_state.api_key_input = "sk-".to_string();
+                                    auth_state.show_cursor = true;
+                                }
+                            } else {
+                                // Save the API key
+                                state.pending_async_action = Some(AsyncAction::AuthSetupApiKey);
+                            }
+                        },
+                        AuthMethod::Skip => {
+                            // Skip auth setup and go to main screen
+                            state.auth_setup_state = None;
+                            state.current_view = View::SessionList;
+                            state.check_current_directory_status();
+                            state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
+                        },
+                    }
+                }
+            },
+            AppEvent::AuthSetupCancel => {
+                // Same as skip - go to main screen without auth
+                state.auth_setup_state = None;
+                state.current_view = View::SessionList;
+                state.check_current_directory_status();
+                state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
+            },
+            AppEvent::AuthSetupInputChar(ch) => {
+                if let Some(ref mut auth_state) = state.auth_setup_state {
+                    auth_state.api_key_input.push(ch);
+                }
+            },
+            AppEvent::AuthSetupBackspace => {
+                if let Some(ref mut auth_state) = state.auth_setup_state {
+                    if auth_state.api_key_input.is_empty() {
+                        // Exit API key input mode
+                        auth_state.show_cursor = false;
+                    } else {
+                        auth_state.api_key_input.pop();
+                    }
+                }
             },
         }
     }

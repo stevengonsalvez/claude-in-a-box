@@ -18,6 +18,7 @@ pub enum View {
     SearchWorkspace,
     NonGitNotification,
     AttachedTerminal,
+    AuthSetup,  // New view for authentication setup
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +32,22 @@ pub struct ConfirmationDialog {
 #[derive(Debug, Clone)]
 pub enum ConfirmAction {
     DeleteSession(Uuid),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AuthMethod {
+    OAuth,
+    ApiKey,
+    Skip,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthSetupState {
+    pub selected_method: AuthMethod,
+    pub api_key_input: String,
+    pub is_processing: bool,
+    pub error_message: Option<String>,
+    pub show_cursor: bool,
 }
 
 #[derive(Debug)]
@@ -58,6 +75,8 @@ pub struct AppState {
     pub last_logs_session_id: Option<Uuid>,
     // Track attached terminal state
     pub attached_session_id: Option<Uuid>,
+    // Auth setup state
+    pub auth_setup_state: Option<AuthSetupState>,
 }
 
 #[derive(Debug)]
@@ -119,6 +138,8 @@ pub enum AsyncAction {
     FetchContainerLogs(Uuid), // Fetch container logs for a session
     AttachToContainer(Uuid), // Attach to a container session
     KillContainer(Uuid), // Kill container for a session
+    AuthSetupOAuth,        // Run OAuth authentication setup
+    AuthSetupApiKey,       // Save API key authentication
 }
 
 impl Default for AppState {
@@ -139,6 +160,7 @@ impl Default for AppState {
             is_current_dir_git_repo: false,
             last_logs_session_id: None,
             attached_session_id: None,
+            auth_setup_state: None,
         }
     }
 }
@@ -146,6 +168,32 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+    
+    /// Check if this is first time setup (no auth configured)
+    pub fn is_first_time_setup() -> bool {
+        let home_dir = match dirs::home_dir() {
+            Some(dir) => dir,
+            None => return false,
+        };
+        
+        let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        let has_credentials = auth_dir.join(".credentials.json").exists();
+        let has_api_key = std::env::var("ANTHROPIC_API_KEY").is_ok();
+        let has_env_file = home_dir.join(".claude-in-a-box/.env").exists();
+        
+        // Load .env file if it exists to check for API key
+        let has_env_api_key = if has_env_file {
+            if let Ok(contents) = std::fs::read_to_string(home_dir.join(".claude-in-a-box/.env")) {
+                contents.contains("ANTHROPIC_API_KEY=")
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        
+        !has_credentials && !has_api_key && !has_env_api_key
     }
 
     pub fn check_current_directory_status(&mut self) {
@@ -987,8 +1035,105 @@ impl AppState {
                     }
                     self.ui_needs_refresh = true;
                 }
+                AsyncAction::AuthSetupOAuth => {
+                    info!("Starting OAuth authentication setup");
+                    if let Err(e) = self.run_oauth_setup().await {
+                        error!("Failed to setup OAuth authentication: {}", e);
+                        if let Some(ref mut auth_state) = self.auth_setup_state {
+                            auth_state.error_message = Some(format!("OAuth setup failed: {}", e));
+                            auth_state.is_processing = false;
+                        }
+                    }
+                }
+                AsyncAction::AuthSetupApiKey => {
+                    info!("Saving API key authentication");
+                    if let Err(e) = self.save_api_key().await {
+                        error!("Failed to save API key: {}", e);
+                        if let Some(ref mut auth_state) = self.auth_setup_state {
+                            auth_state.error_message = Some(format!("Failed to save API key: {}", e));
+                            auth_state.is_processing = false;
+                        }
+                    }
+                }
             }
         }
+        Ok(())
+    }
+    
+    /// Run OAuth authentication setup
+    async fn run_oauth_setup(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Set processing state
+        if let Some(ref mut auth_state) = self.auth_setup_state {
+            auth_state.is_processing = true;
+            auth_state.error_message = None;
+        }
+        
+        // Create auth directory
+        let home_dir = dirs::home_dir()
+            .ok_or("Could not determine home directory")?;
+        let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        std::fs::create_dir_all(&auth_dir)?;
+        
+        // Run OAuth container (blocking to allow interactive terminal)
+        let status = std::process::Command::new("docker")
+            .args([
+                "run",
+                "--rm",
+                "-it",
+                "-v",
+                &format!("{}:/home/claude-user/.claude", auth_dir.display()),
+                "--entrypoint",
+                "/app/scripts/auth-setup.sh",
+                "claude-box:claude-dev",
+            ])
+            .status()?;
+        
+        if status.success() {
+            // Success - transition to main view
+            self.auth_setup_state = None;
+            self.current_view = View::SessionList;
+            self.check_current_directory_status();
+            self.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
+        } else {
+            // Failed
+            if let Some(ref mut auth_state) = self.auth_setup_state {
+                auth_state.error_message = Some("Authentication failed. Please try again.".to_string());
+                auth_state.is_processing = false;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Save API key authentication
+    async fn save_api_key(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let api_key = match &self.auth_setup_state {
+            Some(auth_state) => auth_state.api_key_input.clone(),
+            None => return Err("No API key to save".into()),
+        };
+        
+        // Validate API key format
+        if !api_key.starts_with("sk-") || api_key.len() < 20 {
+            return Err("Invalid API key format".into());
+        }
+        
+        // Create .env file in claude-in-a-box directory
+        let home_dir = dirs::home_dir()
+            .ok_or("Could not determine home directory")?;
+        let claude_box_dir = home_dir.join(".claude-in-a-box");
+        std::fs::create_dir_all(&claude_box_dir)?;
+        
+        let env_path = claude_box_dir.join(".env");
+        std::fs::write(&env_path, format!("ANTHROPIC_API_KEY={}\n", api_key))?;
+        
+        info!("API key saved to {:?}", env_path);
+        
+        // Success - transition to main view
+        self.auth_setup_state = None;
+        self.current_view = View::SessionList;
+        self.check_current_directory_status();
+        self.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
+        
         Ok(())
     }
 }
@@ -1005,8 +1150,20 @@ impl App {
     }
 
     pub async fn init(&mut self) {
-        self.state.check_current_directory_status();
-        self.state.load_real_workspaces().await;
+        // Check if this is first time setup
+        if AppState::is_first_time_setup() {
+            self.state.current_view = View::AuthSetup;
+            self.state.auth_setup_state = Some(AuthSetupState {
+                selected_method: AuthMethod::OAuth,
+                api_key_input: String::new(),
+                is_processing: false,
+                error_message: None,
+                show_cursor: false,
+            });
+        } else {
+            self.state.check_current_directory_status();
+            self.state.load_real_workspaces().await;
+        }
     }
 
     pub async fn tick(&mut self) -> anyhow::Result<()> {
