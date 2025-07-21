@@ -54,51 +54,52 @@ mkdir -p /home/claude-user/.claude
 if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
     log "Existing credentials found. Checking if they're valid..."
     
-    # Test existing credentials
-    if claude auth status >/dev/null 2>&1; then
-        # Check if we have .claude.json config file AND it's in the mounted auth directory
-        if [ -f /home/claude-user/.claude/.claude.json ] && [ -s /home/claude-user/.claude/.claude.json ]; then
+    # First check if we have .claude.json config file in mounted auth directory
+    if [ -f /home/claude-user/.claude/.claude.json ] && [ -s /home/claude-user/.claude/.claude.json ]; then
+        log "Both credentials and configuration files found. Verifying with Claude CLI..."
+        # Test existing credentials with timeout
+        if timeout 10 claude auth status >/dev/null 2>&1; then
             success "Existing credentials and configuration are valid!"
             success "Authentication setup complete - you can now use claude-box sessions"
             exit 0
         else
-            warn "Credentials valid but missing .claude.json configuration file"
-            log "Will attempt to find or recreate .claude.json..."
-            
-            # Check if .claude.json exists in other locations
-            CLAUDE_JSON_FOUND=false
-            
-            # Check claude-user home directory and copy to mounted auth directory
-            if [ -f /home/claude-user/.claude.json ] && [ -s /home/claude-user/.claude.json ]; then
-                log "Found .claude.json at: /home/claude-user/.claude.json"
-                if cp /home/claude-user/.claude.json /home/claude-user/.claude/.claude.json; then
-                    success "Configuration copied to ~/.claude-in-a-box/auth/.claude.json"
-                    success "Authentication setup complete - you can now use claude-box sessions"
-                    exit 0
-                else
-                    warn "Failed to copy .claude.json configuration file to mounted auth directory"
-                fi
-            fi
-            
-            # Check actual HOME directory and copy to mounted auth directory
-            if [ -n "$HOME" ] && [ -f "$HOME/.claude.json" ] && [ -s "$HOME/.claude.json" ]; then
-                log "Found .claude.json at: $HOME/.claude.json"
-                if cp "$HOME/.claude.json" /home/claude-user/.claude/.claude.json; then
-                    success "Configuration copied to ~/.claude-in-a-box/auth/.claude.json (from HOME)"
-                    success "Authentication setup complete - you can now use claude-box sessions"
-                    exit 0
-                else
-                    warn "Failed to copy .claude.json from HOME directory to mounted auth directory"
-                fi
-            fi
-            
-            warn ".claude.json not found anywhere. Starting OAuth to recreate it..."
-            log "This will preserve your existing valid credentials."
+            warn "Credentials appear invalid or Claude CLI check failed. Will re-authenticate..."
+            rm -f /home/claude-user/.claude/.credentials.json
+            rm -f /home/claude-user/.claude/.claude.json
         fi
     else
-        warn "Existing credentials are invalid or expired. Setting up new authentication..."
-        rm -f /home/claude-user/.claude/.credentials.json
-        rm -f /home/claude-user/.claude/.claude.json
+        warn "Credentials found but missing .claude.json configuration file"
+        log "Will attempt to find or recreate .claude.json..."
+        
+        # Check if .claude.json exists in other locations
+        CLAUDE_JSON_FOUND=false
+        
+        # Check claude-user home directory and copy to mounted auth directory
+        if [ -f /home/claude-user/.claude.json ] && [ -s /home/claude-user/.claude.json ]; then
+            log "Found .claude.json at: /home/claude-user/.claude.json"
+            if cp /home/claude-user/.claude.json /home/claude-user/.claude/.claude.json; then
+                success "Configuration copied to ~/.claude-in-a-box/auth/.claude.json"
+                success "Authentication setup complete - you can now use claude-box sessions"
+                exit 0
+            else
+                warn "Failed to copy .claude.json configuration file to mounted auth directory"
+            fi
+        fi
+        
+        # Check actual HOME directory and copy to mounted auth directory
+        if [ -n "$HOME" ] && [ -f "$HOME/.claude.json" ] && [ -s "$HOME/.claude.json" ]; then
+            log "Found .claude.json at: $HOME/.claude.json"
+            if cp "$HOME/.claude.json" /home/claude-user/.claude/.claude.json; then
+                success "Configuration copied to ~/.claude-in-a-box/auth/.claude.json (from HOME)"
+                success "Authentication setup complete - you can now use claude-box sessions"
+                exit 0
+            else
+                warn "Failed to copy .claude.json from HOME directory to mounted auth directory"
+            fi
+        fi
+        
+        warn ".claude.json not found anywhere. Will proceed without credential validation..."
+        log "Starting OAuth to recreate complete authentication setup..."
     fi
 fi
 

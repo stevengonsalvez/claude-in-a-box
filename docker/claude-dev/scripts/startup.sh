@@ -74,8 +74,10 @@ else
     warn "  3. Set ANTHROPIC_API_KEY in environment"
 fi
 
-# Don't create .claude directory as it's mounted from host
-# mkdir -p /home/claude-user/.claude
+# Create .claude directory if it doesn't exist (unless it's already mounted)
+if [ ! -d /home/claude-user/.claude ]; then
+    mkdir -p /home/claude-user/.claude
+fi
 
 # Configure GitHub CLI if GITHUB_TOKEN is provided
 if [ -n "${GITHUB_TOKEN}" ]; then
@@ -112,6 +114,10 @@ if ! claude config get -g theme >/dev/null 2>&1; then
 else
     log "Theme already configured: $(claude config get -g theme 2>/dev/null || echo 'unknown')"
 fi
+
+# Set trust dialog to accepted to avoid prompts when using --dangerously-skip-permissions
+log "Setting trust dialog acceptance to avoid permission prompts"
+claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
 
 # Determine which CLI to use (adapted from claude-docker startup.sh)
 CLI_CMD="claude"

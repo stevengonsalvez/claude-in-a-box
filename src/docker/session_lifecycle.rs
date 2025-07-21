@@ -641,9 +641,21 @@ impl SessionLifecycleManager {
     ) -> Result<(), SessionLifecycleError> {
         // Mount claude-in-a-box authentication if requested and not already handled by MCP init
         if project_config.as_ref().map_or(true, |pc| pc.mount_claude_config) {
-            // Mount claude-in-a-box auth credentials if they exist
-            // We need to mount individual files to avoid overwriting the entire .claude directory
             if let Some(home_dir) = dirs::home_dir() {
+                // First, mount the user's entire .claude directory if it exists
+                // This allows access to CLAUDE.md and any other files it references
+                let user_claude_dir = home_dir.join(".claude");
+                if user_claude_dir.exists() && user_claude_dir.is_dir() {
+                    *config = config.clone().with_volume(
+                        user_claude_dir,
+                        "/home/claude-user/.claude".to_string(),
+                        false, // read-write so user can edit their memory and other files
+                    );
+                    info!("Mounting user's entire .claude directory from ~/.claude");
+                }
+                
+                // Then mount claude-in-a-box auth credentials on top
+                // This will override any .credentials.json from the host .claude directory
                 let credentials_path = home_dir.join(".claude-in-a-box/auth/.credentials.json");
                 if credentials_path.exists() {
                     *config = config.clone().with_volume(
