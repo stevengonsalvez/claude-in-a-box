@@ -116,9 +116,11 @@ RUN chmod +x /app/scripts/*.sh
 ENV PATH="/home/claude-user/.npm-global/bin:$PATH"
 ENV EDITOR=vim
 ENV VISUAL=vim
-RUN npm install -g @anthropic-ai/claude-code
+USER claude-user
+RUN mkdir -p /home/claude-user/.npm-global/lib && npm install -g @anthropic-ai/claude-code
 
 # Install default MCP servers
+USER root
 RUN /app/scripts/install-mcp-servers-simple.sh
 # Note: Using simple script for now. Complex script in install-mcp-servers.sh has minor exit code issue
 

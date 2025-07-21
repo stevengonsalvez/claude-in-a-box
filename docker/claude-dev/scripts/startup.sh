@@ -115,6 +115,10 @@ else
     log "Theme already configured: $(claude config get -g theme 2>/dev/null || echo 'unknown')"
 fi
 
+# Set trust dialog to accepted to avoid prompts when using --dangerously-skip-permissions
+log "Setting trust dialog acceptance to avoid permission prompts"
+claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
+
 # Determine which CLI to use (adapted from claude-docker startup.sh)
 CLI_CMD="claude"
 CLI_ARGS="$CLAUDE_CONTINUE_FLAG --dangerously-skip-permissions"
