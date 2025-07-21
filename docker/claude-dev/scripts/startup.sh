@@ -74,8 +74,10 @@ else
     warn "  3. Set ANTHROPIC_API_KEY in environment"
 fi
 
-# Don't create .claude directory as it's mounted from host
-# mkdir -p /home/claude-user/.claude
+# Create .claude directory if it doesn't exist (unless it's already mounted)
+if [ ! -d /home/claude-user/.claude ]; then
+    mkdir -p /home/claude-user/.claude
+fi
 
 # Configure GitHub CLI if GITHUB_TOKEN is provided
 if [ -n "${GITHUB_TOKEN}" ]; then

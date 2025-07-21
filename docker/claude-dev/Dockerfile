@@ -13,6 +13,7 @@ ARG PACKAGES=""
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    wget \
     python3 \
     python3-pip \
     build-essential \
@@ -20,6 +21,32 @@ RUN apt-get update && apt-get install -y \
     gettext-base \
     gnupg \
     software-properties-common \
+    # Essential text editors and viewers
+    nano \
+    vim \
+    less \
+    # Shell and terminal tools
+    zsh \
+    fzf \
+    procps \
+    man-db \
+    unzip \
+    gnupg2 \
+    # Network and system tools
+    iptables \
+    ipset \
+    iproute2 \
+    dnsutils \
+    aggregate \
+    jq \
+    # Database clients
+    postgresql-client \
+    # Additional development tools
+    openssh-client \
+    rsync \
+    htop \
+    tree \
+    ncdu \
     ${PACKAGES} \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -39,9 +66,15 @@ RUN if getent group ${HOST_GID} >/dev/null 2>&1; then \
         usermod -l claude-user -d /home/claude-user -m $(getent passwd ${HOST_UID} | cut -d: -f1) && \
         usermod -g ${HOST_GID} claude-user; \
     else \
-        useradd -u ${HOST_UID} -g ${HOST_GID} -m -s /bin/bash claude-user; \
+        useradd -u ${HOST_UID} -g ${HOST_GID} -m -s /bin/zsh claude-user; \
     fi && \
     echo "claude-user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+
+# Install AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && \
+    ./aws/install && \
+    rm -rf aws awscliv2.zip
 
 # Set up npm global directory for claude-user
 RUN mkdir -p /home/claude-user/.npm-global && \
@@ -53,7 +86,24 @@ WORKDIR /home/claude-user
 
 # Configure npm to use global directory
 RUN npm config set prefix '/home/claude-user/.npm-global' && \
-    echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> ~/.bashrc
+    echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> ~/.bashrc && \
+    echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> ~/.zshrc
+
+# Install oh-my-zsh and configure zsh
+RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v1.2.0/zsh-in-docker.sh)" -- \
+    -p git \
+    -p fzf \
+    -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
+    -a "source /usr/share/doc/fzf/examples/completion.zsh" \
+    -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
+    -a "export PATH=/home/claude-user/.npm-global/bin:$PATH" \
+    -x
+
+# Install Supabase CLI from GitHub releases (multi-arch support)
+RUN ARCH=$(dpkg --print-architecture | sed 's/aarch64/arm64/') && \
+    SUPABASE_VERSION=$(curl -s https://api.github.com/repos/supabase/cli/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/') && \
+    curl -L https://github.com/supabase/cli/releases/download/${SUPABASE_VERSION}/supabase_linux_${ARCH}.tar.gz | sudo tar -xz -C /usr/local/bin && \
+    sudo chmod +x /usr/local/bin/supabase || true
 
 # Create app directory and copy scripts
 COPY --chown=claude-user:claude-user scripts/ /app/scripts/
@@ -64,6 +114,8 @@ RUN chmod +x /app/scripts/*.sh
 
 # Install Claude CLI
 ENV PATH="/home/claude-user/.npm-global/bin:$PATH"
+ENV EDITOR=vim
+ENV VISUAL=vim
 RUN npm install -g @anthropic-ai/claude-code
 
 # Install default MCP servers
