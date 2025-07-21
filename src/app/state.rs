@@ -140,6 +140,7 @@ pub enum AsyncAction {
     KillContainer(Uuid), // Kill container for a session
     AuthSetupOAuth,        // Run OAuth authentication setup
     AuthSetupApiKey,       // Save API key authentication
+    ReauthenticateCredentials, // Re-authenticate Claude credentials
 }
 
 impl Default for AppState {
@@ -1055,6 +1056,12 @@ impl AppState {
                         }
                     }
                 }
+                AsyncAction::ReauthenticateCredentials => {
+                    info!("Starting re-authentication process");
+                    if let Err(e) = self.handle_reauthenticate().await {
+                        error!("Failed to re-authenticate: {}", e);
+                    }
+                }
             }
         }
         Ok(())
@@ -1129,7 +1136,8 @@ impl AppState {
         println!("This will guide you through the OAuth authentication process.");
         println!("You'll be prompted to open a URL in your browser to complete authentication.\n");
         
-        // Run the auth container interactively (just like in the CLI command)
+        // Run the auth container interactively 
+        // Use inherit for stdin/stdout/stderr to ensure proper TTY forwarding
         let status = std::process::Command::new("docker")
             .args([
                 "run",
@@ -1153,6 +1161,9 @@ impl AppState {
                 "-c",
                 "/app/scripts/auth-setup.sh",
             ])
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
             .status()?;
         
         // Check if authentication was successful
@@ -1251,6 +1262,97 @@ impl AppState {
         self.check_current_directory_status();
         self.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
         
+        Ok(())
+    }
+    
+    /// Handle re-authentication of Claude credentials
+    async fn handle_reauthenticate(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Check if any sessions are currently running
+        let running_session_count = self.workspaces.iter()
+            .map(|w| w.running_sessions().len())
+            .sum::<usize>();
+            
+        if running_session_count > 0 {
+            warn!("Found {} running sessions - re-authentication will affect them", running_session_count);
+            
+            // For now, we'll show an error and require manual session cleanup
+            // TODO: Add confirmation dialog with option to stop sessions automatically
+            if let Some(ref mut auth_state) = self.auth_setup_state {
+                auth_state.error_message = Some(format!(
+                    "❌ Cannot re-authenticate with {} running sessions\n\n\
+                     Running sessions use the current credentials.\n\
+                     Please stop all sessions before re-authenticating.\n\n\
+                     Use 'd' to delete sessions or wait for them to complete.",
+                    running_session_count
+                ));
+                auth_state.is_processing = false;
+            } else {
+                // Create auth state to show the error
+                self.auth_setup_state = Some(AuthSetupState {
+                    selected_method: AuthMethod::OAuth,
+                    api_key_input: String::new(),
+                    is_processing: false,
+                    show_cursor: false,
+                    error_message: Some(format!(
+                        "❌ Cannot re-authenticate with {} running sessions\n\n\
+                         Running sessions use the current credentials.\n\
+                         Please stop all sessions before re-authenticating.\n\n\
+                         Use 'd' to delete sessions or wait for them to complete.",
+                        running_session_count
+                    )),
+                });
+                self.current_view = View::AuthSetup;
+            }
+            return Ok(());
+        }
+        
+        // No running sessions - safe to proceed with re-authentication
+        info!("No running sessions found - proceeding with re-authentication");
+        
+        // Create backup of existing credentials
+        let home_dir = dirs::home_dir()
+            .ok_or("Could not determine home directory")?;
+        let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        
+        let credentials_path = auth_dir.join(".credentials.json");
+        let claude_json_path = auth_dir.join(".claude.json");
+        let backup_suffix = format!(".backup-{}", chrono::Utc::now().timestamp());
+        
+        // Create backups if files exist
+        if credentials_path.exists() {
+            let backup_path = credentials_path.with_extension(&format!("json{}", backup_suffix));
+            std::fs::copy(&credentials_path, &backup_path)?;
+            info!("Backed up credentials to {:?}", backup_path);
+        }
+        
+        if claude_json_path.exists() {
+            let backup_path = claude_json_path.with_extension(&format!("json{}", backup_suffix));
+            std::fs::copy(&claude_json_path, &backup_path)?;
+            info!("Backed up claude.json to {:?}", backup_path);
+        }
+        
+        // Remove existing credentials to trigger re-authentication
+        if credentials_path.exists() {
+            std::fs::remove_file(&credentials_path)?;
+            info!("Removed existing credentials");
+        }
+        
+        if claude_json_path.exists() {
+            std::fs::remove_file(&claude_json_path)?;
+            info!("Removed existing claude.json");
+        }
+        
+        // Initialize auth setup state and switch to auth view
+        self.auth_setup_state = Some(AuthSetupState {
+            selected_method: AuthMethod::OAuth, // Default to OAuth
+            api_key_input: String::new(),
+            is_processing: false,
+            show_cursor: false,
+            error_message: Some("🔄 Previous credentials cleared - please authenticate again".to_string()),
+        });
+        self.current_view = View::AuthSetup;
+        
+        info!("Re-authentication initiated - switched to auth setup view");
         Ok(())
     }
 }

@@ -641,38 +641,45 @@ impl SessionLifecycleManager {
     ) -> Result<(), SessionLifecycleError> {
         // Mount claude-in-a-box authentication if requested and not already handled by MCP init
         if project_config.as_ref().map_or(true, |pc| pc.mount_claude_config) {
-            // Check if MCP init already mounted claude config
-            let already_mounted = mcp_result.volumes.iter()
-                .any(|v| v.container_path == "/home/claude-user/.claude");
-            
-            if !already_mounted {
-                if let Some(home_dir) = dirs::home_dir() {
-                    let claude_box_auth_dir = home_dir.join(".claude-in-a-box/auth");
-                    if claude_box_auth_dir.exists() {
-                        *config = config.clone().with_volume(
-                            claude_box_auth_dir,
-                            "/home/claude-user/.claude".to_string(),
-                            true, // read-only for security
-                        );
-                        info!("Mounting claude-in-a-box auth credentials from ~/.claude-in-a-box/auth");
-                    } else {
-                        warn!("mount_claude_config is true but ~/.claude-in-a-box/auth not found - run 'claude-box auth' first");
-                    }
-                }
-            }
-            
-            // Mount claude-in-a-box .claude.json configuration file  
+            // Mount claude-in-a-box auth credentials if they exist
+            // We need to mount individual files to avoid overwriting the entire .claude directory
             if let Some(home_dir) = dirs::home_dir() {
-                let claude_box_json_path = home_dir.join(".claude-in-a-box/.claude.json");
-                if claude_box_json_path.exists() {
+                let credentials_path = home_dir.join(".claude-in-a-box/auth/.credentials.json");
+                if credentials_path.exists() {
                     *config = config.clone().with_volume(
-                        claude_box_json_path,
-                        "/home/claude-user/.claude.json".to_string(),
+                        credentials_path.clone(),
+                        "/home/claude-user/.claude/.credentials.json".to_string(),
+                        true, // read-only for security
+                    );
+                    info!("Mounting claude-in-a-box auth credentials from ~/.claude-in-a-box/auth/.credentials.json");
+                    
+                    // ALSO set OAuth token as environment variable for redundancy
+                    if let Ok(creds_content) = std::fs::read_to_string(&credentials_path) {
+                        if let Ok(creds_json) = serde_json::from_str::<serde_json::Value>(&creds_content) {
+                            if let Some(access_token) = creds_json
+                                .get("claudeAiOauth")
+                                .and_then(|oauth| oauth.get("accessToken"))
+                                .and_then(|token| token.as_str()) {
+                                info!("Found OAuth access token in credentials, setting CLAUDE_CODE_OAUTH_TOKEN environment variable");
+                                config.environment_vars.insert("CLAUDE_CODE_OAUTH_TOKEN".to_string(), access_token.to_string());
+                            }
+                        }
+                    }
+                } else {
+                    warn!("mount_claude_config is true but ~/.claude-in-a-box/auth/.credentials.json not found - run 'claude-box auth' first");
+                }
+                
+                // Check for .claude.json in the auth directory (created during OAuth)
+                let claude_json_auth_path = home_dir.join(".claude-in-a-box/auth/.claude.json");
+                if claude_json_auth_path.exists() {
+                    *config = config.clone().with_volume(
+                        claude_json_auth_path,
+                        "/home/claude-user/.claude.json".to_string(), // Mount to home directory for Claude CLI access
                         false, // read-write mount for Claude CLI organic updates (theme, etc.)
                     );
-                    info!("Mounting claude-in-a-box .claude.json for configuration");
+                    info!("Mounting claude-in-a-box .claude.json from auth directory to ~/.claude.json");
                 } else {
-                    info!("No claude-in-a-box .claude.json found - theme preferences will be set in container");
+                    info!("No .claude.json found in auth directory - theme preferences will be set in container");
                 }
                 
                 // Mount .env file if it exists for API key authentication
