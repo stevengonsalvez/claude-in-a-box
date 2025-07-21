@@ -180,6 +180,7 @@ impl AppState {
         
         let auth_dir = home_dir.join(".claude-in-a-box/auth");
         let has_credentials = auth_dir.join(".credentials.json").exists();
+        let has_claude_json = auth_dir.join(".claude.json").exists();
         let has_api_key = std::env::var("ANTHROPIC_API_KEY").is_ok();
         let has_env_file = home_dir.join(".claude-in-a-box/.env").exists();
         
@@ -194,7 +195,11 @@ impl AppState {
             false
         };
         
-        !has_credentials && !has_api_key && !has_env_api_key
+        // For OAuth authentication, we need BOTH .credentials.json AND .claude.json
+        let has_complete_oauth = has_credentials && has_claude_json;
+        
+        // Show auth screen if we don't have complete OAuth setup AND no API key alternatives
+        !has_complete_oauth && !has_api_key && !has_env_api_key
     }
 
     pub fn check_current_directory_status(&mut self) {
