@@ -13,6 +13,7 @@ pub enum AppEvent {
     PreviousWorkspace,
     ToggleHelp,
     RefreshWorkspaces,  // Manual refresh of workspace data
+    ToggleClaudeChat,   // Toggle Claude chat visibility
     NewSession,         // Create session in current directory
     SearchWorkspace,    // Search all workspaces
     AttachSession,
@@ -104,6 +105,11 @@ impl EventHandler {
             return Self::handle_non_git_notification_keys(key_event, state);
         }
 
+        // Handle Claude chat popup view
+        if state.current_view == View::ClaudeChat {
+            return Self::handle_claude_chat_keys(key_event, state);
+        }
+
         // Handle attached terminal view
         if state.current_view == View::AttachedTerminal {
             return Self::handle_attached_terminal_keys(key_event, state);
@@ -125,11 +131,12 @@ impl EventHandler {
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces),  // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
+            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
+            KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),  // Re-authenticate Claude credentials
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Tab => Some(AppEvent::SwitchToLogs),
-            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
             _ => None,
         }
     }
@@ -202,6 +209,29 @@ impl EventHandler {
         }
     }
     
+    fn handle_claude_chat_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        match key_event.code {
+            // Escape closes the Claude chat popup
+            KeyCode::Esc => Some(AppEvent::ToggleClaudeChat),
+            // Enter sends the message
+            KeyCode::Enter => {
+                // TODO: Add send message event
+                None
+            },
+            // Backspace for editing input
+            KeyCode::Backspace => {
+                // TODO: Add backspace handling
+                None
+            },
+            // All other characters are input to the chat
+            KeyCode::Char(ch) => {
+                // TODO: Add character input handling
+                None
+            },
+            _ => None,
+        }
+    }
+
     fn handle_auth_setup_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
         if let Some(ref auth_state) = state.auth_setup_state {
             // If we're inputting API key, handle text input
@@ -234,6 +264,7 @@ impl EventHandler {
         match event {
             AppEvent::Quit => state.quit(),
             AppEvent::ToggleHelp => state.toggle_help(),
+            AppEvent::ToggleClaudeChat => state.toggle_claude_chat(),
             AppEvent::RefreshWorkspaces => {
                 // Mark for async processing to reload workspace data
                 state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);

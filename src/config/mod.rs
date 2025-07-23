@@ -13,7 +13,7 @@ pub mod mcp;
 pub mod mcp_init;
 
 pub use container::{ContainerTemplate, ContainerTemplateConfig};
-pub use mcp::{McpServerConfig, McpServerDefinition, McpInitStrategy};
+pub use mcp::{McpServerConfig, McpInitStrategy};
 pub use mcp_init::{McpInitializer, McpInitResult, apply_mcp_init_result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

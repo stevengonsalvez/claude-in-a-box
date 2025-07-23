@@ -1,14 +1,14 @@
 // ABOUTME: Session loader that queries Docker containers and worktrees to load active sessions
 // Groups sessions by their source repository for display
 
-use crate::docker::{ContainerManager, ContainerStatus};
+use crate::docker::ContainerManager;
 use crate::git::WorktreeManager;
 use crate::models::{Session, SessionStatus, Workspace};
 use crate::config::AppConfig;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub struct SessionLoader {

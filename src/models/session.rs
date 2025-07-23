@@ -36,6 +36,7 @@ pub struct Session {
     pub created_at: DateTime<Utc>,
     pub last_accessed: DateTime<Utc>,
     pub git_changes: GitChanges,
+    pub recent_logs: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -74,6 +75,7 @@ impl Session {
             created_at: now,
             last_accessed: now,
             git_changes: GitChanges::default(),
+            recent_logs: None,
         }
     }
 

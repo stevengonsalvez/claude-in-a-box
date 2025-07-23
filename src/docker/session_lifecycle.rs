@@ -1,6 +1,6 @@
 // ABOUTME: Session lifecycle management that coordinates worktrees and Docker containers
 
-use super::{ContainerManager, SessionContainer, ContainerConfig, ContainerStatus, ClaudeDevManager, ClaudeDevConfig, ClaudeDevProgress, SessionProgress};
+use super::{ContainerManager, SessionContainer, ContainerConfig, ContainerStatus, ClaudeDevConfig, ClaudeDevProgress, SessionProgress};
 use crate::config::{AppConfig, ProjectConfig, ContainerTemplate, McpInitializer, apply_mcp_init_result};
 use crate::git::{WorktreeManager, WorktreeInfo};
 use crate::models::{Session, SessionStatus};

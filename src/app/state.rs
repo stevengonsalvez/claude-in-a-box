@@ -2,8 +2,15 @@
 
 use crate::models::{Session, Workspace};
 use crate::app::SessionLoader;
+use crate::claude::{ClaudeMessage, ClaudeApiClient};
+use crate::claude::client::ClaudeChatManager;
+use crate::claude::types::ClaudeStreamingEvent;
+use crate::components::live_logs_stream::LogEntry;
+use crate::docker::LogStreamingCoordinator;
 use std::collections::HashMap;
+use std::time::Instant;
 use uuid::Uuid;
+use chrono;
 use tracing::{warn, info, error};
 use tokio::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -19,6 +26,7 @@ pub enum View {
     NonGitNotification,
     AttachedTerminal,
     AuthSetup,  // New view for authentication setup
+    ClaudeChat, // Claude chat popup overlay
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +58,74 @@ pub struct AuthSetupState {
     pub show_cursor: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct ClaudeChatState {
+    pub messages: Vec<ClaudeMessage>,
+    pub input_buffer: String,
+    pub is_streaming: bool,
+    pub current_streaming_response: Option<String>,
+    pub associated_session_id: Option<Uuid>,
+    pub total_tokens_used: u32,
+    pub last_activity: chrono::DateTime<chrono::Utc>,
+}
+
+impl ClaudeChatState {
+    pub fn new() -> Self {
+        Self {
+            messages: Vec::new(),
+            input_buffer: String::new(),
+            is_streaming: false,
+            current_streaming_response: None,
+            associated_session_id: None,
+            total_tokens_used: 0,
+            last_activity: chrono::Utc::now(),
+        }
+    }
+
+    pub fn add_message(&mut self, message: ClaudeMessage) {
+        self.messages.push(message);
+        self.last_activity = chrono::Utc::now();
+    }
+
+    pub fn start_streaming(&mut self, user_message: String) {
+        self.add_message(ClaudeMessage::user(user_message));
+        self.is_streaming = true;
+        self.current_streaming_response = Some(String::new());
+        self.input_buffer.clear();
+        self.last_activity = chrono::Utc::now();
+    }
+
+    pub fn append_streaming_response(&mut self, text: &str) {
+        if let Some(ref mut response) = self.current_streaming_response {
+            response.push_str(text);
+        }
+        self.last_activity = chrono::Utc::now();
+    }
+
+    pub fn finish_streaming(&mut self) {
+        if let Some(response) = self.current_streaming_response.take() {
+            self.add_message(ClaudeMessage::assistant(response));
+        }
+        self.is_streaming = false;
+    }
+
+    pub fn clear_input(&mut self) {
+        self.input_buffer.clear();
+    }
+
+    pub fn add_char_to_input(&mut self, ch: char) {
+        if !self.is_streaming {
+            self.input_buffer.push(ch);
+        }
+    }
+
+    pub fn backspace_input(&mut self) {
+        if !self.is_streaming {
+            self.input_buffer.pop();
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct AppState {
     pub workspaces: Vec<Workspace>,
@@ -69,6 +145,9 @@ pub struct AppState {
     pub confirmation_dialog: Option<ConfirmationDialog>,
     // Flag to force UI refresh after workspace changes
     pub ui_needs_refresh: bool,
+    
+    // Claude chat visibility toggle
+    pub claude_chat_visible: bool,
     // Track if current directory is a git repository
     pub is_current_dir_git_repo: bool,
     // Track which session logs were last fetched to avoid unnecessary refetches
@@ -77,6 +156,20 @@ pub struct AppState {
     pub attached_session_id: Option<Uuid>,
     // Auth setup state
     pub auth_setup_state: Option<AuthSetupState>,
+    // Track when logs were last updated for each session
+    pub log_last_updated: HashMap<Uuid, std::time::Instant>,
+    // Track the last time we checked for log updates globally
+    pub last_log_check: Option<std::time::Instant>,
+    // Claude chat integration
+    pub claude_chat_state: Option<ClaudeChatState>,
+    // Live logs from Docker containers
+    pub live_logs: HashMap<Uuid, Vec<LogEntry>>,
+    // Claude API client manager (when initialized)
+    pub claude_manager: Option<ClaudeChatManager>,
+    // Docker log streaming coordinator
+    pub log_streaming_coordinator: Option<LogStreamingCoordinator>,
+    // Channel sender for log streaming
+    pub log_sender: Option<mpsc::UnboundedSender<(Uuid, LogEntry)>>,
 }
 
 #[derive(Debug)]
@@ -158,10 +251,18 @@ impl Default for AppState {
             async_operation_cancelled: false,
             confirmation_dialog: None,
             ui_needs_refresh: false,
+            claude_chat_visible: false,
             is_current_dir_git_repo: false,
             last_logs_session_id: None,
             attached_session_id: None,
             auth_setup_state: None,
+            log_last_updated: HashMap::new(),
+            last_log_check: None,
+            claude_chat_state: None,
+            live_logs: HashMap::new(),
+            claude_manager: None,
+            log_streaming_coordinator: None,
+            log_sender: None,
         }
     }
 }
@@ -169,6 +270,146 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Initialize Claude integration if authentication is available
+    pub async fn init_claude_integration(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        match ClaudeApiClient::load_auth_from_config() {
+            Ok(auth) => {
+                info!("Initializing Claude API integration");
+                match ClaudeApiClient::with_auth(auth) {
+                    Ok(client) => {
+                        // Test connection
+                        match client.test_connection().await {
+                            Ok(()) => {
+                                let mut manager = ClaudeChatManager::new(client);
+                                manager.create_session(None);
+                                self.claude_manager = Some(manager);
+                                self.claude_chat_state = Some(ClaudeChatState::new());
+                                info!("Claude integration initialized successfully");
+                                Ok(())
+                            }
+                            Err(e) => {
+                                warn!("Claude API connection test failed: {}", e);
+                                Err(format!("Claude API connection failed: {}", e).into())
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to create Claude API client: {}", e);
+                        Err(e.into())
+                    }
+                }
+            }
+            Err(e) => {
+                info!("Claude authentication not configured: {}", e);
+                // This is OK - user can set up auth later
+                Ok(())
+            }
+        }
+    }
+
+    /// Send a message to Claude
+    pub async fn send_claude_message(&mut self, message: String) -> Result<(), Box<dyn std::error::Error>> {
+        if let (Some(chat_state), Some(manager)) = (&mut self.claude_chat_state, &mut self.claude_manager) {
+            chat_state.start_streaming(message.clone());
+            
+            // Start streaming response
+            match manager.stream_message(&message).await {
+                Ok(mut stream) => {
+                    // Handle streaming response
+                    while let Some(event) = stream.next().await {
+                        match event {
+                            Ok(ClaudeStreamingEvent::ContentBlockDelta { delta, .. }) => {
+                                chat_state.append_streaming_response(&delta.text);
+                                self.ui_needs_refresh = true;
+                            }
+                            Ok(ClaudeStreamingEvent::MessageStop) => {
+                                chat_state.finish_streaming();
+                                self.ui_needs_refresh = true;
+                                break;
+                            }
+                            Ok(ClaudeStreamingEvent::Error { error }) => {
+                                error!("Claude API error: {}", error.message);
+                                chat_state.finish_streaming();
+                                return Err(format!("Claude error: {}", error.message).into());
+                            }
+                            Ok(_) => {
+                                // Other events - continue
+                            }
+                            Err(e) => {
+                                error!("Streaming error: {}", e);
+                                chat_state.finish_streaming();
+                                return Err(e.into());
+                            }
+                        }
+                    }
+                    Ok(())
+                }
+                Err(e) => {
+                    chat_state.is_streaming = false;
+                    Err(e.into())
+                }
+            }
+        } else {
+            Err("Claude integration not initialized".into())
+        }
+    }
+
+    /// Add a log entry to live logs
+    pub fn add_live_log(&mut self, session_id: Uuid, log_entry: LogEntry) {
+        self.live_logs.entry(session_id).or_insert_with(Vec::new).push(log_entry);
+        
+        // Limit log entries to prevent memory issues (keep last 1000)
+        if let Some(logs) = self.live_logs.get_mut(&session_id) {
+            if logs.len() > 1000 {
+                logs.drain(0..logs.len() - 1000);
+            }
+        }
+        
+        self.ui_needs_refresh = true;
+    }
+    
+    /// Start log streaming for a session when it becomes active
+    pub async fn start_log_streaming_for_session(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(coordinator) = &mut self.log_streaming_coordinator {
+            // Find the session to get container info
+            let session_info = self.workspaces
+                .iter()
+                .flat_map(|w| &w.sessions)
+                .find(|s| s.id == session_id)
+                .and_then(|s| {
+                    s.container_id.clone().map(|container_id| {
+                        (container_id, format!("{}-{}", s.name, s.branch_name))
+                    })
+                });
+            
+            if let Some((container_id, container_name)) = session_info {
+                info!("Starting log streaming for session {} (container: {})", session_id, container_id);
+                coordinator.start_streaming(session_id, container_id, container_name).await?;
+            }
+        }
+        Ok(())
+    }
+    
+    /// Stop log streaming for a session when it becomes inactive
+    pub async fn stop_log_streaming_for_session(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(coordinator) = &mut self.log_streaming_coordinator {
+            info!("Stopping log streaming for session {}", session_id);
+            coordinator.stop_streaming(session_id).await?;
+        }
+        Ok(())
+    }
+
+    /// Clear live logs for a session
+    pub fn clear_live_logs(&mut self, session_id: Uuid) {
+        self.live_logs.remove(&session_id);
+        self.ui_needs_refresh = true;
+    }
+
+    /// Get total live log count across all sessions
+    pub fn total_live_log_count(&self) -> usize {
+        self.live_logs.values().map(|logs| logs.len()).sum()
     }
     
     /// Check if this is first time setup (no auth configured)
@@ -407,6 +648,18 @@ impl AppState {
     pub fn toggle_help(&mut self) {
         self.help_visible = !self.help_visible;
     }
+    
+    pub fn toggle_claude_chat(&mut self) {
+        if self.current_view == View::ClaudeChat {
+            // Close Claude chat popup and return to main view
+            self.current_view = View::SessionList;
+            self.claude_chat_visible = false;
+        } else {
+            // Open Claude chat popup
+            self.current_view = View::ClaudeChat;
+            self.claude_chat_visible = true;
+        }
+    }
 
     pub fn quit(&mut self) {
         self.should_quit = true;
@@ -461,10 +714,10 @@ impl AppState {
             
             match status {
                 crate::docker::ContainerStatus::Running => {
-                    // Start Claude CLI directly using docker exec with proper terminal handling
+                    // Start an interactive bash shell instead of Claude CLI directly
+                    // This gives users more flexibility to run claude when needed
                     let exec_command = vec![
-                        "claude".to_string(),
-                        "--dangerously-skip-permissions".to_string(),
+                        "/bin/bash".to_string(),
                     ];
                     
                     match container_manager.exec_interactive_blocking(&container_id, exec_command).await {
@@ -572,11 +825,58 @@ impl AppState {
         }
     }
 
+    /// Fetch Claude-specific logs from the container
+    pub async fn fetch_claude_logs(&mut self, session_id: Uuid) -> Result<String, Box<dyn std::error::Error>> {
+        use crate::docker::ContainerManager;
+        
+        // Find the session to get container ID and update recent_logs
+        let container_id = self.workspaces
+            .iter_mut()
+            .flat_map(|w| &mut w.sessions)
+            .find(|s| s.id == session_id)
+            .and_then(|s| {
+                let id = s.container_id.clone();
+                // We'll update recent_logs after fetching
+                id
+            });
+        
+        if let Some(container_id) = container_id {
+            let container_manager = ContainerManager::new().await?;
+            let logs = container_manager.tail_logs(&container_id, 20).await?;
+            
+            // Update the session's recent_logs field
+            if let Some(session) = self.workspaces
+                .iter_mut()
+                .flat_map(|w| &mut w.sessions)
+                .find(|s| s.id == session_id) {
+                session.recent_logs = Some(logs.clone());
+            }
+            
+            Ok(logs)
+        } else {
+            Ok("No container associated with this session".to_string())
+        }
+    }
+
     pub async fn new_session_in_current_dir(&mut self) {
         use crate::git::WorkspaceScanner;
         use std::env;
         
         info!("Starting new session in current directory");
+        
+        // Check if authentication is set up first
+        if Self::is_first_time_setup() {
+            info!("Authentication not set up, switching to auth setup view");
+            self.current_view = View::AuthSetup;
+            self.auth_setup_state = Some(AuthSetupState {
+                selected_method: AuthMethod::OAuth,
+                api_key_input: String::new(),
+                is_processing: false,
+                error_message: Some("Authentication required before creating sessions.\n\nPlease set up Claude authentication to continue.".to_string()),
+                show_cursor: false,
+            });
+            return;
+        }
         
         // Check if current directory is a git repository
         let current_dir = match env::current_dir() {
@@ -802,6 +1102,22 @@ impl AppState {
     }
 
     pub async fn new_session_create(&mut self) {
+        // Check if authentication is set up first
+        if Self::is_first_time_setup() {
+            info!("Authentication not set up, switching to auth setup view");
+            self.current_view = View::AuthSetup;
+            self.auth_setup_state = Some(AuthSetupState {
+                selected_method: AuthMethod::OAuth,
+                api_key_input: String::new(),
+                is_processing: false,
+                error_message: Some("Authentication required before creating sessions.\n\nPlease set up Claude authentication to continue.".to_string()),
+                show_cursor: false,
+            });
+            // Clear new session state
+            self.new_session_state = None;
+            return;
+        }
+
         let (repo_path, branch_name, session_id) = {
             if let Some(ref mut state) = self.new_session_state {
                 if state.step == NewSessionStep::InputBranch {
@@ -830,6 +1146,12 @@ impl AppState {
                 info!("Session created successfully");
                 // Reload workspaces BEFORE switching view to ensure UI shows new session immediately
                 self.load_real_workspaces().await;
+                
+                // Start log streaming for the newly created session
+                if let Err(e) = self.start_log_streaming_for_session(session_id).await {
+                    warn!("Failed to start log streaming for session {}: {}", session_id, e);
+                }
+                
                 // Force UI refresh to show new session immediately
                 self.ui_needs_refresh = true;
                 self.cancel_new_session();
@@ -1374,6 +1696,19 @@ impl App {
     }
 
     pub async fn init(&mut self) {
+        // Initialize log streaming coordinator
+        let (mut coordinator, log_sender) = LogStreamingCoordinator::new();
+        
+        // Initialize the streaming manager inside the coordinator
+        if let Err(e) = coordinator.init_manager(log_sender.clone()) {
+            warn!("Failed to initialize log streaming manager: {}", e);
+        } else {
+            info!("Log streaming coordinator initialized successfully");
+        }
+        
+        self.state.log_streaming_coordinator = Some(coordinator);
+        self.state.log_sender = Some(log_sender);
+        
         // Check if this is first time setup
         if AppState::is_first_time_setup() {
             self.state.current_view = View::AuthSetup;
@@ -1385,12 +1720,63 @@ impl App {
                 show_cursor: false,
             });
         } else {
+            // Initialize Claude integration
+            if let Err(e) = self.state.init_claude_integration().await {
+                warn!("Failed to initialize Claude integration: {}", e);
+            }
+            
             self.state.check_current_directory_status();
             self.state.load_real_workspaces().await;
+            
+            // Start log streaming for any running sessions
+            if let Err(e) = self.init_log_streaming_for_sessions().await {
+                warn!("Failed to initialize log streaming for existing sessions: {}", e);
+            }
         }
     }
 
+    /// Initialize log streaming for all running sessions
+    async fn init_log_streaming_for_sessions(&mut self) -> anyhow::Result<()> {
+        if let Some(coordinator) = &mut self.state.log_streaming_coordinator {
+            // Collect session info for streaming
+            let sessions: Vec<(Uuid, String, String)> = self.state.workspaces
+                .iter()
+                .flat_map(|w| &w.sessions)
+                .filter(|s| s.status == crate::models::SessionStatus::Running)
+                .filter_map(|s| {
+                    s.container_id.clone().map(|container_id| {
+                        (s.id, container_id, format!("{}-{}", s.name, s.branch_name))
+                    })
+                })
+                .collect();
+            
+            if !sessions.is_empty() {
+                info!("Starting log streaming for {} running sessions", sessions.len());
+                for (session_id, container_id, container_name) in &sessions {
+                    if let Err(e) = coordinator.start_streaming(*session_id, container_id.clone(), container_name.clone()).await {
+                        warn!("Failed to start log streaming for session {}: {}", session_id, e);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub async fn tick(&mut self) -> anyhow::Result<()> {
+        // Process incoming log entries (non-blocking)
+        let mut log_entries = Vec::new();
+        if let Some(coordinator) = &mut self.state.log_streaming_coordinator {
+            // Collect all available log entries without blocking
+            while let Some((session_id, log_entry)) = coordinator.try_next_log() {
+                log_entries.push((session_id, log_entry));
+            }
+        }
+        
+        // Add log entries to the state
+        for (session_id, log_entry) in log_entries {
+            self.state.add_live_log(session_id, log_entry);
+        }
+        
         // Process any pending async actions
         match self.state.process_async_action().await {
             Ok(()) => {},
@@ -1403,8 +1789,38 @@ impl App {
             }
         }
         
-        
         // Update logic for the app (e.g., refresh container status)
+        
+        // Periodic log updates for attached sessions
+        let now = Instant::now();
+        let should_update_logs = self.state.last_log_check
+            .map(|last| now.duration_since(last).as_secs() >= 3) // Update every 3 seconds
+            .unwrap_or(true); // First time
+
+        if should_update_logs {
+            self.state.last_log_check = Some(now);
+            
+            // If we have an attached session, fetch its logs
+            if let Some(attached_id) = self.state.attached_session_id {
+                // Check if we should update this session's logs (don't spam updates)
+                let should_update_session = self.state.log_last_updated
+                    .get(&attached_id)
+                    .map(|last| now.duration_since(*last).as_secs() >= 2) // Update session logs every 2 seconds
+                    .unwrap_or(true);
+                    
+                if should_update_session {
+                    // Fetch logs in the background (don't block the UI)
+                    if let Err(e) = self.state.fetch_claude_logs(attached_id).await {
+                        warn!("Failed to fetch logs for session {}: {}", attached_id, e);
+                    } else {
+                        self.state.log_last_updated.insert(attached_id, now);
+                        // Set flag to refresh UI with new logs
+                        self.state.ui_needs_refresh = true;
+                    }
+                }
+            }
+        }
+        
         Ok(())
     }
 

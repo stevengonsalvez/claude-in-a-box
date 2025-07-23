@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y \
     man-db \
     unzip \
     gnupg2 \
+    tmux \
     # Network and system tools
     iptables \
     ipset \
@@ -66,7 +67,7 @@ RUN if getent group ${HOST_GID} >/dev/null 2>&1; then \
         usermod -l claude-user -d /home/claude-user -m $(getent passwd ${HOST_UID} | cut -d: -f1) && \
         usermod -g ${HOST_GID} claude-user; \
     else \
-        useradd -u ${HOST_UID} -g ${HOST_GID} -m -s /bin/zsh claude-user; \
+        useradd -u ${HOST_UID} -g ${HOST_GID} -m -s /bin/bash claude-user; \
     fi && \
     echo "claude-user ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 
@@ -89,15 +90,9 @@ RUN npm config set prefix '/home/claude-user/.npm-global' && \
     echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> ~/.bashrc && \
     echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> ~/.zshrc
 
-# Install oh-my-zsh and configure zsh
-RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v1.2.0/zsh-in-docker.sh)" -- \
-    -p git \
-    -p fzf \
-    -a "source /usr/share/doc/fzf/examples/key-bindings.zsh" \
-    -a "source /usr/share/doc/fzf/examples/completion.zsh" \
-    -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-    -a "export PATH=/home/claude-user/.npm-global/bin:$PATH" \
-    -x
+# Configure bash shell (skip zsh for now to avoid space issues)
+RUN echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> /home/claude-user/.bashrc && \
+    echo 'export HISTFILE=/home/claude-user/.bash_history' >> /home/claude-user/.bashrc
 
 # Install Supabase CLI from GitHub releases (multi-arch support)
 RUN ARCH=$(dpkg --print-architecture | sed 's/aarch64/arm64/') && \
@@ -111,6 +106,11 @@ COPY --chown=claude-user:claude-user config/ /app/config/
 
 # Make scripts executable
 RUN chmod +x /app/scripts/*.sh
+
+# Copy custom bashrc for interactive sessions
+COPY --chown=claude-user:claude-user scripts/session-bashrc.sh /home/claude-user/.claude-box-bashrc
+RUN echo "# Source Claude-in-a-Box custom bashrc if in interactive session" >> /home/claude-user/.bashrc && \
+    echo '[ -f ~/.claude-box-bashrc ] && [ -n "$PS1" ] && source ~/.claude-box-bashrc' >> /home/claude-user/.bashrc
 
 # Install Claude CLI
 ENV PATH="/home/claude-user/.npm-global/bin:$PATH"
@@ -129,6 +129,9 @@ RUN /app/scripts/install-mcp-servers-simple.sh
 
 # Set working directory to workspace mount point
 WORKDIR /workspace
+
+# Switch back to claude-user for runtime
+USER claude-user
 
 # Default command runs the startup script which handles Claude execution
 ENTRYPOINT ["/app/scripts/startup.sh"]

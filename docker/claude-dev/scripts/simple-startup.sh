@@ -1,6 +1,6 @@
 #!/bin/bash
-# ABOUTME: Startup script for claude-dev container
-# Handles environment setup, authentication, and CLI initialization
+# ABOUTME: Simplified startup script that prepares the environment without auto-starting Claude
+# This avoids complex tmux nesting issues while providing excellent UX
 
 set -e
 
@@ -35,17 +35,9 @@ if [ -f /app/.env ]; then
     set +a
 fi
 
-# Check if we're in claude-box mode
-if [ "${CLAUDE_BOX_MODE}" = "true" ]; then
-    log "Running in claude-box mode"
-fi
-
 # Check for existing authentication (multiple sources)
 AUTH_OK=false
 AUTH_SOURCES=()
-
-# Handle authentication for parallel sessions
-# Priority: 1. Mounted .claude.json (OAuth tokens), 2. Environment variable, 3. Credentials file
 
 # Check for mounted .claude.json first (OAuth tokens from Claude Max)
 if [ -f /home/claude-user/.claude.json ] && [ -s /home/claude-user/.claude.json ]; then
@@ -65,16 +57,16 @@ if [ "${AUTH_OK}" = "false" ] && [ -f /home/claude-user/.claude/.credentials.jso
 fi
 
 if [ "${AUTH_OK}" = "true" ]; then
-    log "Found Claude authentication via: ${AUTH_SOURCES[*]}"
+    success "Found Claude authentication via: ${AUTH_SOURCES[*]}"
 else
     warn "No Claude authentication found!"
     warn "Please ensure one of:"
-    warn "  1. Run 'claude-box auth' to set up authentication"
-    warn "  2. Have ~/.claude-in-a-box/auth/.credentials.json (mounted to /home/claude-user/.claude/.credentials.json)"
-    warn "  3. Set ANTHROPIC_API_KEY in environment"
+    warn "  1. Set ANTHROPIC_API_KEY environment variable"
+    warn "  2. Mount ~/.claude.json to /home/claude-user/.claude.json"
+    warn "  3. Have a valid .credentials.json file"
 fi
 
-# Create .claude directory if it doesn't exist (unless it's already mounted)
+# Create .claude directory if it doesn't exist
 if [ ! -d /home/claude-user/.claude ]; then
     mkdir -p /home/claude-user/.claude
 fi
@@ -91,13 +83,9 @@ if [ -n "${GITHUB_TOKEN}" ]; then
     # Test gh CLI connection
     if gh auth status > /dev/null 2>&1; then
         success "GitHub CLI authenticated successfully"
-        log "Available commands: gh issue list, gh pr list, gh repo view, etc."
     else
         warn "GitHub CLI authentication failed"
     fi
-else
-    warn "GITHUB_TOKEN not found - GitHub CLI and token-based git auth unavailable"
-    log "SSH keys will be used for git operations if available"
 fi
 
 # Copy CLAUDE.md template if it doesn't exist in workspace
@@ -107,46 +95,32 @@ if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
 fi
 
 # Ensure theme preferences are set to avoid Claude CLI theme prompt
-# Check if theme is already configured
 if ! claude config get -g theme >/dev/null 2>&1; then
     log "Setting default theme to avoid theme selection prompt"
     claude config set -g theme dark
-else
-    log "Theme already configured: $(claude config get -g theme 2>/dev/null || echo 'unknown')"
 fi
 
-# Set trust dialog to accepted to avoid prompts when using --dangerously-skip-permissions
-log "Setting trust dialog acceptance to avoid permission prompts"
-claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
+# Set trust dialog to accepted
+claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || true
 
-# Determine which CLI to use (adapted from claude-docker startup.sh)
-CLI_CMD="claude"
-CLI_ARGS="$CLAUDE_CONTINUE_FLAG"
+# Create log directory
+mkdir -p /workspace/.claude-box/logs
 
-log "Using Claude CLI with args: $CLI_ARGS"
+# Prepare the claude session (but don't start it)
+log "Environment prepared. Claude CLI is ready to use!"
+if [ "${AUTH_OK}" = "true" ]; then
+    success "✅ Authentication detected - Claude will work immediately"
+    success "📝 Run 'claude-start' to begin chatting with Claude"
+else
+    warn "⚠️  No authentication detected - Claude won't work until you provide credentials"
+    warn "📝 Set ANTHROPIC_API_KEY or mount authentication files"
+fi
 
-# If no command specified, run interactive shell
+# If no command specified, start an interactive shell
 if [ $# -eq 0 ]; then
-    # Create log directory
-    mkdir -p /workspace/.claude-box/logs
-    
-    success "Container environment ready!"
-    if [ "${AUTH_OK}" = "true" ]; then
-        success "✅ Authentication detected - Claude will work immediately"
-        success "📝 Just type 'claude' or 'claude-start' to begin chatting"
-    else
-        warn "⚠️  No authentication detected"
-        warn "📝 Set ANTHROPIC_API_KEY or mount authentication files"
-    fi
-    
-    log "Starting interactive shell..."
-    # Use sleep infinity to keep container running when not attached to TTY
-    if [ -t 0 ]; then
-        exec bash
-    else
-        log "No TTY detected, keeping container alive..."
-        exec sleep infinity
-    fi
+    success "Starting interactive shell..."
+    success "Type 'claude-start' to begin using Claude!"
+    exec bash
 else
     # Run the specified command
     log "Running command: $*"
