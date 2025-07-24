@@ -3,8 +3,8 @@
 use crate::app::AppState;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, Paragraph},
-    style::{Color, Style, Modifier},
+    widgets::{Block, Borders, Paragraph, Wrap},
+    style::{Color, Style},
 };
 
 pub struct LiveLogsStreamComponent {
@@ -63,11 +63,18 @@ impl LiveLogsStreamComponent {
         
         let title = self.build_title(state, filtered_logs.len(), session_logs.len());
         
+        // Show focus indicator
+        use crate::app::state::FocusedPane;
+        let (border_color, title_color) = match state.focused_pane {
+            FocusedPane::LiveLogs => (Color::Cyan, Color::Yellow), // Focused
+            FocusedPane::Sessions => (Color::Gray, Color::Blue),   // Not focused
+        };
+        
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
-            .title_style(Style::default().fg(Color::Blue))
-            .border_style(Style::default().fg(Color::Gray));
+            .title_style(Style::default().fg(title_color))
+            .border_style(Style::default().fg(border_color));
 
         if filtered_logs.is_empty() {
             let empty_message = match self.filter_level {
@@ -85,22 +92,23 @@ impl LiveLogsStreamComponent {
             return;
         }
 
-        // Create list items from logs
-        let log_items = self.create_log_items(&filtered_logs);
+        // Create formatted log text with proper wrapping
+        let log_text = self.create_log_text(&filtered_logs, area.width.saturating_sub(2));
         
-        let list = List::new(log_items)
+        let scroll_pos = self.get_scroll_position(&filtered_logs);
+        
+        let paragraph = Paragraph::new(log_text)
             .block(block)
-            .highlight_style(Style::default().add_modifier(Modifier::BOLD));
+            .wrap(Wrap { trim: false })
+            .scroll((scroll_pos as u16, 0));
 
-        frame.render_widget(list, area);
+        frame.render_widget(paragraph, area);
 
         // Render controls hint
         self.render_controls_hint(frame, area);
-
-        // Auto-scroll to bottom if enabled
-        if self.auto_scroll && !filtered_logs.is_empty() {
-            self.scroll_to_bottom(filtered_logs.len());
-        }
+        
+        // Update max visible lines based on actual area
+        self.max_visible_lines = (area.height.saturating_sub(4)) as usize;
     }
 
     fn get_session_logs(&self, state: &AppState) -> Vec<LogEntry> {
@@ -165,28 +173,40 @@ impl LiveLogsStreamComponent {
         format!("🔴 Live Logs{}{}{}", session_info, filter_info, count_info)
     }
 
-    fn create_log_items(&self, logs: &[&LogEntry]) -> Vec<ListItem> {
-        let start_idx = if self.auto_scroll {
-            logs.len().saturating_sub(self.max_visible_lines)
+    fn create_log_text(&self, logs: &[&LogEntry], available_width: u16) -> String {
+        // Don't skip any logs here - let the Paragraph widget handle scrolling
+        logs.iter()
+            .map(|log| self.format_log_entry_wrapped(log, available_width))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+    
+    fn get_scroll_position(&self, logs: &[&LogEntry]) -> usize {
+        if self.auto_scroll {
+            // Calculate total lines needed for all logs (rough estimate assuming wrapping)
+            let total_lines: usize = logs.iter()
+                .map(|log| {
+                    // Estimate lines needed based on message length
+                    let msg_len = self.format_log_entry_wrapped(log, 80).len();
+                    (msg_len / 80).max(1)
+                })
+                .sum();
+            
+            // Scroll to show the bottom portion of logs
+            total_lines.saturating_sub(self.max_visible_lines)
         } else {
             self.scroll_offset
-        };
-
-        logs.iter()
-            .skip(start_idx)
-            .take(self.max_visible_lines)
-            .map(|log| self.format_log_entry(log))
-            .collect()
+        }
     }
 
-    fn format_log_entry(&self, log: &LogEntry) -> ListItem {
+    fn format_log_entry_wrapped(&self, log: &LogEntry, _available_width: u16) -> String {
         let timestamp_str = if self.show_timestamps {
             format!("[{}] ", log.timestamp.format("%H:%M:%S"))
         } else {
             String::new()
         };
 
-        let (level_icon, level_color) = match log.level {
+        let (level_icon, _level_color) = match log.level {
             LogEntryLevel::Debug => ("🔍", Color::DarkGray),
             LogEntryLevel::Info => ("ℹ️", Color::Blue),
             LogEntryLevel::Warn => ("⚠️", Color::Yellow),
@@ -199,15 +219,10 @@ impl LiveLogsStreamComponent {
             String::new()
         };
 
-        let content = format!("{}{} {}{}", 
-            timestamp_str, 
-            level_icon,
-            source_str,
-            log.message
-        );
-
-        ListItem::new(content).style(Style::default().fg(level_color))
+        // Format the complete log entry without truncation
+        format!("{}{} {}{}", timestamp_str, level_icon, source_str, log.message)
     }
+
 
     fn render_controls_hint(&self, frame: &mut Frame, area: Rect) {
         if area.height < 4 {
@@ -250,25 +265,33 @@ impl LiveLogsStreamComponent {
 
     /// Scroll up manually
     pub fn scroll_up(&mut self) {
-        if !self.auto_scroll && self.scroll_offset > 0 {
+        self.auto_scroll = false; // Disable auto-scroll when manually scrolling
+        if self.scroll_offset > 0 {
             self.scroll_offset -= 1;
         }
     }
 
     /// Scroll down manually
-    pub fn scroll_down(&mut self, total_logs: usize) {
-        if !self.auto_scroll && self.scroll_offset + self.max_visible_lines < total_logs {
-            self.scroll_offset += 1;
-        }
+    pub fn scroll_down(&mut self, _total_logs: usize) {
+        self.auto_scroll = false; // Disable auto-scroll when manually scrolling
+        // No upper limit check - the Paragraph widget will handle bounds
+        self.scroll_offset += 1;
     }
 
     /// Scroll to bottom
     pub fn scroll_to_bottom(&mut self, total_logs: usize) {
+        self.auto_scroll = true; // Re-enable auto-scroll when going to bottom
         self.scroll_offset = if total_logs > self.max_visible_lines {
             total_logs - self.max_visible_lines
         } else {
             0
         };
+    }
+    
+    /// Scroll to top
+    pub fn scroll_to_top(&mut self) {
+        self.auto_scroll = false; // Disable auto-scroll when going to top
+        self.scroll_offset = 0;
     }
 
     /// Update max visible lines based on area height

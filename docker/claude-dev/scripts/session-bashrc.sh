@@ -24,12 +24,11 @@ echo "║                                                                  ║"
 echo "║  🚀 Claude CLI is ready to use!                                 ║"
 echo "║                                                                  ║"
 echo "║  Quick Commands:                                                 ║"
-echo "║  • claude-start        - Start/attach to Claude session         ║"
-echo "║  • claude              - Shortcut for claude-start              ║"
+echo "║  • claude-ask \"question\" - Ask Claude (logged to TUI)           ║"
+echo "║  • claude-start        - Start interactive Claude session       ║"
+echo "║  • claude-help         - Show all Claude commands               ║"
 echo "║  • claude-logs         - View live Claude output                ║"
 echo "║  • claude-status       - Check Claude session status            ║"
-echo "║  • claude-restart      - Restart Claude session                 ║"
-echo "║  • claude-stop         - Stop Claude session                    ║"
 echo "║  • exit                - Exit shell (Claude keeps running)      ║"
 echo "║                                                                  ║"
 echo "║  Tmux Controls (when attached to Claude):                       ║"
@@ -53,6 +52,11 @@ alias cls='clear'
 alias ll='ls -la'
 alias status='docker ps'
 
+# Source Claude logging commands if available
+if [ -f /app/scripts/claude-commands.sh ]; then
+    source /app/scripts/claude-commands.sh
+fi
+
 # Claude session management functions
 claude-start() {
     /app/scripts/claude-session-manager.sh attach
@@ -74,10 +78,26 @@ claude-stop() {
     /app/scripts/claude-session-manager.sh stop
 }
 
-# Alias for quick access
-alias claude='claude-start'
+# Create a wrapper function for claude that respects CLAUDE_CONTINUE_FLAG
+claude() {
+    if [ "$1" = "--help" ] || [ "$1" = "--version" ] || [ "$1" = "config" ] || [ "$1" = "auth" ] || [ "$1" = "mcp" ]; then
+        # For configuration commands, call claude directly without flags
+        /home/claude-user/.npm-global/bin/claude "$@"
+    else
+        # For interactive/chat commands, use the continue flag
+        if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
+            eval "/home/claude-user/.npm-global/bin/claude $CLAUDE_CONTINUE_FLAG \"\$@\""
+        else
+            /home/claude-user/.npm-global/bin/claude "$@"
+        fi
+    fi
+}
+
+# Alias for interactive session management (restored functionality)
+alias claude-interactive='claude-start'
 
 # Export functions so they're available in the shell
+export -f claude
 export -f claude-start
 export -f claude-logs
 export -f claude-restart

@@ -50,6 +50,7 @@ pub struct SessionRequest {
     pub branch_name: String,
     pub base_branch: Option<String>,
     pub container_config: Option<ContainerConfig>,
+    pub skip_permissions: bool,
 }
 
 impl SessionLifecycleManager {
@@ -118,9 +119,10 @@ impl SessionLifecycleManager {
         info!("Created worktree at: {}", worktree_info.path.display());
 
         // Create session model
-        let mut session = Session::new(
+        let mut session = Session::new_with_options(
             format!("{}-{}", request.workspace_name, request.branch_name),
             request.workspace_path.to_string_lossy().to_string(),
+            request.skip_permissions,
         );
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
@@ -133,6 +135,7 @@ impl SessionLifecycleManager {
             force_rebuild: false,
             no_cache: false,
             continue_session: false,
+            skip_permissions: request.skip_permissions,
             env_vars: std::collections::HashMap::new(),
         };
 
@@ -472,7 +475,7 @@ impl SessionLifecycleManager {
         let mut container_config = self.create_base_container_config(&template, &worktree_info, &progress_sender).await?;
         
         // Step 4: Apply project-specific overrides
-        self.apply_project_overrides(&mut container_config, &project_config, &progress_sender).await?;
+        self.apply_project_overrides(&mut container_config, &project_config, &request, &progress_sender).await?;
         
         // Step 5: Initialize MCP servers
         let mcp_result = self.initialize_mcp_servers(&mut container_config, &request, &project_config, &progress_sender).await?;
@@ -586,11 +589,25 @@ impl SessionLifecycleManager {
         &self,
         config: &mut ContainerConfig,
         project_config: &Option<ProjectConfig>,
+        request: &SessionRequest,
         _progress_sender: &Option<mpsc::Sender<SessionProgress>>
     ) -> Result<(), SessionLifecycleError> {
         if let Some(project_config) = project_config {
             self.apply_project_config(config, project_config);
         }
+        
+        // Apply skip_permissions flag if requested
+        if request.skip_permissions {
+            let current_flag = config.environment_vars.get("CLAUDE_CONTINUE_FLAG").cloned().unwrap_or_default();
+            let new_flag = if current_flag.is_empty() {
+                "--dangerously-skip-permissions".to_string()
+            } else {
+                format!("{} --dangerously-skip-permissions", current_flag)
+            };
+            config.environment_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), new_flag);
+            info!("Added --dangerously-skip-permissions flag to session {}", request.session_id);
+        }
+        
         Ok(())
     }
     
@@ -753,9 +770,10 @@ impl SessionLifecycleManager {
         container: SessionContainer,
         worktree_info: WorktreeInfo,
     ) -> Result<SessionState, SessionLifecycleError> {
-        let mut session = Session::new(
+        let mut session = Session::new_with_options(
             format!("{}-{}", request.workspace_name, request.branch_name),
             request.workspace_path.to_string_lossy().to_string(),
+            request.skip_permissions,
         );
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
@@ -788,6 +806,7 @@ impl SessionRequest {
             branch_name,
             base_branch: None,
             container_config: None,
+            skip_permissions: false,
         }
     }
 
@@ -816,6 +835,7 @@ impl SessionRequest {
             branch_name,
             base_branch: None,
             container_config: None, // Will use "claude-dev" template by default
+            skip_permissions: false,
         }
     }
     

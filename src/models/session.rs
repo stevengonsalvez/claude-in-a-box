@@ -37,6 +37,7 @@ pub struct Session {
     pub last_accessed: DateTime<Utc>,
     pub git_changes: GitChanges,
     pub recent_logs: Option<String>,
+    pub skip_permissions: bool,  // Whether to use --dangerously-skip-permissions flag
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -62,6 +63,10 @@ impl GitChanges {
 
 impl Session {
     pub fn new(name: String, workspace_path: String) -> Self {
+        Self::new_with_options(name, workspace_path, false)
+    }
+
+    pub fn new_with_options(name: String, workspace_path: String, skip_permissions: bool) -> Self {
         let now = Utc::now();
         let branch_name = format!("claude/{}", name.replace(' ', "-").to_lowercase());
         
@@ -76,6 +81,7 @@ impl Session {
             last_accessed: now,
             git_changes: GitChanges::default(),
             recent_logs: None,
+            skip_permissions,
         }
     }
 

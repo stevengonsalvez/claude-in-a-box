@@ -28,6 +28,8 @@ pub struct ClaudeDevConfig {
     pub no_cache: bool,
     /// Whether to continue from last session
     pub continue_session: bool,
+    /// Whether to skip permission prompts
+    pub skip_permissions: bool,
     /// Environment variables to pass to container
     pub env_vars: HashMap<String, String>,
 }
@@ -41,6 +43,7 @@ impl Default for ClaudeDevConfig {
             force_rebuild: false,
             no_cache: false,
             continue_session: false,
+            skip_permissions: false,
             env_vars: HashMap::new(),
         }
     }
@@ -285,6 +288,17 @@ impl ClaudeDevManager {
         // Add continue flag if requested
         if self.config.continue_session {
             env_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), "--continue".to_string());
+        }
+        
+        // Add dangerously-skip-permissions flag if requested
+        if self.config.skip_permissions {
+            let current_flag = env_vars.get("CLAUDE_CONTINUE_FLAG").cloned().unwrap_or_default();
+            let new_flag = if current_flag.is_empty() {
+                "--dangerously-skip-permissions".to_string()
+            } else {
+                format!("{} --dangerously-skip-permissions", current_flag)
+            };
+            env_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), new_flag);
         }
         
         // Setup volume mounts

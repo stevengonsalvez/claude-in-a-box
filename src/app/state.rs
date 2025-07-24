@@ -16,6 +16,12 @@ use tokio::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FocusedPane {
+    Sessions,    // Left pane - workspace/session list
+    LiveLogs,    // Right pane - live logs
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum View {
     SessionList,
     Logs,
@@ -148,6 +154,9 @@ pub struct AppState {
     
     // Claude chat visibility toggle
     pub claude_chat_visible: bool,
+    
+    // Focus management for panes
+    pub focused_pane: FocusedPane,
     // Track if current directory is a git repository
     pub is_current_dir_git_repo: bool,
     // Track which session logs were last fetched to avoid unnecessary refetches
@@ -181,6 +190,7 @@ pub struct NewSessionState {
     pub step: NewSessionStep,
     pub filter_text: String,
     pub is_current_dir_mode: bool, // true if creating session in current dir
+    pub skip_permissions: bool, // true to use --dangerously-skip-permissions flag
 }
 
 impl NewSessionState {
@@ -217,6 +227,7 @@ impl NewSessionState {
 pub enum NewSessionStep {
     SelectRepo,
     InputBranch,
+    ConfigurePermissions,
     Creating,
 }
 
@@ -252,6 +263,7 @@ impl Default for AppState {
             confirmation_dialog: None,
             ui_needs_refresh: false,
             claude_chat_visible: false,
+            focused_pane: FocusedPane::Sessions,
             is_current_dir_git_repo: false,
             last_logs_session_id: None,
             attached_session_id: None,
@@ -922,6 +934,7 @@ impl AppState {
             step: NewSessionStep::InputBranch,  // Skip repo selection
             filter_text: String::new(),
             is_current_dir_mode: true,
+            skip_permissions: false,
         });
         
         self.current_view = View::NewSession;
@@ -968,6 +981,7 @@ impl AppState {
                             step: NewSessionStep::SelectRepo,
                             filter_text: String::new(),
                             is_current_dir_mode: false,
+                            skip_permissions: false,
                         });
                         
                         self.current_view = View::SearchWorkspace;
@@ -984,6 +998,7 @@ impl AppState {
                             step: NewSessionStep::SelectRepo,
                             filter_text: String::new(),
                             is_current_dir_mode: false,
+                            skip_permissions: false,
                         });
                         self.current_view = View::SearchWorkspace;
                         info!("Transitioned to SearchWorkspace view with empty state due to error");
@@ -1001,6 +1016,7 @@ impl AppState {
                     step: NewSessionStep::SelectRepo,
                     filter_text: String::new(),
                     is_current_dir_mode: false,
+                    skip_permissions: false,
                 });
                 self.current_view = View::SearchWorkspace;
                 info!("Transitioned to SearchWorkspace view with empty state due to loader error");
@@ -1028,6 +1044,7 @@ impl AppState {
                             step: NewSessionStep::SelectRepo,
                             filter_text: String::new(),
                             is_current_dir_mode: false,
+                            skip_permissions: false,
                         });
                         self.current_view = View::NewSession;
                     }
@@ -1101,6 +1118,22 @@ impl AppState {
         }
     }
 
+    pub fn new_session_proceed_to_permissions(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputBranch {
+                state.step = NewSessionStep::ConfigurePermissions;
+            }
+        }
+    }
+
+    pub fn new_session_toggle_permissions(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::ConfigurePermissions {
+                state.skip_permissions = !state.skip_permissions;
+            }
+        }
+    }
+
     pub async fn new_session_create(&mut self) {
         // Check if authentication is set up first
         if Self::is_first_time_setup() {
@@ -1118,14 +1151,14 @@ impl AppState {
             return;
         }
 
-        let (repo_path, branch_name, session_id) = {
+        let (repo_path, branch_name, session_id, skip_permissions) = {
             if let Some(ref mut state) = self.new_session_state {
-                if state.step == NewSessionStep::InputBranch {
+                if state.step == NewSessionStep::ConfigurePermissions {
                     if let Some(repo_index) = state.selected_repo_index {
                         if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
                             state.step = NewSessionStep::Creating;
                             let session_id = uuid::Uuid::new_v4();
-                            (repo_path.clone(), state.branch_name.clone(), session_id)
+                            (repo_path.clone(), state.branch_name.clone(), session_id, state.skip_permissions)
                         } else {
                             return;
                         }
@@ -1141,7 +1174,7 @@ impl AppState {
         };
         
         // Create the session with log streaming
-        match self.create_session_with_logs(&repo_path, &branch_name, session_id).await {
+        match self.create_session_with_logs(&repo_path, &branch_name, session_id, skip_permissions).await {
             Ok(()) => {
                 info!("Session created successfully");
                 // Reload workspaces BEFORE switching view to ensure UI shows new session immediately
@@ -1163,7 +1196,7 @@ impl AppState {
         }
     }
 
-    async fn create_session_with_logs(&mut self, repo_path: &std::path::Path, branch_name: &str, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+    async fn create_session_with_logs(&mut self, repo_path: &std::path::Path, branch_name: &str, session_id: Uuid, skip_permissions: bool) -> Result<(), Box<dyn std::error::Error>> {
         use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
         
         // Create a channel for build logs
@@ -1199,6 +1232,7 @@ impl AppState {
             branch_name: branch_name.to_string(),
             base_branch: None,
             container_config: None,
+            skip_permissions,
         };
         
         // Add initial log message
@@ -1249,6 +1283,7 @@ impl AppState {
             branch_name: branch_name.to_string(),
             base_branch: None,
             container_config: None,
+            skip_permissions: false,  // Default to false for this internal method
         };
         
         let mut manager = SessionLifecycleManager::new().await?;

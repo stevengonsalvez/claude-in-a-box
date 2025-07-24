@@ -204,7 +204,34 @@ async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
             match event::read()? {
                 Event::Key(key_event) => {
                     if let Some(app_event) = EventHandler::handle_key_event(key_event, &mut app.state) {
-                        EventHandler::process_event(app_event, &mut app.state);
+                        // Handle scroll events for live logs
+                        use crate::app::events::AppEvent;
+                        match app_event {
+                            AppEvent::ScrollLogsUp => {
+                                layout.live_logs_mut().scroll_up();
+                            },
+                            AppEvent::ScrollLogsDown => {
+                                let total_logs = app.state.live_logs
+                                    .values()
+                                    .map(|v| v.len())
+                                    .sum::<usize>();
+                                layout.live_logs_mut().scroll_down(total_logs);
+                            },
+                            AppEvent::ScrollLogsToTop => {
+                                layout.live_logs_mut().scroll_to_top();
+                            },
+                            AppEvent::ScrollLogsToBottom => {
+                                let total_logs = app.state.live_logs
+                                    .values()
+                                    .map(|v| v.len())
+                                    .sum::<usize>();
+                                layout.live_logs_mut().scroll_to_bottom(total_logs);
+                            },
+                            _ => {
+                                // Process other events normally
+                                EventHandler::process_event(app_event, &mut app.state);
+                            }
+                        }
                     }
                 }
                 Event::Mouse(_) => {}

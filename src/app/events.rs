@@ -25,6 +25,13 @@ pub enum AppEvent {
     SwitchToTerminal,
     GoToTop,
     GoToBottom,
+    // Pane focus management
+    SwitchPaneFocus,
+    // Log scrolling events
+    ScrollLogsUp,
+    ScrollLogsDown,
+    ScrollLogsToTop,
+    ScrollLogsToBottom,
     // New session creation events
     NewSessionCancel,
     NewSessionNextRepo,
@@ -32,6 +39,8 @@ pub enum AppEvent {
     NewSessionConfirmRepo,
     NewSessionInputChar(char),
     NewSessionBackspace,
+    NewSessionProceedToPermissions,
+    NewSessionTogglePermissions,
     NewSessionCreate,
     // Search workspace events
     SearchWorkspaceInputChar(char),
@@ -120,23 +129,58 @@ impl EventHandler {
             return Self::handle_auth_setup_keys(key_event, state);
         }
 
+        // Handle key events based on focused pane
+        use crate::app::state::FocusedPane;
+        
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
-            KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NextSession),
-            KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::PreviousSession),
-            KeyCode::Char('h') | KeyCode::Left => Some(AppEvent::PreviousWorkspace),
-            KeyCode::Char('l') | KeyCode::Right => Some(AppEvent::NextWorkspace),
-            KeyCode::Char('g') => Some(AppEvent::GoToTop),
-            KeyCode::Char('G') => Some(AppEvent::GoToBottom),
+            KeyCode::Tab => Some(AppEvent::SwitchPaneFocus),
+            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
+            KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces),  // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
-            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
-            KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
-            KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),  // Re-authenticate Claude credentials
+            KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
-            KeyCode::Tab => Some(AppEvent::SwitchToLogs),
+            
+            // Navigation keys depend on focused pane
+            KeyCode::Char('j') | KeyCode::Down => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::NextSession),
+                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsDown),
+                }
+            },
+            KeyCode::Char('k') | KeyCode::Up => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::PreviousSession),
+                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsUp),
+                }
+            },
+            KeyCode::Char('h') | KeyCode::Left => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::PreviousWorkspace),
+                    FocusedPane::LiveLogs => None, // No left/right scrolling in logs
+                }
+            },
+            KeyCode::Char('l') | KeyCode::Right => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::NextWorkspace),
+                    FocusedPane::LiveLogs => None, // No left/right scrolling in logs
+                }
+            },
+            KeyCode::Char('g') => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::GoToTop),
+                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToTop),
+                }
+            },
+            KeyCode::Char('G') => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::GoToBottom),
+                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToBottom),
+                }
+            },
             _ => None,
         }
     }
@@ -173,9 +217,17 @@ impl EventHandler {
                 NewSessionStep::InputBranch => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Enter => Some(AppEvent::NewSessionCreate),
+                        KeyCode::Enter => Some(AppEvent::NewSessionProceedToPermissions),
                         KeyCode::Backspace => Some(AppEvent::NewSessionBackspace),
                         KeyCode::Char(ch) => Some(AppEvent::NewSessionInputChar(ch)),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::ConfigurePermissions => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Enter => Some(AppEvent::NewSessionCreate),
+                        KeyCode::Char(' ') => Some(AppEvent::NewSessionTogglePermissions),
                         _ => None,
                     }
                 }
@@ -305,6 +357,8 @@ impl EventHandler {
             AppEvent::NewSessionConfirmRepo => state.new_session_confirm_repo(),
             AppEvent::NewSessionInputChar(ch) => state.new_session_update_branch(ch),
             AppEvent::NewSessionBackspace => state.new_session_backspace(),
+            AppEvent::NewSessionProceedToPermissions => state.new_session_proceed_to_permissions(),
+            AppEvent::NewSessionTogglePermissions => state.new_session_toggle_permissions(),
             AppEvent::NewSessionCreate => {
                 // Mark for async processing
                 state.pending_async_action = Some(AsyncAction::CreateNewSession);
@@ -352,6 +406,25 @@ impl EventHandler {
             },
             AppEvent::SwitchToTerminal => {
                 // TODO: Implement terminal view
+            },
+            AppEvent::SwitchPaneFocus => {
+                use crate::app::state::FocusedPane;
+                state.focused_pane = match state.focused_pane {
+                    FocusedPane::Sessions => FocusedPane::LiveLogs,
+                    FocusedPane::LiveLogs => FocusedPane::Sessions,
+                };
+            },
+            AppEvent::ScrollLogsUp => {
+                // This will be handled by the LiveLogsStreamComponent
+            },
+            AppEvent::ScrollLogsDown => {
+                // This will be handled by the LiveLogsStreamComponent
+            },
+            AppEvent::ScrollLogsToTop => {
+                // This will be handled by the LiveLogsStreamComponent
+            },
+            AppEvent::ScrollLogsToBottom => {
+                // This will be handled by the LiveLogsStreamComponent
             },
             AppEvent::ConfirmationToggle => {
                 if let Some(ref mut dialog) = state.confirmation_dialog {

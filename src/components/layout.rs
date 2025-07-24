@@ -80,6 +80,7 @@ impl LayoutComponent {
             ])
             .split(main_layout[1]);
 
+        // Pass focus information to components
         self.session_list.render(frame, content_chunks[0], state);
         self.live_logs_stream.render(frame, content_chunks[1], state);
 
@@ -110,9 +111,14 @@ impl LayoutComponent {
             self.confirmation_dialog.render(frame, frame.size(), state);
         }
     }
+    
+    /// Get mutable reference to live logs component for scroll handling
+    pub fn live_logs_mut(&mut self) -> &mut LiveLogsStreamComponent {
+        &mut self.live_logs_stream
+    }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        let menu_text = "[n]ew [s]earch [a]ttach [c]laude [f]refresh [t]ime [r]e-auth [d]elete [?]help [q]uit";
+        let menu_text = "[n]ew [s]earch [a]ttach [c]laude [f]refresh [Tab]focus [r]e-auth [d]elete [?]help [q]uit";
         
         let menu = Paragraph::new(menu_text)
             .block(

@@ -11,8 +11,14 @@ export TERM=xterm-256color
 export FORCE_COLOR=1
 export CLAUDE_INTERACTIVE=1
 
-# Configure Claude to avoid prompts
-claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || true
+# Configure Claude to avoid prompts only if skip permissions is enabled
+if [[ "$CLAUDE_CONTINUE_FLAG" == *"--dangerously-skip-permissions"* ]]; then
+    echo "🔓 Setting trust dialog acceptance (skip permissions enabled)"
+    # Use direct binary to avoid triggering our wrapper's --dangerously-skip-permissions flag
+    /home/claude-user/.npm-global/bin/claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || true
+else
+    echo "🔒 Trust dialog will be shown as needed (permissions enabled)"
+fi
 
 # Check if we have authentication
 if [ -z "$ANTHROPIC_API_KEY" ] && [ ! -f ~/.claude.json ] && [ ! -f ~/.claude/.credentials.json ]; then
@@ -36,4 +42,8 @@ echo "Use Ctrl-b then d to detach from this session."
 echo "----------------------------------------"
 
 # Use script to ensure proper TTY allocation
-script -q -c "claude" /dev/null
+if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
+    eval "script -q -c \"claude $CLAUDE_CONTINUE_FLAG\" /dev/null"
+else
+    script -q -c "claude" /dev/null
+fi

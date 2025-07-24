@@ -106,6 +106,15 @@ if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
     cp /app/config/CLAUDE.md.template /workspace/CLAUDE.md
 fi
 
+# Set up Claude CLI logging commands
+log "Setting up Claude CLI logging commands"
+if [ -f /app/scripts/claude-commands.sh ]; then
+    source /app/scripts/claude-commands.sh
+    log "✅ Claude logging commands available: claude-ask, claude-print, claude-script"
+else
+    warn "Claude logging commands not found"
+fi
+
 # Ensure theme preferences are set to avoid Claude CLI theme prompt
 # Check if theme is already configured
 if ! claude config get -g theme >/dev/null 2>&1; then
@@ -116,8 +125,13 @@ else
 fi
 
 # Set trust dialog to accepted to avoid prompts when using --dangerously-skip-permissions
-log "Setting trust dialog acceptance to avoid permission prompts"
-claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
+if [[ "$CLAUDE_CONTINUE_FLAG" == *"--dangerously-skip-permissions"* ]]; then
+    log "Setting trust dialog acceptance to avoid permission prompts (skip permissions enabled)"
+    # Use direct binary to avoid triggering our wrapper's --dangerously-skip-permissions flag
+    /home/claude-user/.npm-global/bin/claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
+else
+    log "Trust dialog will be shown as needed (permissions enabled)"
+fi
 
 # Determine which CLI to use (adapted from claude-docker startup.sh)
 CLI_CMD="claude"
@@ -133,7 +147,11 @@ if [ $# -eq 0 ]; then
     success "Container environment ready!"
     if [ "${AUTH_OK}" = "true" ]; then
         success "✅ Authentication detected - Claude will work immediately"
-        success "📝 Just type 'claude' or 'claude-start' to begin chatting"
+        success "📝 Available Claude commands:"
+        success "   • claude-ask \"question\" - Ask Claude with logged response"
+        success "   • claude-start - Interactive Claude CLI"
+        success "   • claude-help - Show all available commands"
+        success "   💡 Use claude-ask to see responses in TUI logs!"
     else
         warn "⚠️  No authentication detected"
         warn "📝 Set ANTHROPIC_API_KEY or mount authentication files"

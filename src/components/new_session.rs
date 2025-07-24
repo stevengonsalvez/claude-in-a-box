@@ -36,6 +36,7 @@ impl NewSessionComponent {
                     }
                 },
                 NewSessionStep::InputBranch => self.render_branch_input(frame, popup_area, session_state),
+                NewSessionStep::ConfigurePermissions => self.render_permissions_config(frame, popup_area, session_state),
                 NewSessionStep::Creating => self.render_creating(frame, popup_area),
             }
         }
@@ -259,6 +260,75 @@ impl NewSessionComponent {
 
         // Instructions
         let instructions = Paragraph::new("Type branch name • Enter: Create Session • Esc: Cancel")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Gray))
+            )
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center);
+        frame.render_widget(instructions, chunks[3]);
+    }
+
+    fn render_permissions_config(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Title
+                Constraint::Length(5),  // Description
+                Constraint::Length(5),  // Option display
+                Constraint::Length(3),  // Instructions
+            ])
+            .split(area);
+
+        // Title
+        let title = Paragraph::new("Configure Claude Permissions")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan))
+                    .title("New Session")
+            )
+            .style(Style::default().fg(Color::Yellow))
+            .alignment(Alignment::Center);
+        frame.render_widget(title, chunks[0]);
+
+        // Description
+        let description = Paragraph::new(
+            "Claude can run with or without permission prompts.\n\
+             With prompts: Claude will ask before running commands\n\
+             Without prompts: Claude runs commands immediately (faster)"
+        )
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::White))
+            )
+            .style(Style::default().fg(Color::Gray));
+        frame.render_widget(description, chunks[1]);
+
+        // Options
+        let option_text = if session_state.skip_permissions {
+            "🚀 Skip permission prompts (--dangerously-skip-permissions)\n\n\
+             Claude will execute commands without asking"
+        } else {
+            "🛡️  Keep permission prompts (default)\n\n\
+             Claude will ask before executing commands"
+        };
+        
+        let options = Paragraph::new(option_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green))
+                    .title("Current Selection")
+            )
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Center);
+        frame.render_widget(options, chunks[2]);
+
+        // Instructions
+        let instructions = Paragraph::new("Space: Toggle • Enter: Continue • Esc: Cancel")
             .block(
                 Block::default()
                     .borders(Borders::ALL)
