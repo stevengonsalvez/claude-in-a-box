@@ -448,11 +448,56 @@ impl AppState {
             false
         };
         
-        // For OAuth authentication, we need BOTH .credentials.json AND .claude.json
-        let has_complete_oauth = has_credentials && has_claude_json;
+        // For OAuth authentication, we need BOTH .credentials.json AND .claude.json AND valid tokens
+        let has_valid_oauth = if has_credentials && has_claude_json {
+            // Check if OAuth token is still valid (not expired)
+            Self::is_oauth_token_valid(&auth_dir.join(".credentials.json"))
+        } else {
+            false
+        };
         
-        // Show auth screen if we don't have complete OAuth setup AND no API key alternatives
-        !has_complete_oauth && !has_api_key && !has_env_api_key
+        // Show auth screen if we don't have valid OAuth setup AND no API key alternatives
+        !has_valid_oauth && !has_api_key && !has_env_api_key
+    }
+
+    /// Check if OAuth token in credentials file is still valid (not expired)
+    fn is_oauth_token_valid(credentials_path: &std::path::Path) -> bool {
+        use std::fs;
+        
+        if let Ok(contents) = fs::read_to_string(credentials_path) {
+            // Parse the JSON to extract OAuth token info
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                if let Some(oauth) = json.get("claudeAiOauth") {
+                    if let Some(expires_at) = oauth.get("expiresAt").and_then(|v| v.as_u64()) {
+                        // Check if current time is before expiration time
+                        let current_time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        
+                        if current_time < expires_at {
+                            info!("OAuth token is valid, expires at: {}", 
+                                chrono::DateTime::from_timestamp_millis(expires_at as i64)
+                                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                                    .unwrap_or_else(|| "unknown".to_string())
+                            );
+                            return true;
+                        } else {
+                            warn!("OAuth token has expired at: {}", 
+                                chrono::DateTime::from_timestamp_millis(expires_at as i64)
+                                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                                    .unwrap_or_else(|| "unknown".to_string())
+                            );
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If we can't parse or find expiration info, assume invalid
+        warn!("Could not validate OAuth token from credentials file");
+        false
     }
 
     pub fn check_current_directory_status(&mut self) {
@@ -728,8 +773,11 @@ impl AppState {
                 crate::docker::ContainerStatus::Running => {
                     // Start an interactive bash shell instead of Claude CLI directly
                     // This gives users more flexibility to run claude when needed
+                    // Force bash to read .bashrc to load custom session environment
                     let exec_command = vec![
                         "/bin/bash".to_string(),
+                        "-l".to_string(),  // Login shell to read .bash_profile/.bashrc
+                        "-i".to_string(),  // Interactive shell
                     ];
                     
                     match container_manager.exec_interactive_blocking(&container_id, exec_command).await {

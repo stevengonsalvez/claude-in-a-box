@@ -15,8 +15,17 @@ check_claude_session() {
     fi
 }
 
-# Clear screen and show welcome message
-clear
+# Only show welcome message in interactive shells
+case "$-" in
+    *i*) 
+        # Interactive shell - show welcome message
+        clear
+        ;;
+    *)
+        # Non-interactive shell - skip welcome message
+        return
+        ;;
+esac
 echo "╔══════════════════════════════════════════════════════════════════╗"
 echo "║              Welcome to Claude-in-a-Box Session                  ║"
 echo "╠══════════════════════════════════════════════════════════════════╣"

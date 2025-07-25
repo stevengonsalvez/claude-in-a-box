@@ -110,7 +110,7 @@ RUN chmod +x /app/scripts/*.sh
 # Copy custom bashrc for interactive sessions
 COPY --chown=claude-user:claude-user scripts/session-bashrc.sh /home/claude-user/.claude-box-bashrc
 RUN echo "# Source Claude-in-a-Box custom bashrc if in interactive session" >> /home/claude-user/.bashrc && \
-    echo '[ -f ~/.claude-box-bashrc ] && [ -n "$PS1" ] && source ~/.claude-box-bashrc' >> /home/claude-user/.bashrc
+    echo '[ -f ~/.claude-box-bashrc ] && source ~/.claude-box-bashrc' >> /home/claude-user/.bashrc
 
 # Install Claude CLI
 ENV PATH="/home/claude-user/.npm-global/bin:$PATH"
