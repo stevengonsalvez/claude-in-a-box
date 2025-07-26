@@ -631,7 +631,7 @@ impl SessionLifecycleManager {
         let contents = fs::read_to_string(&auth_claude_json)?;
         let mut config: serde_json::Value = serde_json::from_str(&contents)?;
         
-        // Set hasTrustDialogAccepted to true 
+        // Set hasTrustDialogAccepted to true globally
         config["hasTrustDialogAccepted"] = serde_json::Value::Bool(true);
         
         // Write back to file
