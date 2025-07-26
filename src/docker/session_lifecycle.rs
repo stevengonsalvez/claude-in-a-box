@@ -606,8 +606,39 @@ impl SessionLifecycleManager {
             };
             config.environment_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), new_flag);
             info!("Added --dangerously-skip-permissions flag to session {}", request.session_id);
+            
+            // Update auth .claude.json to set hasTrustDialogAccepted=true to avoid bypass warning
+            if let Err(e) = Self::update_auth_claude_json_for_skip_permissions() {
+                warn!("Failed to update auth .claude.json for skip permissions: {}", e);
+            }
         }
         
+        Ok(())
+    }
+    
+    /// Update the auth .claude.json file to set hasTrustDialogAccepted=true when skip permissions is enabled
+    fn update_auth_claude_json_for_skip_permissions() -> Result<(), Box<dyn std::error::Error>> {
+        use std::fs;
+        
+        let home_dir = dirs::home_dir().ok_or("Could not find home directory")?;
+        let auth_claude_json = home_dir.join(".claude-in-a-box/auth/.claude.json");
+        
+        if !auth_claude_json.exists() {
+            return Err("Auth .claude.json file not found".into());
+        }
+        
+        // Read current config
+        let contents = fs::read_to_string(&auth_claude_json)?;
+        let mut config: serde_json::Value = serde_json::from_str(&contents)?;
+        
+        // Set hasTrustDialogAccepted to true 
+        config["hasTrustDialogAccepted"] = serde_json::Value::Bool(true);
+        
+        // Write back to file
+        let updated_contents = serde_json::to_string_pretty(&config)?;
+        fs::write(&auth_claude_json, updated_contents)?;
+        
+        info!("Updated auth .claude.json to set hasTrustDialogAccepted=true for skip permissions");
         Ok(())
     }
     
