@@ -35,9 +35,14 @@ if [ -f /app/.env ]; then
     set +a
 fi
 
-# Check if we're in claude-box mode
-if [ "${CLAUDE_BOX_MODE}" = "true" ]; then
-    log "Running in claude-box mode"
+# Check claude-box session mode
+if [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
+    log "Running in claude-box boss mode"
+elif [ "${CLAUDE_BOX_MODE}" = "interactive" ]; then
+    log "Running in claude-box interactive mode"
+elif [ "${CLAUDE_BOX_MODE}" = "true" ]; then
+    # Legacy support
+    log "Running in claude-box mode (legacy)"
 fi
 
 # Check for existing authentication (multiple sources)
@@ -138,6 +143,34 @@ CLI_CMD="claude"
 CLI_ARGS="$CLAUDE_CONTINUE_FLAG"
 
 log "Using Claude CLI with args: $CLI_ARGS"
+
+# Handle boss mode execution
+if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
+    # Create log directory
+    mkdir -p /workspace/.claude-box/logs
+    
+    success "Container environment ready!"
+    if [ "${AUTH_OK}" = "true" ]; then
+        success "✅ Authentication detected - Claude will work immediately"
+        log "🤖 Executing boss mode prompt..."
+        log "Prompt: ${CLAUDE_BOX_PROMPT}"
+        
+        # Execute Claude with the boss prompt and stream JSON output
+        log "Running: claude -p \"${CLAUDE_BOX_PROMPT}\" --output-format stream-json"
+        exec claude -p "${CLAUDE_BOX_PROMPT}" --output-format stream-json $CLI_ARGS
+    else
+        error "❌ Boss mode requires authentication!"
+        error "Please ensure one of:"
+        error "  1. Run 'claude-box auth' to set up authentication"
+        error "  2. Have ~/.claude-in-a-box/auth/.credentials.json mounted"
+        error "  3. Set ANTHROPIC_API_KEY in environment"
+        exit 1
+    fi
+elif [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
+    error "❌ Boss mode requires a prompt!"
+    error "CLAUDE_BOX_PROMPT environment variable is missing or empty"
+    exit 1
+fi
 
 # If no command specified, run interactive shell
 if [ $# -eq 0 ]; then

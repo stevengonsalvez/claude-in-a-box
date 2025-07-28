@@ -51,6 +51,8 @@ pub struct SessionRequest {
     pub base_branch: Option<String>,
     pub container_config: Option<ContainerConfig>,
     pub skip_permissions: bool,
+    pub mode: crate::models::SessionMode,
+    pub boss_prompt: Option<String>,
 }
 
 impl SessionLifecycleManager {
@@ -123,6 +125,8 @@ impl SessionLifecycleManager {
             format!("{}-{}", request.workspace_name, request.branch_name),
             request.workspace_path.to_string_lossy().to_string(),
             request.skip_permissions,
+            request.mode.clone(),
+            request.boss_prompt.clone(),
         );
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
@@ -596,6 +600,20 @@ impl SessionLifecycleManager {
             self.apply_project_config(config, project_config);
         }
         
+        // Set session mode environment variable
+        let mode_str = match request.mode {
+            crate::models::SessionMode::Interactive => "interactive",
+            crate::models::SessionMode::Boss => "boss",
+        };
+        config.environment_vars.insert("CLAUDE_BOX_MODE".to_string(), mode_str.to_string());
+        info!("Set session mode to '{}' for session {}", mode_str, request.session_id);
+        
+        // Set boss prompt if in boss mode
+        if let Some(ref prompt) = request.boss_prompt {
+            config.environment_vars.insert("CLAUDE_BOX_PROMPT".to_string(), prompt.clone());
+            info!("Set boss prompt for session {}", request.session_id);
+        }
+        
         // Apply skip_permissions flag if requested
         if request.skip_permissions {
             let current_flag = config.environment_vars.get("CLAUDE_CONTINUE_FLAG").cloned().unwrap_or_default();
@@ -805,6 +823,8 @@ impl SessionLifecycleManager {
             format!("{}-{}", request.workspace_name, request.branch_name),
             request.workspace_path.to_string_lossy().to_string(),
             request.skip_permissions,
+            request.mode.clone(),
+            request.boss_prompt.clone(),
         );
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
@@ -838,6 +858,8 @@ impl SessionRequest {
             base_branch: None,
             container_config: None,
             skip_permissions: false,
+            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+            boss_prompt: None,
         }
     }
 
@@ -867,6 +889,8 @@ impl SessionRequest {
             base_branch: None,
             container_config: None, // Will use "claude-dev" template by default
             skip_permissions: false,
+            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+            boss_prompt: None,
         }
     }
     

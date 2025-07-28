@@ -39,6 +39,11 @@ pub enum AppEvent {
     NewSessionConfirmRepo,
     NewSessionInputChar(char),
     NewSessionBackspace,
+    NewSessionProceedToModeSelection,
+    NewSessionToggleMode,
+    NewSessionProceedFromMode,
+    NewSessionInputPromptChar(char),
+    NewSessionBackspacePrompt,
     NewSessionProceedToPermissions,
     NewSessionTogglePermissions,
     NewSessionCreate,
@@ -217,18 +222,81 @@ impl EventHandler {
                 NewSessionStep::InputBranch => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Enter => Some(AppEvent::NewSessionProceedToPermissions),
+                        KeyCode::Enter => Some(AppEvent::NewSessionProceedToModeSelection),
                         KeyCode::Backspace => Some(AppEvent::NewSessionBackspace),
                         KeyCode::Char(ch) => Some(AppEvent::NewSessionInputChar(ch)),
                         _ => None,
                     }
                 }
-                NewSessionStep::ConfigurePermissions => {
+                NewSessionStep::SelectMode => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Enter => Some(AppEvent::NewSessionCreate),
-                        KeyCode::Char(' ') => Some(AppEvent::NewSessionTogglePermissions),
+                        KeyCode::Enter => Some(AppEvent::NewSessionProceedFromMode),
+                        KeyCode::Char('j') | KeyCode::Down | KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionToggleMode),
                         _ => None,
+                    }
+                }
+                NewSessionStep::InputPrompt => {
+                    // Debug logging to understand what key events we're receiving
+                    tracing::debug!("InputPrompt: Received key event: {:?} with modifiers: {:?}", key_event.code, key_event.modifiers);
+                    
+                    match key_event.code {
+                        KeyCode::Esc => {
+                            tracing::debug!("InputPrompt: Escape pressed, cancelling session");
+                            Some(AppEvent::NewSessionCancel)
+                        },
+                        // Just Enter - simple and clear
+                        KeyCode::Enter => {
+                            tracing::debug!("InputPrompt: Enter detected, checking prompt validity");
+                            // Check if prompt is not empty before proceeding
+                            if let Some(ref session_state) = state.new_session_state {
+                                let prompt_content = session_state.boss_prompt.trim();
+                                tracing::debug!("InputPrompt: Current prompt content: '{}' (length: {})", prompt_content, prompt_content.len());
+                                if prompt_content.is_empty() {
+                                    tracing::warn!("InputPrompt: Prompt is empty, not proceeding");
+                                    None // Don't proceed if prompt is empty
+                                } else {
+                                    tracing::info!("InputPrompt: Prompt is valid ({}), proceeding to permissions", prompt_content.len());
+                                    Some(AppEvent::NewSessionProceedToPermissions)
+                                }
+                            } else {
+                                tracing::error!("InputPrompt: No session state found, cannot proceed");
+                                None
+                            }
+                        },
+                        KeyCode::Backspace => {
+                            tracing::debug!("InputPrompt: Backspace pressed");
+                            Some(AppEvent::NewSessionBackspacePrompt)
+                        },
+                        KeyCode::Char(ch) => {
+                            tracing::debug!("InputPrompt: Character '{}' typed", ch);
+                            Some(AppEvent::NewSessionInputPromptChar(ch))
+                        },
+                        _ => {
+                            tracing::debug!("InputPrompt: Unhandled key: {:?}", key_event.code);
+                            None
+                        },
+                    }
+                }
+                NewSessionStep::ConfigurePermissions => {
+                    tracing::debug!("ConfigurePermissions: Received key event: {:?}", key_event.code);
+                    match key_event.code {
+                        KeyCode::Esc => {
+                            tracing::debug!("ConfigurePermissions: Escape pressed, cancelling session");
+                            Some(AppEvent::NewSessionCancel)
+                        },
+                        KeyCode::Enter => {
+                            tracing::info!("ConfigurePermissions: Enter pressed, creating new session");
+                            Some(AppEvent::NewSessionCreate)
+                        },
+                        KeyCode::Char(' ') => {
+                            tracing::debug!("ConfigurePermissions: Space pressed, toggling permissions");
+                            Some(AppEvent::NewSessionTogglePermissions)
+                        },
+                        _ => {
+                            tracing::debug!("ConfigurePermissions: Unhandled key: {:?}", key_event.code);
+                            None
+                        },
                     }
                 }
                 NewSessionStep::Creating => {
@@ -357,9 +425,18 @@ impl EventHandler {
             AppEvent::NewSessionConfirmRepo => state.new_session_confirm_repo(),
             AppEvent::NewSessionInputChar(ch) => state.new_session_update_branch(ch),
             AppEvent::NewSessionBackspace => state.new_session_backspace(),
-            AppEvent::NewSessionProceedToPermissions => state.new_session_proceed_to_permissions(),
+            AppEvent::NewSessionProceedToModeSelection => state.new_session_proceed_to_mode_selection(),
+            AppEvent::NewSessionToggleMode => state.new_session_toggle_mode(),
+            AppEvent::NewSessionProceedFromMode => state.new_session_proceed_from_mode(),
+            AppEvent::NewSessionInputPromptChar(ch) => state.new_session_add_char_to_prompt(ch),
+            AppEvent::NewSessionBackspacePrompt => state.new_session_backspace_prompt(),
+            AppEvent::NewSessionProceedToPermissions => {
+                tracing::info!("Processing NewSessionProceedToPermissions event");
+                state.new_session_proceed_to_permissions();
+            },
             AppEvent::NewSessionTogglePermissions => state.new_session_toggle_permissions(),
             AppEvent::NewSessionCreate => {
+                tracing::info!("Processing NewSessionCreate event - queueing async action");
                 // Mark for async processing
                 state.pending_async_action = Some(AsyncAction::CreateNewSession);
             },

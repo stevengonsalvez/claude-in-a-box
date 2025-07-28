@@ -17,6 +17,7 @@ pub struct DockerLogStreamingManager {
     container_manager: ContainerManager,
     streaming_tasks: HashMap<Uuid, StreamingTask>,
     log_sender: mpsc::UnboundedSender<(Uuid, LogEntry)>,
+    session_modes: HashMap<Uuid, crate::models::SessionMode>, // Track session modes for proper parsing
 }
 
 #[derive(Debug)]
@@ -33,6 +34,7 @@ impl DockerLogStreamingManager {
             container_manager: ContainerManager::new_sync()?,
             streaming_tasks: HashMap::new(),
             log_sender,
+            session_modes: HashMap::new(),
         })
     }
 
@@ -42,14 +44,18 @@ impl DockerLogStreamingManager {
         session_id: Uuid,
         container_id: String,
         container_name: String,
+        session_mode: crate::models::SessionMode,
     ) -> Result<()> {
         // Stop any existing streaming for this session
         self.stop_streaming(session_id).await?;
 
         info!(
-            "Starting log streaming for session {} (container: {})",
-            session_id, container_id
+            "Starting log streaming for session {} (container: {}) in {:?} mode",
+            session_id, container_id, session_mode
         );
+
+        // Store session mode for parsing
+        self.session_modes.insert(session_id, session_mode.clone());
 
         let log_sender = self.log_sender.clone();
         let container_id_clone = container_id.clone();
@@ -64,6 +70,7 @@ impl DockerLogStreamingManager {
                 container_id_clone.clone(),
                 container_name_clone.clone(),
                 log_sender,
+                session_mode,
             )
             .await
             {
@@ -95,6 +102,8 @@ impl DockerLogStreamingManager {
             );
             task.task_handle.abort();
         }
+        // Remove session mode tracking
+        self.session_modes.remove(&session_id);
         Ok(())
     }
 
@@ -104,6 +113,8 @@ impl DockerLogStreamingManager {
         for (_, task) in self.streaming_tasks.drain() {
             task.task_handle.abort();
         }
+        // Clear all session mode tracking
+        self.session_modes.clear();
         Ok(())
     }
 
@@ -124,6 +135,7 @@ impl DockerLogStreamingManager {
         container_id: String,
         container_name: String,
         log_sender: mpsc::UnboundedSender<(Uuid, LogEntry)>,
+        session_mode: crate::models::SessionMode,
     ) -> Result<()> {
         let options = LogsOptions::<String> {
             stdout: true,
@@ -155,7 +167,7 @@ impl DockerLogStreamingManager {
         while let Some(log_result) = log_stream.next().await {
             match log_result {
                 Ok(log_output) => {
-                    let log_entry = Self::parse_log_output(log_output, &container_name, session_id);
+                    let log_entry = Self::parse_log_output(log_output, &container_name, session_id, &session_mode);
                     
                     if let Err(e) = log_sender.send((session_id, log_entry)) {
                         warn!("Failed to send log entry: {}", e);
@@ -198,7 +210,7 @@ impl DockerLogStreamingManager {
     }
 
     /// Parse Docker log output into a LogEntry
-    fn parse_log_output(log_output: LogOutput, container_name: &str, session_id: Uuid) -> LogEntry {
+    fn parse_log_output(log_output: LogOutput, container_name: &str, session_id: Uuid, session_mode: &crate::models::SessionMode) -> LogEntry {
         let (message, is_stderr) = match log_output {
             LogOutput::StdOut { message } => (String::from_utf8_lossy(&message).to_string(), false),
             LogOutput::StdErr { message } => (String::from_utf8_lossy(&message).to_string(), true),
@@ -209,24 +221,31 @@ impl DockerLogStreamingManager {
         // Clean up the message (remove trailing newlines)
         let message = message.trim_end().to_string();
 
-        // Determine log level based on content and stream type
-        let level = if is_stderr {
-            LogEntryLevel::Error
+        // Use boss mode parsing if this is a boss mode session
+        let is_boss_mode = matches!(session_mode, crate::models::SessionMode::Boss);
+        
+        if is_boss_mode {
+            LogEntry::from_docker_log_with_mode(container_name, &message, Some(session_id), true)
         } else {
-            LogEntry::parse_level_from_message(&message)
-        };
+            // Determine log level based on content and stream type for interactive mode
+            let level = if is_stderr {
+                LogEntryLevel::Error
+            } else {
+                LogEntry::parse_level_from_message(&message)
+            };
 
-        LogEntry::new(level, container_name.to_string(), message).with_session(session_id)
+            LogEntry::new(level, container_name.to_string(), message).with_session(session_id)
+        }
     }
 
     /// Start streaming logs for all active sessions
     pub async fn start_streaming_for_sessions(
         &mut self,
-        sessions: &[(Uuid, String, String)], // (session_id, container_id, container_name)
+        sessions: &[(Uuid, String, String, crate::models::SessionMode)], // (session_id, container_id, container_name, session_mode)
     ) -> Result<()> {
-        for (session_id, container_id, container_name) in sessions {
+        for (session_id, container_id, container_name, session_mode) in sessions {
             if let Err(e) = self
-                .start_streaming(*session_id, container_id.clone(), container_name.clone())
+                .start_streaming(*session_id, container_id.clone(), container_name.clone(), session_mode.clone())
                 .await
             {
                 warn!(
@@ -291,10 +310,11 @@ impl LogStreamingCoordinator {
         session_id: Uuid,
         container_id: String,
         container_name: String,
+        session_mode: crate::models::SessionMode,
     ) -> Result<()> {
         if let Some(manager) = &mut self.manager {
             manager
-                .start_streaming(session_id, container_id, container_name)
+                .start_streaming(session_id, container_id, container_name, session_mode)
                 .await
         } else {
             Err(anyhow!("Log streaming manager not initialized"))
@@ -329,20 +349,29 @@ mod tests {
         let container_name = "test-container";
         let session_id = Uuid::new_v4();
 
-        // Test stdout parsing
+        // Test stdout parsing in interactive mode
         let stdout = LogOutput::StdOut {
             message: b"INFO: Test message\n".to_vec(),
         };
-        let entry = DockerLogStreamingManager::parse_log_output(stdout, container_name, session_id);
+        let entry = DockerLogStreamingManager::parse_log_output(stdout, container_name, session_id, &crate::models::SessionMode::Interactive);
         assert_eq!(entry.level, LogEntryLevel::Info);
         assert_eq!(entry.message, "INFO: Test message");
 
-        // Test stderr parsing
+        // Test stderr parsing in interactive mode
         let stderr = LogOutput::StdErr {
             message: b"Error occurred\n".to_vec(),
         };
-        let entry = DockerLogStreamingManager::parse_log_output(stderr, container_name, session_id);
+        let entry = DockerLogStreamingManager::parse_log_output(stderr, container_name, session_id, &crate::models::SessionMode::Interactive);
         assert_eq!(entry.level, LogEntryLevel::Error);
         assert_eq!(entry.message, "Error occurred");
+        
+        // Test boss mode JSON parsing
+        let boss_stdout = LogOutput::StdOut {
+            message: b"{\"type\": \"message\", \"content\": \"Hello from Claude!\"}\n".to_vec(),
+        };
+        let entry = DockerLogStreamingManager::parse_log_output(boss_stdout, container_name, session_id, &crate::models::SessionMode::Boss);
+        assert_eq!(entry.level, LogEntryLevel::Info);
+        assert_eq!(entry.message, "🤖 Claude: Hello from Claude!");
+        assert_eq!(entry.source, "claude-boss");
     }
 }

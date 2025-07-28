@@ -191,6 +191,8 @@ pub struct NewSessionState {
     pub filter_text: String,
     pub is_current_dir_mode: bool, // true if creating session in current dir
     pub skip_permissions: bool, // true to use --dangerously-skip-permissions flag
+    pub mode: crate::models::SessionMode, // Interactive or Boss mode
+    pub boss_prompt: String, // The prompt text for boss mode execution
 }
 
 impl NewSessionState {
@@ -227,6 +229,8 @@ impl NewSessionState {
 pub enum NewSessionStep {
     SelectRepo,
     InputBranch,
+    SelectMode,         // Choose between Interactive and Boss mode
+    InputPrompt,        // Enter prompt for Boss mode
     ConfigurePermissions,
     Creating,
 }
@@ -392,13 +396,13 @@ impl AppState {
                 .find(|s| s.id == session_id)
                 .and_then(|s| {
                     s.container_id.clone().map(|container_id| {
-                        (container_id, format!("{}-{}", s.name, s.branch_name))
+                        (container_id, format!("{}-{}", s.name, s.branch_name), s.mode.clone())
                     })
                 });
             
-            if let Some((container_id, container_name)) = session_info {
+            if let Some((container_id, container_name, session_mode)) = session_info {
                 info!("Starting log streaming for session {} (container: {})", session_id, container_id);
-                coordinator.start_streaming(session_id, container_id, container_name).await?;
+                coordinator.start_streaming(session_id, container_id, container_name, session_mode).await?;
             }
         }
         Ok(())
@@ -983,6 +987,8 @@ impl AppState {
             filter_text: String::new(),
             is_current_dir_mode: true,
             skip_permissions: false,
+            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+            boss_prompt: String::new(), // Empty prompt initially
         });
         
         self.current_view = View::NewSession;
@@ -1030,6 +1036,8 @@ impl AppState {
                             filter_text: String::new(),
                             is_current_dir_mode: false,
                             skip_permissions: false,
+                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+                            boss_prompt: String::new(), // Empty prompt initially
                         });
                         
                         self.current_view = View::SearchWorkspace;
@@ -1047,6 +1055,8 @@ impl AppState {
                             filter_text: String::new(),
                             is_current_dir_mode: false,
                             skip_permissions: false,
+                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+                            boss_prompt: String::new(), // Empty prompt initially
                         });
                         self.current_view = View::SearchWorkspace;
                         info!("Transitioned to SearchWorkspace view with empty state due to error");
@@ -1065,6 +1075,8 @@ impl AppState {
                     filter_text: String::new(),
                     is_current_dir_mode: false,
                     skip_permissions: false,
+                    mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+                    boss_prompt: String::new(), // Empty prompt initially
                 });
                 self.current_view = View::SearchWorkspace;
                 info!("Transitioned to SearchWorkspace view with empty state due to loader error");
@@ -1093,6 +1105,8 @@ impl AppState {
                             filter_text: String::new(),
                             is_current_dir_mode: false,
                             skip_permissions: false,
+                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+                            boss_prompt: String::new(), // Empty prompt initially
                         });
                         self.current_view = View::NewSession;
                     }
@@ -1166,10 +1180,70 @@ impl AppState {
         }
     }
 
-    pub fn new_session_proceed_to_permissions(&mut self) {
+    pub fn new_session_proceed_to_mode_selection(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputBranch {
+                state.step = NewSessionStep::SelectMode;
+            }
+        }
+    }
+
+    pub fn new_session_proceed_from_mode(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::SelectMode {
+                match state.mode {
+                    crate::models::SessionMode::Interactive => {
+                        // Interactive mode: go directly to permissions
+                        state.step = NewSessionStep::ConfigurePermissions;
+                    }
+                    crate::models::SessionMode::Boss => {
+                        // Boss mode: go to prompt input first
+                        state.step = NewSessionStep::InputPrompt;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn new_session_proceed_to_permissions(&mut self) {
+        tracing::info!("new_session_proceed_to_permissions called");
+        if let Some(ref mut state) = self.new_session_state {
+            tracing::debug!("Current session state step: {:?}", state.step);
+            if state.step == NewSessionStep::InputPrompt {
+                tracing::info!("Advancing from InputPrompt to ConfigurePermissions");
                 state.step = NewSessionStep::ConfigurePermissions;
+                self.ui_needs_refresh = true;
+            } else {
+                tracing::warn!("Cannot proceed to permissions - not in InputPrompt step (current: {:?})", state.step);
+            }
+        } else {
+            tracing::error!("Cannot proceed to permissions - no session state found");
+        }
+    }
+
+    pub fn new_session_toggle_mode(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::SelectMode {
+                state.mode = match state.mode {
+                    crate::models::SessionMode::Interactive => crate::models::SessionMode::Boss,
+                    crate::models::SessionMode::Boss => crate::models::SessionMode::Interactive,
+                };
+            }
+        }
+    }
+
+    pub fn new_session_add_char_to_prompt(&mut self, ch: char) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt {
+                state.boss_prompt.push(ch);
+            }
+        }
+    }
+
+    pub fn new_session_backspace_prompt(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt {
+                state.boss_prompt.pop();
             }
         }
     }
@@ -1199,14 +1273,25 @@ impl AppState {
             return;
         }
 
-        let (repo_path, branch_name, session_id, skip_permissions) = {
+        let (repo_path, branch_name, session_id, skip_permissions, mode, boss_prompt) = {
             if let Some(ref mut state) = self.new_session_state {
                 if state.step == NewSessionStep::ConfigurePermissions {
                     if let Some(repo_index) = state.selected_repo_index {
                         if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
                             state.step = NewSessionStep::Creating;
                             let session_id = uuid::Uuid::new_v4();
-                            (repo_path.clone(), state.branch_name.clone(), session_id, state.skip_permissions)
+                            (
+                                repo_path.clone(), 
+                                state.branch_name.clone(), 
+                                session_id, 
+                                state.skip_permissions,
+                                state.mode.clone(),
+                                if state.mode == crate::models::SessionMode::Boss { 
+                                    Some(state.boss_prompt.clone()) 
+                                } else { 
+                                    None 
+                                }
+                            )
                         } else {
                             return;
                         }
@@ -1222,7 +1307,8 @@ impl AppState {
         };
         
         // Create the session with log streaming
-        match self.create_session_with_logs(&repo_path, &branch_name, session_id, skip_permissions).await {
+        tracing::info!("Calling create_session_with_logs for session {} (mode: {:?})", session_id, mode);
+        match self.create_session_with_logs(&repo_path, &branch_name, session_id, skip_permissions, mode, boss_prompt).await {
             Ok(()) => {
                 info!("Session created successfully");
                 // Reload workspaces BEFORE switching view to ensure UI shows new session immediately
@@ -1238,13 +1324,13 @@ impl AppState {
                 self.cancel_new_session();
             }
             Err(e) => {
-                warn!("Failed to create session: {}", e);
+                error!("Failed to create session: {}", e);
                 self.cancel_new_session();
             }
         }
     }
 
-    async fn create_session_with_logs(&mut self, repo_path: &std::path::Path, branch_name: &str, session_id: Uuid, skip_permissions: bool) -> Result<(), Box<dyn std::error::Error>> {
+    async fn create_session_with_logs(&mut self, repo_path: &std::path::Path, branch_name: &str, session_id: Uuid, skip_permissions: bool, mode: crate::models::SessionMode, boss_prompt: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
         use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
         
         // Create a channel for build logs
@@ -1281,6 +1367,8 @@ impl AppState {
             base_branch: None,
             container_config: None,
             skip_permissions,
+            mode,
+            boss_prompt,
         };
         
         // Add initial log message
@@ -1332,6 +1420,8 @@ impl AppState {
             base_branch: None,
             container_config: None,
             skip_permissions: false,  // Default to false for this internal method
+            mode: crate::models::SessionMode::Interactive, // Default to interactive mode for now
+            boss_prompt: None,
         };
         
         let mut manager = SessionLifecycleManager::new().await?;
@@ -1822,21 +1912,21 @@ impl App {
     async fn init_log_streaming_for_sessions(&mut self) -> anyhow::Result<()> {
         if let Some(coordinator) = &mut self.state.log_streaming_coordinator {
             // Collect session info for streaming
-            let sessions: Vec<(Uuid, String, String)> = self.state.workspaces
+            let sessions: Vec<(Uuid, String, String, crate::models::SessionMode)> = self.state.workspaces
                 .iter()
                 .flat_map(|w| &w.sessions)
                 .filter(|s| s.status == crate::models::SessionStatus::Running)
                 .filter_map(|s| {
                     s.container_id.clone().map(|container_id| {
-                        (s.id, container_id, format!("{}-{}", s.name, s.branch_name))
+                        (s.id, container_id, format!("{}-{}", s.name, s.branch_name), s.mode.clone())
                     })
                 })
                 .collect();
             
             if !sessions.is_empty() {
                 info!("Starting log streaming for {} running sessions", sessions.len());
-                for (session_id, container_id, container_name) in &sessions {
-                    if let Err(e) = coordinator.start_streaming(*session_id, container_id.clone(), container_name.clone()).await {
+                for (session_id, container_id, container_name, session_mode) in &sessions {
+                    if let Err(e) = coordinator.start_streaming(*session_id, container_id.clone(), container_name.clone(), session_mode.clone()).await {
                         warn!("Failed to start log streaming for session {}: {}", session_id, e);
                     }
                 }
