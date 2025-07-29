@@ -52,6 +52,7 @@ pub struct RunOptions {
     pub labels: HashMap<String, String>,
 }
 
+#[derive(Debug)]
 pub struct ContainerManager {
     docker: Docker,
 }
@@ -66,6 +67,18 @@ impl ContainerManager {
 
         info!("Successfully connected to Docker daemon");
         Ok(Self { docker })
+    }
+
+    pub fn new_sync() -> Result<Self, ContainerError> {
+        let docker = Self::connect_to_docker()
+            .map_err(ContainerError::Connection)?;
+        
+        info!("Successfully connected to Docker daemon (sync)");
+        Ok(Self { docker })
+    }
+
+    pub fn get_docker_client(&self) -> Docker {
+        self.docker.clone()
     }
 
     pub fn connect_to_docker() -> Result<Docker, bollard::errors::Error> {
@@ -820,6 +833,47 @@ impl ContainerManager {
         }
 
         Ok(result_output)
+    }
+
+    /// Get the latest log file from the container
+    pub async fn get_latest_log_file(&self, container_id: &str) -> Result<Option<String>, ContainerError> {
+        let command = vec![
+            "bash".to_string(),
+            "-c".to_string(),
+            "ls -t /workspace/.claude-box/logs/claude-*.log 2>/dev/null | head -n1".to_string(),
+        ];
+        
+        let output = self.exec_command(container_id, command).await?;
+        let log_path = String::from_utf8(output)
+            .map_err(|e| ContainerError::OperationFailed(format!("Failed to parse log path: {}", e)))?
+            .trim()
+            .to_string();
+        
+        if log_path.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(log_path))
+        }
+    }
+
+    /// Tail logs from the container
+    pub async fn tail_logs(&self, container_id: &str, lines: usize) -> Result<String, ContainerError> {
+        // First get the latest log file
+        let log_file = self.get_latest_log_file(container_id).await?;
+        
+        if let Some(log_path) = log_file {
+            let command = vec![
+                "tail".to_string(),
+                format!("-n{}", lines),
+                log_path,
+            ];
+            
+            let output = self.exec_command(container_id, command).await?;
+            String::from_utf8(output)
+                .map_err(|e| ContainerError::OperationFailed(format!("Failed to parse logs: {}", e)))
+        } else {
+            Ok("No Claude logs found yet.".to_string())
+        }
     }
 }
 

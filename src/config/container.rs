@@ -272,7 +272,7 @@ impl ContainerTemplate {
     
     /// Convert template to container config for session creation
     pub fn to_container_config(&self) -> crate::docker::ContainerConfig {
-        use crate::docker::{ContainerConfig, session_container::PortMapping, session_container::VolumeMount as DockerVolumeMount};
+        use crate::docker::ContainerConfig;
         
         let mut config = match &self.config.image_source {
             ImageSource::Image { name } => ContainerConfig::new(name.clone()),
@@ -334,7 +334,7 @@ impl ContainerTemplate {
 
 /// Build a Docker image from a template
 pub async fn build_template_image(template: &ContainerTemplate, tag: &str) -> anyhow::Result<()> {
-    use crate::docker::ContainerManager;
+    
     
     match &template.config.image_source {
         ImageSource::Image { .. } => {

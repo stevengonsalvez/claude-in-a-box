@@ -36,6 +36,9 @@ impl NewSessionComponent {
                     }
                 },
                 NewSessionStep::InputBranch => self.render_branch_input(frame, popup_area, session_state),
+                NewSessionStep::SelectMode => self.render_mode_selection(frame, popup_area, session_state),
+                NewSessionStep::InputPrompt => self.render_prompt_input(frame, popup_area, session_state),
+                NewSessionStep::ConfigurePermissions => self.render_permissions_config(frame, popup_area, session_state),
                 NewSessionStep::Creating => self.render_creating(frame, popup_area),
             }
         }
@@ -269,6 +272,75 @@ impl NewSessionComponent {
         frame.render_widget(instructions, chunks[3]);
     }
 
+    fn render_permissions_config(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Title
+                Constraint::Length(5),  // Description
+                Constraint::Length(5),  // Option display
+                Constraint::Length(3),  // Instructions
+            ])
+            .split(area);
+
+        // Title
+        let title = Paragraph::new("Configure Claude Permissions")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan))
+                    .title("New Session")
+            )
+            .style(Style::default().fg(Color::Yellow))
+            .alignment(Alignment::Center);
+        frame.render_widget(title, chunks[0]);
+
+        // Description
+        let description = Paragraph::new(
+            "Claude can run with or without permission prompts.\n\
+             With prompts: Claude will ask before running commands\n\
+             Without prompts: Claude runs commands immediately (faster)"
+        )
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::White))
+            )
+            .style(Style::default().fg(Color::Gray));
+        frame.render_widget(description, chunks[1]);
+
+        // Options
+        let option_text = if session_state.skip_permissions {
+            "🚀 Skip permission prompts (--dangerously-skip-permissions)\n\n\
+             Claude will execute commands without asking"
+        } else {
+            "🛡️  Keep permission prompts (default)\n\n\
+             Claude will ask before executing commands"
+        };
+        
+        let options = Paragraph::new(option_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green))
+                    .title("Current Selection")
+            )
+            .style(Style::default().fg(Color::White))
+            .alignment(Alignment::Center);
+        frame.render_widget(options, chunks[2]);
+
+        // Instructions
+        let instructions = Paragraph::new("Space: Toggle • Enter: Continue • Esc: Cancel")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Gray))
+            )
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center);
+        frame.render_widget(instructions, chunks[3]);
+    }
+
     fn render_creating(&self, frame: &mut Frame, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -312,6 +384,181 @@ impl NewSessionComponent {
             .style(Style::default().fg(Color::Gray))
             .alignment(Alignment::Center);
         frame.render_widget(instructions, chunks[2]);
+    }
+
+    fn render_mode_selection(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        use crate::models::SessionMode;
+        
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Title
+                Constraint::Min(0),     // Mode selection
+                Constraint::Length(3),  // Instructions
+            ])
+            .split(area);
+
+        // Title
+        let title = Paragraph::new("Select Session Mode")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan))
+                    .title("Step 3: Choose Mode")
+            )
+            .style(Style::default().fg(Color::Yellow).bg(Color::Black))
+            .alignment(Alignment::Center);
+        frame.render_widget(title, chunks[0]);
+
+        // Mode selection
+        let mode_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(50),
+                Constraint::Percentage(50),
+            ])
+            .split(chunks[1]);
+
+        // Interactive mode option
+        let interactive_style = if session_state.mode == SessionMode::Interactive {
+            Style::default().bg(Color::DarkGray).fg(Color::White)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        
+        let interactive_text = vec![
+            Line::from(vec![Span::styled("● Interactive Mode", interactive_style.add_modifier(Modifier::BOLD))]),
+            Line::from(vec![Span::styled("  Traditional development with shell access", interactive_style)]),
+            Line::from(vec![Span::styled("  Full Claude CLI features and MCP servers", interactive_style)]),
+            Line::from(vec![Span::styled("  Attach to container for development", interactive_style)]),
+        ];
+        
+        let interactive_para = Paragraph::new(interactive_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(if session_state.mode == SessionMode::Interactive {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::Gray)
+                    })
+            )
+            .alignment(Alignment::Left);
+        frame.render_widget(interactive_para, mode_chunks[0]);
+
+        // Boss mode option
+        let boss_style = if session_state.mode == SessionMode::Boss {
+            Style::default().bg(Color::DarkGray).fg(Color::White)
+        } else {
+            Style::default().fg(Color::White)
+        };
+        
+        let boss_text = vec![
+            Line::from(vec![Span::styled("● Boss Mode", boss_style.add_modifier(Modifier::BOLD))]),
+            Line::from(vec![Span::styled("  Non-interactive task execution", boss_style)]),
+            Line::from(vec![Span::styled("  Direct prompt execution with JSON output", boss_style)]),
+            Line::from(vec![Span::styled("  Results streamed to TUI logs", boss_style)]),
+        ];
+        
+        let boss_para = Paragraph::new(boss_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(if session_state.mode == SessionMode::Boss {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::Gray)
+                    })
+            )
+            .alignment(Alignment::Left);
+        frame.render_widget(boss_para, mode_chunks[1]);
+
+        // Instructions
+        let instructions = Paragraph::new("↑/↓ or j/k: Switch Mode • Enter: Continue • Esc: Cancel")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Gray))
+            )
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center);
+        frame.render_widget(instructions, chunks[2]);
+    }
+
+    fn render_prompt_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Title
+                Constraint::Length(5),  // Instructions
+                Constraint::Min(0),     // Prompt input area
+                Constraint::Length(3),  // Controls
+            ])
+            .split(area);
+
+        // Title
+        let title = Paragraph::new("Enter Boss Mode Prompt")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan))
+                    .title("Step 4: Task Prompt")
+            )
+            .style(Style::default().fg(Color::Yellow).bg(Color::Black))
+            .alignment(Alignment::Center);
+        frame.render_widget(title, chunks[0]);
+
+        // Instructions
+        let instructions_text = vec![
+            Line::from("Enter the task or prompt for Claude to execute:"),
+            Line::from("• Direct task: \"Analyze this codebase and suggest improvements\""),
+            Line::from("• File reference: \"Review the file src/main.rs\""),
+            Line::from("• GitHub issue: \"Fix issue #123\""),
+        ];
+        
+        let instructions = Paragraph::new(instructions_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Blue))
+            )
+            .style(Style::default().fg(Color::Cyan))
+            .alignment(Alignment::Left);
+        frame.render_widget(instructions, chunks[1]);
+
+        // Prompt input area - multi-line text area
+        let prompt_text = if session_state.boss_prompt.is_empty() {
+            "Type your prompt here..."
+        } else {
+            &session_state.boss_prompt
+        };
+        
+        let prompt_input = Paragraph::new(prompt_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Green))
+                    .title("Prompt")
+            )
+            .style(if session_state.boss_prompt.is_empty() {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::White)
+            })
+            .alignment(Alignment::Left)
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        frame.render_widget(prompt_input, chunks[2]);
+
+        // Controls
+        let controls = Paragraph::new("Type to enter prompt • Enter: Continue • Esc: Cancel")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Gray))
+            )
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center);
+        frame.render_widget(controls, chunks[3]);
     }
 
     fn centered_rect(&self, percent_x: u16, percent_y: u16, r: Rect) -> Rect {

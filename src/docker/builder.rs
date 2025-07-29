@@ -8,8 +8,7 @@ use futures_util::stream::StreamExt;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tar::{Builder, Header};
-use tempfile::TempDir;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, error};
 use tokio::sync::mpsc;
 use tokio::io::AsyncReadExt;
 

@@ -13,6 +13,7 @@ pub enum AppEvent {
     PreviousWorkspace,
     ToggleHelp,
     RefreshWorkspaces,  // Manual refresh of workspace data
+    ToggleClaudeChat,   // Toggle Claude chat visibility
     NewSession,         // Create session in current directory
     SearchWorkspace,    // Search all workspaces
     AttachSession,
@@ -24,6 +25,13 @@ pub enum AppEvent {
     SwitchToTerminal,
     GoToTop,
     GoToBottom,
+    // Pane focus management
+    SwitchPaneFocus,
+    // Log scrolling events
+    ScrollLogsUp,
+    ScrollLogsDown,
+    ScrollLogsToTop,
+    ScrollLogsToBottom,
     // New session creation events
     NewSessionCancel,
     NewSessionNextRepo,
@@ -31,6 +39,13 @@ pub enum AppEvent {
     NewSessionConfirmRepo,
     NewSessionInputChar(char),
     NewSessionBackspace,
+    NewSessionProceedToModeSelection,
+    NewSessionToggleMode,
+    NewSessionProceedFromMode,
+    NewSessionInputPromptChar(char),
+    NewSessionBackspacePrompt,
+    NewSessionProceedToPermissions,
+    NewSessionTogglePermissions,
     NewSessionCreate,
     // Search workspace events
     SearchWorkspaceInputChar(char),
@@ -104,6 +119,11 @@ impl EventHandler {
             return Self::handle_non_git_notification_keys(key_event, state);
         }
 
+        // Handle Claude chat popup view
+        if state.current_view == View::ClaudeChat {
+            return Self::handle_claude_chat_keys(key_event, state);
+        }
+
         // Handle attached terminal view
         if state.current_view == View::AttachedTerminal {
             return Self::handle_attached_terminal_keys(key_event, state);
@@ -114,22 +134,58 @@ impl EventHandler {
             return Self::handle_auth_setup_keys(key_event, state);
         }
 
+        // Handle key events based on focused pane
+        use crate::app::state::FocusedPane;
+        
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
-            KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NextSession),
-            KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::PreviousSession),
-            KeyCode::Char('h') | KeyCode::Left => Some(AppEvent::PreviousWorkspace),
-            KeyCode::Char('l') | KeyCode::Right => Some(AppEvent::NextWorkspace),
-            KeyCode::Char('g') => Some(AppEvent::GoToTop),
-            KeyCode::Char('G') => Some(AppEvent::GoToBottom),
+            KeyCode::Tab => Some(AppEvent::SwitchPaneFocus),
+            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
+            KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces),  // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
-            KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),  // Re-authenticate Claude credentials
+            KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
-            KeyCode::Tab => Some(AppEvent::SwitchToLogs),
-            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
+            
+            // Navigation keys depend on focused pane
+            KeyCode::Char('j') | KeyCode::Down => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::NextSession),
+                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsDown),
+                }
+            },
+            KeyCode::Char('k') | KeyCode::Up => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::PreviousSession),
+                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsUp),
+                }
+            },
+            KeyCode::Char('h') | KeyCode::Left => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::PreviousWorkspace),
+                    FocusedPane::LiveLogs => None, // No left/right scrolling in logs
+                }
+            },
+            KeyCode::Char('l') | KeyCode::Right => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::NextWorkspace),
+                    FocusedPane::LiveLogs => None, // No left/right scrolling in logs
+                }
+            },
+            KeyCode::Char('g') => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::GoToTop),
+                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToTop),
+                }
+            },
+            KeyCode::Char('G') => {
+                match state.focused_pane {
+                    FocusedPane::Sessions => Some(AppEvent::GoToBottom),
+                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToBottom),
+                }
+            },
             _ => None,
         }
     }
@@ -166,10 +222,81 @@ impl EventHandler {
                 NewSessionStep::InputBranch => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Enter => Some(AppEvent::NewSessionCreate),
+                        KeyCode::Enter => Some(AppEvent::NewSessionProceedToModeSelection),
                         KeyCode::Backspace => Some(AppEvent::NewSessionBackspace),
                         KeyCode::Char(ch) => Some(AppEvent::NewSessionInputChar(ch)),
                         _ => None,
+                    }
+                }
+                NewSessionStep::SelectMode => {
+                    match key_event.code {
+                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                        KeyCode::Enter => Some(AppEvent::NewSessionProceedFromMode),
+                        KeyCode::Char('j') | KeyCode::Down | KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionToggleMode),
+                        _ => None,
+                    }
+                }
+                NewSessionStep::InputPrompt => {
+                    // Debug logging to understand what key events we're receiving
+                    tracing::debug!("InputPrompt: Received key event: {:?} with modifiers: {:?}", key_event.code, key_event.modifiers);
+                    
+                    match key_event.code {
+                        KeyCode::Esc => {
+                            tracing::debug!("InputPrompt: Escape pressed, cancelling session");
+                            Some(AppEvent::NewSessionCancel)
+                        },
+                        // Just Enter - simple and clear
+                        KeyCode::Enter => {
+                            tracing::debug!("InputPrompt: Enter detected, checking prompt validity");
+                            // Check if prompt is not empty before proceeding
+                            if let Some(ref session_state) = state.new_session_state {
+                                let prompt_content = session_state.boss_prompt.trim();
+                                tracing::debug!("InputPrompt: Current prompt content: '{}' (length: {})", prompt_content, prompt_content.len());
+                                if prompt_content.is_empty() {
+                                    tracing::warn!("InputPrompt: Prompt is empty, not proceeding");
+                                    None // Don't proceed if prompt is empty
+                                } else {
+                                    tracing::info!("InputPrompt: Prompt is valid ({}), proceeding to permissions", prompt_content.len());
+                                    Some(AppEvent::NewSessionProceedToPermissions)
+                                }
+                            } else {
+                                tracing::error!("InputPrompt: No session state found, cannot proceed");
+                                None
+                            }
+                        },
+                        KeyCode::Backspace => {
+                            tracing::debug!("InputPrompt: Backspace pressed");
+                            Some(AppEvent::NewSessionBackspacePrompt)
+                        },
+                        KeyCode::Char(ch) => {
+                            tracing::debug!("InputPrompt: Character '{}' typed", ch);
+                            Some(AppEvent::NewSessionInputPromptChar(ch))
+                        },
+                        _ => {
+                            tracing::debug!("InputPrompt: Unhandled key: {:?}", key_event.code);
+                            None
+                        },
+                    }
+                }
+                NewSessionStep::ConfigurePermissions => {
+                    tracing::debug!("ConfigurePermissions: Received key event: {:?}", key_event.code);
+                    match key_event.code {
+                        KeyCode::Esc => {
+                            tracing::debug!("ConfigurePermissions: Escape pressed, cancelling session");
+                            Some(AppEvent::NewSessionCancel)
+                        },
+                        KeyCode::Enter => {
+                            tracing::info!("ConfigurePermissions: Enter pressed, creating new session");
+                            Some(AppEvent::NewSessionCreate)
+                        },
+                        KeyCode::Char(' ') => {
+                            tracing::debug!("ConfigurePermissions: Space pressed, toggling permissions");
+                            Some(AppEvent::NewSessionTogglePermissions)
+                        },
+                        _ => {
+                            tracing::debug!("ConfigurePermissions: Unhandled key: {:?}", key_event.code);
+                            None
+                        },
                     }
                 }
                 NewSessionStep::Creating => {
@@ -202,6 +329,29 @@ impl EventHandler {
         }
     }
     
+    fn handle_claude_chat_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        match key_event.code {
+            // Escape closes the Claude chat popup
+            KeyCode::Esc => Some(AppEvent::ToggleClaudeChat),
+            // Enter sends the message
+            KeyCode::Enter => {
+                // TODO: Add send message event
+                None
+            },
+            // Backspace for editing input
+            KeyCode::Backspace => {
+                // TODO: Add backspace handling
+                None
+            },
+            // All other characters are input to the chat
+            KeyCode::Char(ch) => {
+                // TODO: Add character input handling
+                None
+            },
+            _ => None,
+        }
+    }
+
     fn handle_auth_setup_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
         if let Some(ref auth_state) = state.auth_setup_state {
             // If we're inputting API key, handle text input
@@ -234,6 +384,7 @@ impl EventHandler {
         match event {
             AppEvent::Quit => state.quit(),
             AppEvent::ToggleHelp => state.toggle_help(),
+            AppEvent::ToggleClaudeChat => state.toggle_claude_chat(),
             AppEvent::RefreshWorkspaces => {
                 // Mark for async processing to reload workspace data
                 state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
@@ -274,7 +425,18 @@ impl EventHandler {
             AppEvent::NewSessionConfirmRepo => state.new_session_confirm_repo(),
             AppEvent::NewSessionInputChar(ch) => state.new_session_update_branch(ch),
             AppEvent::NewSessionBackspace => state.new_session_backspace(),
+            AppEvent::NewSessionProceedToModeSelection => state.new_session_proceed_to_mode_selection(),
+            AppEvent::NewSessionToggleMode => state.new_session_toggle_mode(),
+            AppEvent::NewSessionProceedFromMode => state.new_session_proceed_from_mode(),
+            AppEvent::NewSessionInputPromptChar(ch) => state.new_session_add_char_to_prompt(ch),
+            AppEvent::NewSessionBackspacePrompt => state.new_session_backspace_prompt(),
+            AppEvent::NewSessionProceedToPermissions => {
+                tracing::info!("Processing NewSessionProceedToPermissions event");
+                state.new_session_proceed_to_permissions();
+            },
+            AppEvent::NewSessionTogglePermissions => state.new_session_toggle_permissions(),
             AppEvent::NewSessionCreate => {
+                tracing::info!("Processing NewSessionCreate event - queueing async action");
                 // Mark for async processing
                 state.pending_async_action = Some(AsyncAction::CreateNewSession);
             },
@@ -321,6 +483,25 @@ impl EventHandler {
             },
             AppEvent::SwitchToTerminal => {
                 // TODO: Implement terminal view
+            },
+            AppEvent::SwitchPaneFocus => {
+                use crate::app::state::FocusedPane;
+                state.focused_pane = match state.focused_pane {
+                    FocusedPane::Sessions => FocusedPane::LiveLogs,
+                    FocusedPane::LiveLogs => FocusedPane::Sessions,
+                };
+            },
+            AppEvent::ScrollLogsUp => {
+                // This will be handled by the LiveLogsStreamComponent
+            },
+            AppEvent::ScrollLogsDown => {
+                // This will be handled by the LiveLogsStreamComponent
+            },
+            AppEvent::ScrollLogsToTop => {
+                // This will be handled by the LiveLogsStreamComponent
+            },
+            AppEvent::ScrollLogsToBottom => {
+                // This will be handled by the LiveLogsStreamComponent
             },
             AppEvent::ConfirmationToggle => {
                 if let Some(ref mut dialog) = state.confirmation_dialog {

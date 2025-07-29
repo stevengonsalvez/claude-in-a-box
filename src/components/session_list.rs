@@ -32,12 +32,20 @@ impl SessionListComponent {
         
         let items = SessionListComponent::build_list_items_static(state);
         
+        // Show focus indicator
+        use crate::app::state::FocusedPane;
+        let (border_color, title_color) = match state.focused_pane {
+            FocusedPane::Sessions => (Color::Cyan, Color::Yellow), // Focused
+            FocusedPane::LiveLogs => (Color::Gray, Color::Blue),   // Not focused
+        };
+        
         let list = List::new(items)
             .block(
                 Block::default()
                     .title("Workspaces")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
+                    .border_style(Style::default().fg(border_color))
+                    .title_style(Style::default().fg(title_color))
             )
             .highlight_style(
                 Style::default()

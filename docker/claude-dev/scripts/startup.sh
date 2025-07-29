@@ -35,9 +35,14 @@ if [ -f /app/.env ]; then
     set +a
 fi
 
-# Check if we're in claude-box mode
-if [ "${CLAUDE_BOX_MODE}" = "true" ]; then
-    log "Running in claude-box mode"
+# Check claude-box session mode
+if [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
+    log "Running in claude-box boss mode"
+elif [ "${CLAUDE_BOX_MODE}" = "interactive" ]; then
+    log "Running in claude-box interactive mode"
+elif [ "${CLAUDE_BOX_MODE}" = "true" ]; then
+    # Legacy support
+    log "Running in claude-box mode (legacy)"
 fi
 
 # Check for existing authentication (multiple sources)
@@ -106,6 +111,15 @@ if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
     cp /app/config/CLAUDE.md.template /workspace/CLAUDE.md
 fi
 
+# Set up Claude CLI logging commands
+log "Setting up Claude CLI logging commands"
+if [ -f /app/scripts/claude-commands.sh ]; then
+    source /app/scripts/claude-commands.sh
+    log "✅ Claude logging commands available: claude-ask, claude-print, claude-script"
+else
+    warn "Claude logging commands not found"
+fi
+
 # Ensure theme preferences are set to avoid Claude CLI theme prompt
 # Check if theme is already configured
 if ! claude config get -g theme >/dev/null 2>&1; then
@@ -116,25 +130,74 @@ else
 fi
 
 # Set trust dialog to accepted to avoid prompts when using --dangerously-skip-permissions
-log "Setting trust dialog acceptance to avoid permission prompts"
-claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
+if [[ "$CLAUDE_CONTINUE_FLAG" == *"--dangerously-skip-permissions"* ]]; then
+    log "Setting trust dialog acceptance to avoid permission prompts (skip permissions enabled)"
+    # Use direct binary to avoid triggering our wrapper's --dangerously-skip-permissions flag
+    /home/claude-user/.npm-global/bin/claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
+else
+    log "Trust dialog will be shown as needed (permissions enabled)"
+fi
 
 # Determine which CLI to use (adapted from claude-docker startup.sh)
 CLI_CMD="claude"
-CLI_ARGS="$CLAUDE_CONTINUE_FLAG --dangerously-skip-permissions"
+CLI_ARGS="$CLAUDE_CONTINUE_FLAG"
 
 log "Using Claude CLI with args: $CLI_ARGS"
 
-# If no command specified, run the CLI in interactive mode
-if [ $# -eq 0 ] || [ "$1" = "claude" ]; then
-    success "Starting ${CLI_CMD} CLI in interactive mode..."
-    success "Container is ready! You can attach to it to interact with Claude CLI."
-    success "Use: docker exec -it <container-name> bash"
+# Handle boss mode execution
+if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
+    # Create log directory
+    mkdir -p /workspace/.claude-box/logs
     
-    # Keep the container running by sleeping indefinitely
-    # Users can attach to the container and run claude commands interactively
-    log "Container will stay running. Attach to interact with Claude CLI."
-    exec sleep infinity
+    success "Container environment ready!"
+    if [ "${AUTH_OK}" = "true" ]; then
+        success "✅ Authentication detected - Claude will work immediately"
+        log "🤖 Executing boss mode prompt..."
+        log "Prompt: ${CLAUDE_BOX_PROMPT}"
+        
+        # Execute Claude with the boss prompt and stream JSON output
+        log "Running: claude -p \"${CLAUDE_BOX_PROMPT}\" --output-format stream-json --verbose"
+        exec claude -p "${CLAUDE_BOX_PROMPT}" --output-format stream-json --verbose $CLI_ARGS
+    else
+        error "❌ Boss mode requires authentication!"
+        error "Please ensure one of:"
+        error "  1. Run 'claude-box auth' to set up authentication"
+        error "  2. Have ~/.claude-in-a-box/auth/.credentials.json mounted"
+        error "  3. Set ANTHROPIC_API_KEY in environment"
+        exit 1
+    fi
+elif [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
+    error "❌ Boss mode requires a prompt!"
+    error "CLAUDE_BOX_PROMPT environment variable is missing or empty"
+    exit 1
+fi
+
+# If no command specified, run interactive shell
+if [ $# -eq 0 ]; then
+    # Create log directory
+    mkdir -p /workspace/.claude-box/logs
+    
+    success "Container environment ready!"
+    if [ "${AUTH_OK}" = "true" ]; then
+        success "✅ Authentication detected - Claude will work immediately"
+        success "📝 Available Claude commands:"
+        success "   • claude-ask \"question\" - Ask Claude with logged response"
+        success "   • claude-start - Interactive Claude CLI"
+        success "   • claude-help - Show all available commands"
+        success "   💡 Use claude-ask to see responses in TUI logs!"
+    else
+        warn "⚠️  No authentication detected"
+        warn "📝 Set ANTHROPIC_API_KEY or mount authentication files"
+    fi
+    
+    log "Starting interactive shell..."
+    # Use sleep infinity to keep container running when not attached to TTY
+    if [ -t 0 ]; then
+        exec bash
+    else
+        log "No TTY detected, keeping container alive..."
+        exec sleep infinity
+    fi
 else
     # Run the specified command
     log "Running command: $*"

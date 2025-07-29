@@ -4,6 +4,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph},
     style::{Color, Modifier, Style},
+    layout::{Layout, Direction, Constraint},
 };
 
 use crate::app::AppState;
@@ -30,45 +31,75 @@ impl AttachedTerminalComponent {
             .flat_map(|w| &w.sessions)
             .find(|s| s.id == session_id);
 
-        let title = if let Some(session) = session {
-            format!("Attached to: {} ({})", session.name, session_id.to_string()[..8].to_string())
+        let (title, recent_logs) = if let Some(session) = session {
+            (
+                format!("Attached to: {} ({})", session.name, session_id.to_string()[..8].to_string()),
+                session.recent_logs.clone()
+            )
         } else {
-            format!("Attached to session: {}", session_id.to_string()[..8].to_string())
+            (
+                format!("Attached to session: {}", session_id.to_string()[..8].to_string()),
+                None
+            )
         };
 
-        // Display session information since we use blocking execution
-        let terminal_content = vec![
+        // Split the area for info and logs
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(12), Constraint::Min(0)])
+            .split(area);
+
+        // Display session information in top section
+        let info_content = vec![
             "🔗 Session Container".to_string(),
             "".to_string(),
-            "This session has an active container with Claude CLI and MCP servers.".to_string(),
-            "".to_string(),
-            "Available MCP Servers:".to_string(),
-            "  • Serena - AI coding agent toolkit".to_string(),
-            "  • Context7 - Library documentation and examples".to_string(),
-            "  • Twilio - SMS notifications (if configured)".to_string(),
+            "🚀 Claude CLI is auto-started and running in background!".to_string(),
             "".to_string(),
             "Actions:".to_string(),
-            "  • Press [a] to attach to Claude CLI".to_string(),
+            "  • Press [a] to attach to interactive shell".to_string(),
             "  • Press [k] to kill container".to_string(),
             "  • Press [Esc] to return to session list".to_string(),
             "".to_string(),
-            "Note: Attaching will temporarily exit this interface".to_string(),
-            "and give you full terminal control inside the container.".to_string(),
+            "💡 In shell: Run 'claude-start' to attach to Claude immediately".to_string(),
         ];
 
-        let content_text = terminal_content.join("\n");
+        let info_text = info_content.join("\n");
 
-        let paragraph = Paragraph::new(content_text)
+        // Render info section
+        let info_paragraph = Paragraph::new(info_text)
             .block(
                 Block::default()
-                    .title(title)
+                    .title(title.clone())
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Green))
             )
             .style(Style::default().fg(Color::White))
             .wrap(ratatui::widgets::Wrap { trim: true });
 
-        frame.render_widget(paragraph, area);
+        frame.render_widget(info_paragraph, chunks[0]);
+
+        // Render logs section
+        let logs_content = if let Some(logs) = recent_logs {
+            if logs.trim().is_empty() {
+                "Claude CLI is starting up...\nLogs will appear here once Claude begins processing.".to_string()
+            } else {
+                logs
+            }
+        } else {
+            "Claude CLI is running but no logs fetched yet.\nLogs will appear here automatically.".to_string()
+        };
+
+        let logs_paragraph = Paragraph::new(logs_content)
+            .block(
+                Block::default()
+                    .title("📄 Claude Output (Live)")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Blue))
+            )
+            .style(Style::default().fg(Color::Gray))
+            .wrap(ratatui::widgets::Wrap { trim: false });
+
+        frame.render_widget(logs_paragraph, chunks[1]);
 
         // Add status bar at the bottom
         let status_area = Rect {
@@ -78,7 +109,7 @@ impl AttachedTerminalComponent {
             height: 3,
         };
 
-        let status_text = "[a] Attach to Claude CLI  |  [k] Kill Container  |  [Esc] Return to Session List";
+        let status_text = "[a] Attach to Shell  |  [k] Kill Container  |  [Esc] Return to Session List";
         let status_paragraph = Paragraph::new(status_text)
             .block(
                 Block::default()

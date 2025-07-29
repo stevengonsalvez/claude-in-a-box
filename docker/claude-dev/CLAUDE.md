@@ -43,6 +43,35 @@ Provides access to library documentation and code examples:
 3. Git operations work normally within the container
 4. Use Claude CLI with MCP servers for enhanced development experience
 
+## Claude CLI Commands
+
+The environment provides several ways to interact with Claude:
+
+### Logged Commands (responses appear in TUI logs):
+- `claude-ask "your question"` - Ask Claude a question with logged response
+- `claude-print "query"` - Same as claude-ask
+- `claude-script` - Read from stdin, useful for piping files
+
+### Interactive Commands:
+- `claude-start` - Start persistent tmux session with Claude CLI
+- `claude-interactive` - Alias for claude-start  
+- `claude` - Direct Claude CLI (respects permission settings)
+- `claude-help` - Show all available commands
+
+### Examples:
+```bash
+# Ask Claude with logged response (visible in TUI)
+claude-ask "How do I create a React component?"
+
+# Pipe file contents to Claude
+cat README.md | claude-script
+
+# Ask about code
+claude-ask "Explain this error: $(cat error.log)"
+```
+
+💡 **Tip**: Use `claude-ask` to see Claude's responses in the TUI live logs!
+
 ## Configuration
 
 To customize this environment for your project:
