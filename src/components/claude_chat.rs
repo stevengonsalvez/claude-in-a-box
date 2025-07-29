@@ -307,23 +307,33 @@ impl ClaudeConnectionStatus {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
-        let (text, color) = match &self.connection_status {
-            ConnectionStatus::Unknown => ("Claude: Unknown", Color::Gray),
-            ConnectionStatus::Connected => ("Claude: Connected ✓", Color::Green),
+        let status_widget = match &self.connection_status {
+            ConnectionStatus::Unknown => {
+                Paragraph::new("Claude: Unknown")
+                    .style(Style::default().fg(Color::Gray))
+                    .alignment(ratatui::layout::Alignment::Right)
+            },
+            ConnectionStatus::Connected => {
+                Paragraph::new("Claude: Connected ✓")
+                    .style(Style::default().fg(Color::Green))
+                    .alignment(ratatui::layout::Alignment::Right)
+            },
             ConnectionStatus::Disconnected(reason) => {
                 let text = if reason.len() > 30 {
                     format!("Claude: Error ({}...)", &reason[..27])
                 } else {
                     format!("Claude: Error ({})", reason)
                 };
-                (&*Box::leak(text.into_boxed_str()), Color::Red)
+                Paragraph::new(text)
+                    .style(Style::default().fg(Color::Red))
+                    .alignment(ratatui::layout::Alignment::Right)
             },
-            ConnectionStatus::Testing => ("Claude: Testing...", Color::Yellow),
+            ConnectionStatus::Testing => {
+                Paragraph::new("Claude: Testing...")
+                    .style(Style::default().fg(Color::Yellow))
+                    .alignment(ratatui::layout::Alignment::Right)
+            },
         };
-
-        let status_widget = Paragraph::new(text)
-            .style(Style::default().fg(color))
-            .alignment(ratatui::layout::Alignment::Right);
 
         frame.render_widget(status_widget, area);
     }

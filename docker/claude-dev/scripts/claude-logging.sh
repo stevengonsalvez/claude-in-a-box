@@ -63,7 +63,9 @@ run_claude_with_logging() {
             # For interactive mode, we can't capture the TTY output easily
             # but we log the session start/end
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
-                eval "claude $CLAUDE_CONTINUE_FLAG \"\$@\""
+                # Split CLAUDE_CONTINUE_FLAG into array elements safely
+                IFS=' ' read -ra CLAUDE_FLAGS <<< "$CLAUDE_CONTINUE_FLAG"
+                claude "${CLAUDE_FLAGS[@]}" "$@"
             else
                 claude "$@"
             fi
@@ -82,7 +84,9 @@ run_claude_with_logging() {
             # Use claude with --print flag to get output we can capture
             local response
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
-                response=$(eval "claude $CLAUDE_CONTINUE_FLAG --print \"\$query\"" 2>&1)
+                # Split CLAUDE_CONTINUE_FLAG into array elements safely
+                IFS=' ' read -ra CLAUDE_FLAGS <<< "$CLAUDE_CONTINUE_FLAG"
+                response=$(claude "${CLAUDE_FLAGS[@]}" --print "$query" 2>&1)
             else
                 response=$(claude --print "$query" 2>&1)
             fi
@@ -99,7 +103,9 @@ run_claude_with_logging() {
             
             local response
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
-                response=$(eval "claude $CLAUDE_CONTINUE_FLAG --print" 2>&1)
+                # Split CLAUDE_CONTINUE_FLAG into array elements safely
+                IFS=' ' read -ra CLAUDE_FLAGS <<< "$CLAUDE_CONTINUE_FLAG"
+                response=$(claude "${CLAUDE_FLAGS[@]}" --print 2>&1)
             else
                 response=$(claude --print 2>&1)
             fi

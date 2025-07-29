@@ -74,7 +74,7 @@ fi
 # Configure GitHub CLI if GITHUB_TOKEN is provided
 if [ -n "${GITHUB_TOKEN}" ]; then
     log "Configuring GitHub CLI with token authentication"
-    echo "${GITHUB_TOKEN}" | gh auth login --with-token
+    gh auth login --with-token <<< "${GITHUB_TOKEN}"
     
     # Configure git to use the token for authentication
     git config --global credential.helper store

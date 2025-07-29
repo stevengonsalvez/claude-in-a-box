@@ -90,9 +90,8 @@ RUN npm config set prefix '/home/claude-user/.npm-global' && \
     echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> ~/.bashrc && \
     echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> ~/.zshrc
 
-# Configure bash shell (skip zsh for now to avoid space issues)
-RUN echo 'export PATH=/home/claude-user/.npm-global/bin:$PATH' >> /home/claude-user/.bashrc && \
-    echo 'export HISTFILE=/home/claude-user/.bash_history' >> /home/claude-user/.bashrc
+# Configure bash history
+RUN echo 'export HISTFILE=/home/claude-user/.bash_history' >> /home/claude-user/.bashrc
 
 # Install Supabase CLI from GitHub releases (multi-arch support)
 RUN ARCH=$(dpkg --print-architecture | sed 's/aarch64/arm64/') && \
