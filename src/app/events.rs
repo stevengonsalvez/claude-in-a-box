@@ -47,6 +47,11 @@ pub enum AppEvent {
     NewSessionProceedToPermissions,
     NewSessionTogglePermissions,
     NewSessionCreate,
+    // File finder events for @ symbol trigger
+    FileFinderNavigateUp,
+    FileFinderNavigateDown,
+    FileFinderSelectFile,
+    FileFinderCancel,
     // Search workspace events
     SearchWorkspaceInputChar(char),
     SearchWorkspaceBackspace,
@@ -240,42 +245,83 @@ impl EventHandler {
                     // Debug logging to understand what key events we're receiving
                     tracing::debug!("InputPrompt: Received key event: {:?} with modifiers: {:?}", key_event.code, key_event.modifiers);
                     
-                    match key_event.code {
-                        KeyCode::Esc => {
-                            tracing::debug!("InputPrompt: Escape pressed, cancelling session");
-                            Some(AppEvent::NewSessionCancel)
-                        },
-                        // Just Enter - simple and clear
-                        KeyCode::Enter => {
-                            tracing::debug!("InputPrompt: Enter detected, checking prompt validity");
-                            // Check if prompt is not empty before proceeding
-                            if let Some(ref session_state) = state.new_session_state {
-                                let prompt_content = session_state.boss_prompt.trim();
-                                tracing::debug!("InputPrompt: Current prompt content: '{}' (length: {})", prompt_content, prompt_content.len());
-                                if prompt_content.is_empty() {
-                                    tracing::warn!("InputPrompt: Prompt is empty, not proceeding");
-                                    None // Don't proceed if prompt is empty
-                                } else {
-                                    tracing::info!("InputPrompt: Prompt is valid ({}), proceeding to permissions", prompt_content.len());
-                                    Some(AppEvent::NewSessionProceedToPermissions)
-                                }
-                            } else {
-                                tracing::error!("InputPrompt: No session state found, cannot proceed");
+                    // Check if file finder is active first
+                    let file_finder_active = if let Some(ref session_state) = state.new_session_state {
+                        session_state.file_finder.is_active
+                    } else {
+                        false
+                    };
+                    
+                    if file_finder_active {
+                        // File finder navigation takes precedence
+                        match key_event.code {
+                            KeyCode::Esc => {
+                                tracing::debug!("InputPrompt: Escape pressed while file finder active, cancelling file finder");
+                                Some(AppEvent::FileFinderCancel)
+                            },
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                tracing::debug!("InputPrompt: Up navigation in file finder");
+                                Some(AppEvent::FileFinderNavigateUp)
+                            },
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                tracing::debug!("InputPrompt: Down navigation in file finder");
+                                Some(AppEvent::FileFinderNavigateDown)
+                            },
+                            KeyCode::Enter => {
+                                tracing::debug!("InputPrompt: Enter pressed in file finder, selecting file");
+                                Some(AppEvent::FileFinderSelectFile)
+                            },
+                            KeyCode::Backspace => {
+                                tracing::debug!("InputPrompt: Backspace pressed in file finder");
+                                Some(AppEvent::NewSessionBackspacePrompt)
+                            },
+                            KeyCode::Char(ch) => {
+                                tracing::debug!("InputPrompt: Character '{}' typed in file finder", ch);
+                                Some(AppEvent::NewSessionInputPromptChar(ch))
+                            },
+                            _ => {
+                                tracing::debug!("InputPrompt: Unhandled key in file finder: {:?}", key_event.code);
                                 None
-                            }
-                        },
-                        KeyCode::Backspace => {
-                            tracing::debug!("InputPrompt: Backspace pressed");
-                            Some(AppEvent::NewSessionBackspacePrompt)
-                        },
-                        KeyCode::Char(ch) => {
-                            tracing::debug!("InputPrompt: Character '{}' typed", ch);
-                            Some(AppEvent::NewSessionInputPromptChar(ch))
-                        },
-                        _ => {
-                            tracing::debug!("InputPrompt: Unhandled key: {:?}", key_event.code);
-                            None
-                        },
+                            },
+                        }
+                    } else {
+                        // Normal prompt input handling
+                        match key_event.code {
+                            KeyCode::Esc => {
+                                tracing::debug!("InputPrompt: Escape pressed, cancelling session");
+                                Some(AppEvent::NewSessionCancel)
+                            },
+                            KeyCode::Enter => {
+                                tracing::debug!("InputPrompt: Enter detected, checking prompt validity");
+                                // Check if prompt is not empty before proceeding
+                                if let Some(ref session_state) = state.new_session_state {
+                                    let prompt_content = session_state.boss_prompt.trim();
+                                    tracing::debug!("InputPrompt: Current prompt content: '{}' (length: {})", prompt_content, prompt_content.len());
+                                    if prompt_content.is_empty() {
+                                        tracing::warn!("InputPrompt: Prompt is empty, not proceeding");
+                                        None // Don't proceed if prompt is empty
+                                    } else {
+                                        tracing::info!("InputPrompt: Prompt is valid ({}), proceeding to permissions", prompt_content.len());
+                                        Some(AppEvent::NewSessionProceedToPermissions)
+                                    }
+                                } else {
+                                    tracing::error!("InputPrompt: No session state found, cannot proceed");
+                                    None
+                                }
+                            },
+                            KeyCode::Backspace => {
+                                tracing::debug!("InputPrompt: Backspace pressed");
+                                Some(AppEvent::NewSessionBackspacePrompt)
+                            },
+                            KeyCode::Char(ch) => {
+                                tracing::debug!("InputPrompt: Character '{}' typed", ch);
+                                Some(AppEvent::NewSessionInputPromptChar(ch))
+                            },
+                            _ => {
+                                tracing::debug!("InputPrompt: Unhandled key: {:?}", key_event.code);
+                                None
+                            },
+                        }
                     }
                 }
                 NewSessionStep::ConfigurePermissions => {
@@ -630,6 +676,44 @@ impl EventHandler {
                             claude auth login\n\n\
                          Press 'Esc' to go back.".to_string()
                     );
+                }
+            },
+            // File finder events
+            AppEvent::FileFinderNavigateUp => {
+                if let Some(ref mut session_state) = state.new_session_state {
+                    session_state.file_finder.move_selection_up();
+                }
+            },
+            AppEvent::FileFinderNavigateDown => {
+                if let Some(ref mut session_state) = state.new_session_state {
+                    session_state.file_finder.move_selection_down();
+                }
+            },
+            AppEvent::FileFinderSelectFile => {
+                if let Some(ref mut session_state) = state.new_session_state {
+                    if let Some(selected_file) = session_state.file_finder.get_selected_file() {
+                        // Insert the selected file path at the @ position
+                        let file_path = &selected_file.relative_path;
+                        let at_pos = session_state.file_finder.at_symbol_position;
+                        
+                        // Replace @query with the file path
+                        let mut new_prompt = String::new();
+                        if at_pos > 0 {
+                            new_prompt.push_str(&session_state.boss_prompt[..at_pos]);
+                        }
+                        new_prompt.push_str(file_path);
+                        if at_pos + 1 + session_state.file_finder.query.len() < session_state.boss_prompt.len() {
+                            new_prompt.push_str(&session_state.boss_prompt[at_pos + 1 + session_state.file_finder.query.len()..]);
+                        }
+                        
+                        session_state.boss_prompt = new_prompt;
+                        session_state.file_finder.deactivate();
+                    }
+                }
+            },
+            AppEvent::FileFinderCancel => {
+                if let Some(ref mut session_state) = state.new_session_state {
+                    session_state.file_finder.deactivate();
                 }
             },
         }

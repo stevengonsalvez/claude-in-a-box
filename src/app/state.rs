@@ -6,9 +6,11 @@ use crate::claude::{ClaudeMessage, ClaudeApiClient};
 use crate::claude::client::ClaudeChatManager;
 use crate::claude::types::ClaudeStreamingEvent;
 use crate::components::live_logs_stream::LogEntry;
+use crate::components::fuzzy_file_finder::FuzzyFileFinderState;
 use crate::docker::LogStreamingCoordinator;
 use std::collections::HashMap;
 use std::time::Instant;
+use std::path::PathBuf;
 use uuid::Uuid;
 use chrono;
 use tracing::{warn, info, error};
@@ -193,6 +195,7 @@ pub struct NewSessionState {
     pub skip_permissions: bool, // true to use --dangerously-skip-permissions flag
     pub mode: crate::models::SessionMode, // Interactive or Boss mode
     pub boss_prompt: String, // The prompt text for boss mode execution
+    pub file_finder: FuzzyFileFinderState, // Fuzzy file finder for @ symbol
 }
 
 impl NewSessionState {
@@ -980,7 +983,7 @@ impl AppState {
         // Create new session state for current directory
         self.new_session_state = Some(NewSessionState {
             available_repos: vec![current_dir.clone()],
-            filtered_repos: vec![(0, current_dir)],
+            filtered_repos: vec![(0, current_dir.clone())],
             selected_repo_index: Some(0),
             branch_name: branch_base.clone(),
             step: NewSessionStep::InputBranch,  // Skip repo selection
@@ -989,6 +992,7 @@ impl AppState {
             skip_permissions: false,
             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
             boss_prompt: String::new(), // Empty prompt initially
+            file_finder: FuzzyFileFinderState::new(),
         });
         
         self.current_view = View::NewSession;
@@ -1038,6 +1042,7 @@ impl AppState {
                             skip_permissions: false,
                             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
                             boss_prompt: String::new(), // Empty prompt initially
+                            file_finder: FuzzyFileFinderState::new(),
                         });
                         
                         self.current_view = View::SearchWorkspace;
@@ -1057,6 +1062,7 @@ impl AppState {
                             skip_permissions: false,
                             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
                             boss_prompt: String::new(), // Empty prompt initially
+                            file_finder: FuzzyFileFinderState::new(),
                         });
                         self.current_view = View::SearchWorkspace;
                         info!("Transitioned to SearchWorkspace view with empty state due to error");
@@ -1077,6 +1083,7 @@ impl AppState {
                     skip_permissions: false,
                     mode: crate::models::SessionMode::Interactive, // Default to interactive mode
                     boss_prompt: String::new(), // Empty prompt initially
+                    file_finder: FuzzyFileFinderState::new(),
                 });
                 self.current_view = View::SearchWorkspace;
                 info!("Transitioned to SearchWorkspace view with empty state due to loader error");
@@ -1107,6 +1114,7 @@ impl AppState {
                             skip_permissions: false,
                             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
                             boss_prompt: String::new(), // Empty prompt initially
+                            file_finder: FuzzyFileFinderState::new(),
                         });
                         self.current_view = View::NewSession;
                     }
@@ -1235,7 +1243,28 @@ impl AppState {
     pub fn new_session_add_char_to_prompt(&mut self, ch: char) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputPrompt {
-                state.boss_prompt.push(ch);
+                if ch == '@' && !state.file_finder.is_active {
+                    // Activate fuzzy file finder
+                    let workspace_root = if let Some(selected_idx) = state.selected_repo_index {
+                        state.filtered_repos.get(selected_idx).map(|(_, path)| path.clone())
+                    } else {
+                        None
+                    };
+                    state.file_finder.activate(state.boss_prompt.len(), workspace_root);
+                    state.boss_prompt.push(ch);
+                } else if state.file_finder.is_active {
+                    // File finder is active, handle character input for filtering
+                    if ch == ' ' || ch == '\t' || ch == '\n' {
+                        // Whitespace deactivates file finder
+                        state.file_finder.deactivate();
+                        state.boss_prompt.push(ch);
+                    } else {
+                        state.file_finder.add_char_to_query(ch);
+                    }
+                } else {
+                    // Normal character input
+                    state.boss_prompt.push(ch);
+                }
             }
         }
     }
@@ -1243,7 +1272,21 @@ impl AppState {
     pub fn new_session_backspace_prompt(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputPrompt {
-                state.boss_prompt.pop();
+                if state.file_finder.is_active {
+                    if !state.file_finder.query.is_empty() {
+                        // Remove character from file finder query
+                        state.file_finder.backspace_query();
+                    } else {
+                        // Query is empty, deactivate file finder and remove @ symbol
+                        state.file_finder.deactivate();
+                        if state.boss_prompt.ends_with('@') {
+                            state.boss_prompt.pop();
+                        }
+                    }
+                } else {
+                    // Normal backspace
+                    state.boss_prompt.pop();
+                }
             }
         }
     }
