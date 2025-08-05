@@ -554,60 +554,20 @@ impl NewSessionComponent {
                 .split(chunks[2]);
 
             // Render prompt on the left
-            let prompt_text = if session_state.boss_prompt.is_empty() {
-                "Type your prompt here..."
-            } else {
-                &session_state.boss_prompt
-            };
-            
-            let prompt_input = Paragraph::new(prompt_text)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Green))
-                        .title("Prompt")
-                )
-                .style(if session_state.boss_prompt.is_empty() {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default().fg(Color::White)
-                })
-                .alignment(Alignment::Left)
-                .wrap(ratatui::widgets::Wrap { trim: true });
-            frame.render_widget(prompt_input, input_chunks[0]);
+            self.render_text_editor(frame, input_chunks[0], &session_state.boss_prompt, "Prompt");
 
             // Render file finder on the right
             self.render_file_finder(frame, input_chunks[1], session_state);
         } else {
             // Normal full-width prompt input
-            let prompt_text = if session_state.boss_prompt.is_empty() {
-                "Type your prompt here..."
-            } else {
-                &session_state.boss_prompt
-            };
-            
-            let prompt_input = Paragraph::new(prompt_text)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Green))
-                        .title("Prompt")
-                )
-                .style(if session_state.boss_prompt.is_empty() {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default().fg(Color::White)
-                })
-                .alignment(Alignment::Left)
-                .wrap(ratatui::widgets::Wrap { trim: true });
-            frame.render_widget(prompt_input, chunks[2]);
+            self.render_text_editor(frame, chunks[2], &session_state.boss_prompt, "Prompt");
         }
 
         // Controls - update based on file finder state
         let controls_text = if session_state.file_finder.is_active {
             "File Finder: ↑/↓ or j/k Navigate • Enter: Select • Esc: Cancel • Type: Filter"
         } else {
-            "Type to enter prompt • @ for file finder • Enter: Continue • Esc: Cancel"
+            "Type to enter prompt • Ctrl+J: New line • hjkl/arrows: Move cursor • @ for file finder • Enter: Continue • Esc: Cancel"
         };
         
         let controls = Paragraph::new(controls_text)
@@ -687,6 +647,79 @@ impl NewSessionComponent {
                 Constraint::Percentage((100 - percent_x) / 2),
             ])
             .split(popup_layout[1])[1]
+    }
+
+    fn render_text_editor(&self, frame: &mut Frame, area: Rect, editor: &crate::app::state::TextEditor, title: &str) {
+        use ratatui::widgets::{Block, Borders, Paragraph};
+        use ratatui::style::{Color, Style};
+        use ratatui::text::{Line, Span};
+        use ratatui::layout::Alignment;
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Green))
+            .title(title);
+        
+        let inner_area = block.inner(area);
+        frame.render_widget(block, area);
+
+        if editor.is_empty() {
+            // Show placeholder text
+            let placeholder = Paragraph::new("Type your prompt here...")
+                .style(Style::default().fg(Color::DarkGray))
+                .alignment(Alignment::Left);
+            frame.render_widget(placeholder, inner_area);
+        } else {
+            // Render text with cursor
+            let (cursor_line, cursor_col) = editor.get_cursor_position();
+            let lines = editor.get_lines();
+            
+            let rendered_lines: Vec<Line> = lines.iter().enumerate().map(|(line_idx, line_text)| {
+                if line_idx == cursor_line {
+                    // This line contains the cursor
+                    let mut spans = Vec::new();
+                    
+                    if cursor_col == 0 {
+                        // Cursor at beginning of line
+                        spans.push(Span::styled("█", Style::default().fg(Color::White).bg(Color::Green)));
+                        if !line_text.is_empty() {
+                            spans.push(Span::styled(line_text, Style::default().fg(Color::White)));
+                        }
+                    } else if cursor_col >= line_text.len() {
+                        // Cursor at end of line
+                        spans.push(Span::styled(line_text, Style::default().fg(Color::White)));
+                        spans.push(Span::styled("█", Style::default().fg(Color::White).bg(Color::Green)));
+                    } else {
+                        // Cursor in middle of line
+                        let (before, rest) = line_text.split_at(cursor_col);
+                        let (cursor_char, after) = if rest.len() > 1 {
+                            rest.split_at(1)
+                        } else {
+                            (rest, "")
+                        };
+                        
+                        if !before.is_empty() {
+                            spans.push(Span::styled(before, Style::default().fg(Color::White)));
+                        }
+                        spans.push(Span::styled(cursor_char, Style::default().fg(Color::White).bg(Color::Green)));
+                        if !after.is_empty() {
+                            spans.push(Span::styled(after, Style::default().fg(Color::White)));
+                        }
+                    }
+                    
+                    Line::from(spans)
+                } else {
+                    // Normal line without cursor
+                    Line::from(Span::styled(line_text, Style::default().fg(Color::White)))
+                }
+            }).collect();
+            
+            let paragraph = Paragraph::new(rendered_lines)
+                .alignment(Alignment::Left)
+                .wrap(ratatui::widgets::Wrap { trim: false }); // Don't trim to preserve exact formatting
+            
+            frame.render_widget(paragraph, inner_area);
+        }
     }
 }
 
