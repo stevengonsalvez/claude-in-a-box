@@ -5,7 +5,7 @@ This document describes the enhanced keyboard shortcuts available in Boss Mode p
 ## Text Input Controls
 
 ### Multiline Text Support
-- **Shift+Enter**: Insert new line (allows for multiline prompts)
+- **Ctrl+J**: Insert new line (allows for multiline prompts)
 - **Regular typing**: Insert characters at cursor position
 - **Backspace**: Delete character before cursor, or join lines if at beginning of line
 
@@ -14,8 +14,6 @@ This document describes the enhanced keyboard shortcuts available in Boss Mode p
 - **l** or **Right Arrow**: Move cursor right (next character)  
 - **k** or **Up Arrow**: Move cursor up (previous line)
 - **j** or **Down Arrow**: Move cursor down (next line)
-- **0**: Move cursor to beginning of current line
-- **$**: Move cursor to end of current line
 
 ## File Reference System
 - **@**: Activate fuzzy file finder for quick file references

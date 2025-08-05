@@ -303,7 +303,8 @@ impl EventHandler {
                                 tracing::debug!("InputPrompt: Enter detected, checking prompt validity");
                                 // Check if prompt is not empty before proceeding
                                 if let Some(ref session_state) = state.new_session_state {
-                                    let prompt_content = session_state.boss_prompt.to_string().trim().to_string();
+                                    let prompt_string = session_state.boss_prompt.to_string();
+                                    let prompt_content = prompt_string.trim();
                                     tracing::debug!("InputPrompt: Current prompt content: '{}' (length: {})", prompt_content, prompt_content.len());
                                     if prompt_content.is_empty() {
                                         tracing::warn!("InputPrompt: Prompt is empty, not proceeding");

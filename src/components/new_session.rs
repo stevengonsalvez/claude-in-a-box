@@ -655,17 +655,12 @@ impl NewSessionComponent {
         use ratatui::text::{Line, Span};
         use ratatui::layout::Alignment;
 
-        let inner_area = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Green))
-            .title(title)
-            .inner(area);
-        
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Green))
             .title(title);
         
+        let inner_area = block.inner(area);
         frame.render_widget(block, area);
 
         if editor.is_empty() {
@@ -697,10 +692,10 @@ impl NewSessionComponent {
                     } else {
                         // Cursor in middle of line
                         let (before, rest) = line_text.split_at(cursor_col);
-                        let (cursor_char, after) = if !rest.is_empty() {
+                        let (cursor_char, after) = if rest.len() > 1 {
                             rest.split_at(1)
                         } else {
-                            ("", "")
+                            (rest, "")
                         };
                         
                         if !before.is_empty() {

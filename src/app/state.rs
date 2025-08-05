@@ -1406,10 +1406,7 @@ impl AppState {
                     } else {
                         // Query is empty, deactivate file finder and remove @ symbol
                         state.file_finder.deactivate();
-                        let text = state.boss_prompt.to_string();
-                        if text.ends_with('@') {
-                            state.boss_prompt.backspace();
-                        }
+                        state.boss_prompt.backspace();
                     }
                 } else {
                     // Normal backspace
