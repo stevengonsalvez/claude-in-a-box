@@ -4,6 +4,19 @@ A terminal-based development environment manager that creates isolated Docker co
 
 ![Claude-in-a-Box Demo](docs/demo.gif)
 
+## 📋 Table of Contents
+
+- [✨ Features](#-features)
+- [🚀 Installation](#-installation)
+- [⚡ Quick Start](#-quick-start)
+- [🎮 Usage](#-usage)
+- [📋 Configuration](#-configuration)
+- [🏗️ Architecture](#️-architecture)
+- [🧪 Development](#-development)
+- [🔧 Troubleshooting](#-troubleshooting)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
+
 ## ✨ Features
 
 - **Isolated Sessions**: Each coding session runs in its own Docker container with dedicated git worktree
@@ -16,16 +29,16 @@ A terminal-based development environment manager that creates isolated Docker co
 - **Real-time Monitoring**: Container status, logs, and resource usage
 - **Session Persistence**: Resume sessions after application restart
 
-## 🚀 Quick Start
+## 🚀 Installation
 
 ### Prerequisites
 
-- **Docker** - [Install Docker](https://docs.docker.com/get-docker/)
+- **Docker** (required) - [Install Docker](https://docs.docker.com/get-docker/)
 - **Rust** (latest stable) - [Install Rust](https://rustup.rs/)
 - **Git** - For worktree management
 - **Claude API Key** - Get from [Anthropic Console](https://console.anthropic.com/)
 
-### Installation
+### Step 1: Install and Build
 
 ```bash
 # Clone the repository
@@ -34,35 +47,97 @@ cd claude-box
 
 # Build the project
 cargo build --release
+```
 
-# Run the application
+### Step 2: Start Docker
+
+**Ensure Docker is running before proceeding:**
+
+```bash
+# macOS with Docker Desktop
+open -a Docker
+echo "Waiting for Docker Desktop to start..."
+# Wait until this command succeeds:
+docker info
+
+# Linux with systemd
+sudo systemctl start docker
+sudo systemctl enable docker  # Start on boot
+docker info  # Should succeed without errors
+
+# Alternative Linux (service command)
+sudo service docker start
+docker info
+```
+
+**Windows Users:**
+1. Start Docker Desktop from the Start Menu
+2. Wait for the system tray icon to show "Docker Desktop is running"
+3. Open PowerShell/Command Prompt and verify: `docker info`
+
+**Verify Docker is Working:**
+```bash
+# This command should complete without errors
+docker run --rm hello-world
+```
+
+### Step 3: First Run & Authentication
+
+```bash
+# Run claude-in-a-box
 cargo run
 ```
 
-### Quick Setup
+**First-time authentication flow:**
 
-1. **Set up Claude authentication**:
-   ```bash
-   # Option 1: Use Claude CLI to authenticate
-   claude auth login
-   
-   # Option 2: Set environment variable
-   export ANTHROPIC_API_KEY="your-api-key"
-   ```
+1. **Authentication Container**: On first run, an authentication container will start automatically
+2. **Browser Authentication**: Click the authentication link that appears in the terminal output
+3. **Complete Auth**: Log in to Claude in your browser and copy the authentication code
+4. **Return to Terminal**: Paste the code when prompted in the terminal
+5. **Exit Auth Container**: Press `Ctrl+C` to stop the authentication container
+6. **TUI Launch**: The main TUI interface will appear (see screenshot above)
 
-2. **Start Docker daemon**:
-   ```bash
-   # macOS/Linux
-   sudo systemctl start docker
-   
-   # macOS with Docker Desktop
-   open -a Docker
-   ```
+> **Important**: The authentication process runs in a Docker container for security isolation and to prevent interference with the host version of claude code. Make sure to complete the browser authentication step and copy the code back to the terminal before pressing Ctrl+C.
 
-3. **Run claude-in-a-box**:
-   ```bash
-   cargo run
-   ```
+![Claude-in-a-Box TUI Interface](docs/tui-screenshot.png)
+
+> **Note**: Authentication runs in a container for isolation. After completing auth, you'll see the main TUI interface shown above. The interface shows workspaces on the left, live logs on the right, and session details at the bottom.
+
+## ⚡ Quick Start
+
+### Alternative Authentication Methods
+
+If you prefer to authenticate before running claude-in-a-box:
+
+```bash
+# Option 1: Use Claude CLI to authenticate
+claude auth login
+
+# Option 2: Set environment variable
+export ANTHROPIC_API_KEY="your-api-key"
+
+# Option 3: Manual .claude.json (in home directory)
+echo '{"api_key": "your-api-key"}' > ~/.claude.json
+```
+
+### Your First Session
+
+1. **Start Application**: `cargo run`
+2. **Navigate**: Use arrow keys or `j/k` to navigate workspaces
+3. **Create Session**: Press `n` to create a new session
+4. **Choose Template**: Select `claude-dev` (default) or another template
+5. **Enter Branch**: Type a branch name (will be prefixed with `claude/`)
+6. **Wait for Setup**: First-time setup downloads container images (~5 minutes)
+7. **Attach to Session**: Press `a` to enter the container
+8. **Start Coding**: Your workspace is mounted at `/workspace`
+
+```bash
+# Inside the container session
+cd /workspace          # Your project files
+claude                 # Start Claude CLI with MCP servers
+git status             # Git operations work normally
+npm run dev            # Development servers (ports forwarded)
+```
 
 ## 📋 Configuration
 
@@ -454,55 +529,129 @@ export TWILIO_FROM_PHONE="+1234567890"
 
 ## 🎮 Usage
 
-### Basic Navigation
+### TUI Interface Overview
 
+The claude-in-a-box interface is divided into several sections:
+
+- **Status Bar** (top): Shows application status and Docker connection
+- **Workspaces** (left): Lists detected Git repositories
+- **Live Logs** (top right): Container logs and status updates
+- **Session Details** (bottom): Selected session information
+- **Help Bar** (bottom): Available keyboard shortcuts
+
+### Keyboard Navigation
+
+#### Basic Movement
 ```
-j/↓        Move down in session list
-k/↑        Move up in session list  
-h/←        Previous workspace
-l/→        Next workspace
-g          Go to top
-G          Go to bottom
+j / ↓      Move down in session list
+k / ↑      Move up in session list  
+h / ←      Previous workspace
+l / →      Next workspace
+g          Go to top of list
+G          Go to bottom of list
 ```
 
-### Session Management
-
+#### Session Management
 ```
 n          Create new session
-a          Attach to session (interactive terminal)
+a          Attach to session (opens interactive terminal)
 s          Start/Stop session
 d          Delete session
+r          Refresh workspace list
 ```
 
-### Interface Controls
-
+#### Interface Controls
 ```
 ?          Toggle help overlay
-Tab        Switch between views
-q/Esc      Quit application
+Tab        Switch between panes
+q / Esc    Quit application
 Ctrl+C     Force quit
 ```
 
 ### Creating Your First Session
 
-1. **Start claude-in-a-box**: `cargo run`
-2. **Navigate to a Git repository** (auto-detected)
-3. **Press 'n'** to create a new session
-4. **Choose container template** (or use default `claude-dev`)
-5. **Enter branch name** (prefixed with `claude/`)
-6. **Wait for container setup** (first time may take a few minutes)
-7. **Press 'a'** to attach to the session
+1. **Launch**: Run `cargo run` to start claude-in-a-box
+2. **Authenticate**: Complete first-time authentication if needed
+3. **Select Workspace**: Navigate to a Git repository in the left panel
+4. **Create Session**: Press `n` to create a new session
+5. **Configure**:
+   - **Template**: Choose `claude-dev` (recommended) or other templates
+   - **Branch Name**: Enter a descriptive name (auto-prefixed with `claude/`)
+   - **Options**: Configure memory/CPU limits if needed
+6. **Build & Start**: Wait for container image build and startup
+7. **Attach**: Press `a` to enter the interactive session
 
-### Session Workflow
+### Working in Sessions
 
+#### Container Environment
+Each session provides:
+- **Workspace Mount**: Your project at `/workspace`
+- **Claude CLI**: Pre-configured with MCP servers
+- **Development Tools**: Git, Node.js, Python, build tools
+- **Port Forwarding**: Development servers accessible on host
+- **Isolated Git**: Dedicated worktree for clean branching
+
+#### Common Workflow
 ```bash
 # Inside a session container
-cd /workspace              # Your project is mounted here
-ls -la                    # See your project files
-claude                    # Start Claude CLI with MCP servers
-git status                # Git operations work normally
-npm run dev               # Start development servers (ports auto-forwarded)
+cd /workspace              # Navigate to your project
+ls -la                    # View project files
+git status                # Check current branch (isolated worktree)
+
+# Start Claude with MCP servers
+claude                    # Full AI assistance with context
+
+# Development commands work normally
+npm install               # Install dependencies
+npm run dev               # Start dev server (ports auto-forwarded)
+python -m venv venv       # Create virtual environments
+cargo build               # Build Rust projects
+
+# Git operations in isolated branch
+git add .
+git commit -m "feature: implement new functionality"
+git push origin claude/feature-branch
 ```
+
+#### Session Lifecycle
+- **Active**: Container running, can attach anytime
+- **Stopped**: Container paused, data preserved
+- **Deleted**: Container and worktree removed
+
+### Multi-Project Management
+
+**Workspace Auto-Detection**:
+- Scans common development directories
+- Recursively finds Git repositories
+- Configurable search paths
+- Real-time workspace refresh (`r` key)
+
+**Session Organization**:
+- Multiple sessions per project supported
+- Each session has isolated git worktree
+- Independent container environments
+- Resource usage monitoring
+
+### Advanced Features
+
+#### Container Templates
+- **claude-dev**: Full AI development environment
+- **node**: Node.js focused environment
+- **python**: Python development setup
+- **rust**: Rust development environment
+- **custom**: User-defined templates
+
+#### MCP Server Integration
+- **Serena**: AI coding agent toolkit
+- **Context7**: Library documentation access
+- **Twilio**: SMS notifications (optional)
+- **Custom**: Add your own MCP servers
+
+#### Resource Management
+- Memory and CPU limits per container
+- Port forwarding for development servers
+- Volume mounts for SSH keys, configs
+- Container health monitoring
 
 ### Project Setup Examples
 
