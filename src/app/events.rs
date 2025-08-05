@@ -692,18 +692,19 @@ impl EventHandler {
             AppEvent::FileFinderSelectFile => {
                 if let Some(ref mut session_state) = state.new_session_state {
                     if let Some(selected_file) = session_state.file_finder.get_selected_file() {
-                        // Insert the selected file path at the @ position
+                        // Replace @query with the selected file path
                         let file_path = &selected_file.relative_path;
                         let at_pos = session_state.file_finder.at_symbol_position;
+                        let query_end_pos = at_pos + 1 + session_state.file_finder.query.len();
                         
-                        // Replace @query with the file path
-                        let mut new_prompt = String::new();
-                        if at_pos > 0 {
-                            new_prompt.push_str(&session_state.boss_prompt[..at_pos]);
-                        }
+                        // Construct new prompt by replacing @query with file path
+                        let mut new_prompt = String::with_capacity(
+                            session_state.boss_prompt.len() + file_path.len()
+                        );
+                        new_prompt.push_str(&session_state.boss_prompt[..at_pos]);
                         new_prompt.push_str(file_path);
-                        if at_pos + 1 + session_state.file_finder.query.len() < session_state.boss_prompt.len() {
-                            new_prompt.push_str(&session_state.boss_prompt[at_pos + 1 + session_state.file_finder.query.len()..]);
+                        if query_end_pos < session_state.boss_prompt.len() {
+                            new_prompt.push_str(&session_state.boss_prompt[query_end_pos..]);
                         }
                         
                         session_state.boss_prompt = new_prompt;

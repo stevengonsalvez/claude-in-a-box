@@ -1243,13 +1243,17 @@ impl AppState {
     pub fn new_session_add_char_to_prompt(&mut self, ch: char) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputPrompt {
-                if ch == '@' && !state.file_finder.is_active {
-                    // Activate fuzzy file finder
+                if ch == '@' {
+                    // Activate fuzzy file finder (supports multiple @ references)
                     let workspace_root = if let Some(selected_idx) = state.selected_repo_index {
                         state.filtered_repos.get(selected_idx).map(|(_, path)| path.clone())
                     } else {
                         None
                     };
+                    // If already active, deactivate current search and start new one
+                    if state.file_finder.is_active {
+                        state.file_finder.deactivate();
+                    }
                     state.file_finder.activate(state.boss_prompt.len(), workspace_root);
                     state.boss_prompt.push(ch);
                 } else if state.file_finder.is_active {

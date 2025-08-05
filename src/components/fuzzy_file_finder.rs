@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::fs;
-use tracing::{debug, warn};
+use tracing::debug;
 
 #[derive(Debug, Clone)]
 pub struct FileMatch {
@@ -138,9 +138,7 @@ pub fn find_files_fuzzy(root: &Path, query: &str, limit: usize) -> Vec<FileMatch
             });
         }
 
-        if matches.len() >= limit {
-            break;
-        }
+        // Note: Don't break early - we need to score all files to find the best matches
     }
 
     // Sort by score (higher is better) and then by path length (shorter is better)
@@ -253,7 +251,7 @@ fn calculate_fuzzy_score(path: &str, query: &str) -> usize {
 
     // Fuzzy matching
     let mut score = 0;
-    let mut path_chars: Vec<char> = path_lower.chars().collect();
+    let path_chars: Vec<char> = path_lower.chars().collect();
     let query_chars: Vec<char> = query_lower.chars().collect();
     
     let mut path_idx = 0;
