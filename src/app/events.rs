@@ -44,6 +44,14 @@ pub enum AppEvent {
     NewSessionProceedFromMode,
     NewSessionInputPromptChar(char),
     NewSessionBackspacePrompt,
+    NewSessionInsertNewline,
+    // Cursor movement events for boss mode prompt
+    NewSessionCursorLeft,
+    NewSessionCursorRight,
+    NewSessionCursorUp,
+    NewSessionCursorDown,
+    NewSessionCursorLineStart,
+    NewSessionCursorLineEnd,
     NewSessionProceedToPermissions,
     NewSessionTogglePermissions,
     NewSessionCreate,
@@ -295,7 +303,7 @@ impl EventHandler {
                                 tracing::debug!("InputPrompt: Enter detected, checking prompt validity");
                                 // Check if prompt is not empty before proceeding
                                 if let Some(ref session_state) = state.new_session_state {
-                                    let prompt_content = session_state.boss_prompt.trim();
+                                    let prompt_content = session_state.boss_prompt.to_string().trim().to_string();
                                     tracing::debug!("InputPrompt: Current prompt content: '{}' (length: {})", prompt_content, prompt_content.len());
                                     if prompt_content.is_empty() {
                                         tracing::warn!("InputPrompt: Prompt is empty, not proceeding");
@@ -309,9 +317,30 @@ impl EventHandler {
                                     None
                                 }
                             },
+                            KeyCode::Char('j') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                                tracing::debug!("InputPrompt: Ctrl+J pressed, inserting newline");
+                                Some(AppEvent::NewSessionInsertNewline)
+                            },
                             KeyCode::Backspace => {
                                 tracing::debug!("InputPrompt: Backspace pressed");
                                 Some(AppEvent::NewSessionBackspacePrompt)
+                            },
+                            // VIM-style cursor movement keys
+                            KeyCode::Left | KeyCode::Char('h') => {
+                                tracing::debug!("InputPrompt: Cursor left");
+                                Some(AppEvent::NewSessionCursorLeft)
+                            },
+                            KeyCode::Right | KeyCode::Char('l') => {
+                                tracing::debug!("InputPrompt: Cursor right");
+                                Some(AppEvent::NewSessionCursorRight)
+                            },
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                tracing::debug!("InputPrompt: Cursor up");
+                                Some(AppEvent::NewSessionCursorUp)
+                            },
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                tracing::debug!("InputPrompt: Cursor down");
+                                Some(AppEvent::NewSessionCursorDown)
                             },
                             KeyCode::Char(ch) => {
                                 tracing::debug!("InputPrompt: Character '{}' typed", ch);
@@ -476,6 +505,13 @@ impl EventHandler {
             AppEvent::NewSessionProceedFromMode => state.new_session_proceed_from_mode(),
             AppEvent::NewSessionInputPromptChar(ch) => state.new_session_add_char_to_prompt(ch),
             AppEvent::NewSessionBackspacePrompt => state.new_session_backspace_prompt(),
+            AppEvent::NewSessionInsertNewline => state.new_session_insert_newline(),
+            AppEvent::NewSessionCursorLeft => state.new_session_move_cursor_left(),
+            AppEvent::NewSessionCursorRight => state.new_session_move_cursor_right(),
+            AppEvent::NewSessionCursorUp => state.new_session_move_cursor_up(),
+            AppEvent::NewSessionCursorDown => state.new_session_move_cursor_down(),
+            AppEvent::NewSessionCursorLineStart => state.new_session_move_to_line_start(),
+            AppEvent::NewSessionCursorLineEnd => state.new_session_move_to_line_end(),
             AppEvent::NewSessionProceedToPermissions => {
                 tracing::info!("Processing NewSessionProceedToPermissions event");
                 state.new_session_proceed_to_permissions();
@@ -698,16 +734,17 @@ impl EventHandler {
                         let query_end_pos = at_pos + 1 + session_state.file_finder.query.len();
                         
                         // Construct new prompt by replacing @query with file path
+                        let current_text = session_state.boss_prompt.to_string();
                         let mut new_prompt = String::with_capacity(
-                            session_state.boss_prompt.len() + file_path.len()
+                            current_text.len() + file_path.len()
                         );
-                        new_prompt.push_str(&session_state.boss_prompt[..at_pos]);
+                        new_prompt.push_str(&current_text[..at_pos]);
                         new_prompt.push_str(file_path);
-                        if query_end_pos < session_state.boss_prompt.len() {
-                            new_prompt.push_str(&session_state.boss_prompt[query_end_pos..]);
+                        if query_end_pos < current_text.len() {
+                            new_prompt.push_str(&current_text[query_end_pos..]);
                         }
                         
-                        session_state.boss_prompt = new_prompt;
+                        session_state.boss_prompt = crate::app::state::TextEditor::from_string(&new_prompt);
                         session_state.file_finder.deactivate();
                     }
                 }

@@ -17,6 +17,129 @@ use tracing::{warn, info, error};
 use tokio::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
+/// Text editor with cursor support for boss mode prompts
+#[derive(Debug, Clone)]
+pub struct TextEditor {
+    lines: Vec<String>,
+    cursor_line: usize,
+    cursor_col: usize,
+}
+
+impl TextEditor {
+    pub fn new() -> Self {
+        Self {
+            lines: vec![String::new()],
+            cursor_line: 0,
+            cursor_col: 0,
+        }
+    }
+
+    pub fn from_string(text: &str) -> Self {
+        let lines: Vec<String> = if text.is_empty() {
+            vec![String::new()]
+        } else {
+            text.lines().map(|s| s.to_string()).collect()
+        };
+        
+        Self {
+            lines,
+            cursor_line: 0,
+            cursor_col: 0,
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        self.lines.join("\n")
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.lines.len() == 1 && self.lines[0].is_empty()
+    }
+
+    pub fn insert_char(&mut self, ch: char) {
+        if ch == '\n' {
+            self.insert_newline();
+        } else {
+            let line = &mut self.lines[self.cursor_line];
+            line.insert(self.cursor_col, ch);
+            self.cursor_col += 1;
+        }
+    }
+
+    pub fn insert_newline(&mut self) {
+        let current_line = self.lines[self.cursor_line].clone();
+        let (left, right) = current_line.split_at(self.cursor_col);
+        
+        self.lines[self.cursor_line] = left.to_string();
+        self.lines.insert(self.cursor_line + 1, right.to_string());
+        
+        self.cursor_line += 1;
+        self.cursor_col = 0;
+    }
+
+    pub fn backspace(&mut self) {
+        if self.cursor_col > 0 {
+            // Delete character before cursor
+            self.lines[self.cursor_line].remove(self.cursor_col - 1);
+            self.cursor_col -= 1;
+        } else if self.cursor_line > 0 {
+            // Join with previous line
+            let current_line = self.lines.remove(self.cursor_line);
+            self.cursor_line -= 1;
+            self.cursor_col = self.lines[self.cursor_line].len();
+            self.lines[self.cursor_line].push_str(&current_line);
+        }
+    }
+
+    pub fn move_cursor_left(&mut self) {
+        if self.cursor_col > 0 {
+            self.cursor_col -= 1;
+        } else if self.cursor_line > 0 {
+            self.cursor_line -= 1;
+            self.cursor_col = self.lines[self.cursor_line].len();
+        }
+    }
+
+    pub fn move_cursor_right(&mut self) {
+        if self.cursor_col < self.lines[self.cursor_line].len() {
+            self.cursor_col += 1;
+        } else if self.cursor_line < self.lines.len() - 1 {
+            self.cursor_line += 1;
+            self.cursor_col = 0;
+        }
+    }
+
+    pub fn move_cursor_up(&mut self) {
+        if self.cursor_line > 0 {
+            self.cursor_line -= 1;
+            self.cursor_col = self.cursor_col.min(self.lines[self.cursor_line].len());
+        }
+    }
+
+    pub fn move_cursor_down(&mut self) {
+        if self.cursor_line < self.lines.len() - 1 {
+            self.cursor_line += 1;
+            self.cursor_col = self.cursor_col.min(self.lines[self.cursor_line].len());
+        }
+    }
+
+    pub fn move_to_line_start(&mut self) {
+        self.cursor_col = 0;
+    }
+
+    pub fn move_to_line_end(&mut self) {
+        self.cursor_col = self.lines[self.cursor_line].len();
+    }
+
+    pub fn get_cursor_position(&self) -> (usize, usize) {
+        (self.cursor_line, self.cursor_col)
+    }
+
+    pub fn get_lines(&self) -> &Vec<String> {
+        &self.lines
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FocusedPane {
     Sessions,    // Left pane - workspace/session list
@@ -194,7 +317,7 @@ pub struct NewSessionState {
     pub is_current_dir_mode: bool, // true if creating session in current dir
     pub skip_permissions: bool, // true to use --dangerously-skip-permissions flag
     pub mode: crate::models::SessionMode, // Interactive or Boss mode
-    pub boss_prompt: String, // The prompt text for boss mode execution
+    pub boss_prompt: TextEditor, // The prompt text editor for boss mode execution
     pub file_finder: FuzzyFileFinderState, // Fuzzy file finder for @ symbol
 }
 
@@ -991,7 +1114,7 @@ impl AppState {
             is_current_dir_mode: true,
             skip_permissions: false,
             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-            boss_prompt: String::new(), // Empty prompt initially
+            boss_prompt: TextEditor::new(), // Empty prompt initially
             file_finder: FuzzyFileFinderState::new(),
         });
         
@@ -1041,7 +1164,7 @@ impl AppState {
                             is_current_dir_mode: false,
                             skip_permissions: false,
                             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: String::new(), // Empty prompt initially
+                            boss_prompt: TextEditor::new(), // Empty prompt initially
                             file_finder: FuzzyFileFinderState::new(),
                         });
                         
@@ -1061,7 +1184,7 @@ impl AppState {
                             is_current_dir_mode: false,
                             skip_permissions: false,
                             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: String::new(), // Empty prompt initially
+                            boss_prompt: TextEditor::new(), // Empty prompt initially
                             file_finder: FuzzyFileFinderState::new(),
                         });
                         self.current_view = View::SearchWorkspace;
@@ -1082,7 +1205,7 @@ impl AppState {
                     is_current_dir_mode: false,
                     skip_permissions: false,
                     mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                    boss_prompt: String::new(), // Empty prompt initially
+                    boss_prompt: TextEditor::new(), // Empty prompt initially
                     file_finder: FuzzyFileFinderState::new(),
                 });
                 self.current_view = View::SearchWorkspace;
@@ -1113,7 +1236,7 @@ impl AppState {
                             is_current_dir_mode: false,
                             skip_permissions: false,
                             mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: String::new(), // Empty prompt initially
+                            boss_prompt: TextEditor::new(), // Empty prompt initially
                             file_finder: FuzzyFileFinderState::new(),
                         });
                         self.current_view = View::NewSession;
@@ -1254,20 +1377,20 @@ impl AppState {
                     if state.file_finder.is_active {
                         state.file_finder.deactivate();
                     }
-                    state.file_finder.activate(state.boss_prompt.len(), workspace_root);
-                    state.boss_prompt.push(ch);
+                    state.file_finder.activate(state.boss_prompt.to_string().len(), workspace_root);
+                    state.boss_prompt.insert_char(ch);
                 } else if state.file_finder.is_active {
                     // File finder is active, handle character input for filtering
                     if ch == ' ' || ch == '\t' || ch == '\n' {
                         // Whitespace deactivates file finder
                         state.file_finder.deactivate();
-                        state.boss_prompt.push(ch);
+                        state.boss_prompt.insert_char(ch);
                     } else {
                         state.file_finder.add_char_to_query(ch);
                     }
                 } else {
                     // Normal character input
-                    state.boss_prompt.push(ch);
+                    state.boss_prompt.insert_char(ch);
                 }
             }
         }
@@ -1283,14 +1406,71 @@ impl AppState {
                     } else {
                         // Query is empty, deactivate file finder and remove @ symbol
                         state.file_finder.deactivate();
-                        if state.boss_prompt.ends_with('@') {
-                            state.boss_prompt.pop();
+                        let text = state.boss_prompt.to_string();
+                        if text.ends_with('@') {
+                            state.boss_prompt.backspace();
                         }
                     }
                 } else {
                     // Normal backspace
-                    state.boss_prompt.pop();
+                    state.boss_prompt.backspace();
                 }
+            }
+        }
+    }
+
+    pub fn new_session_move_cursor_left(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_cursor_left();
+            }
+        }
+    }
+
+    pub fn new_session_move_cursor_right(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_cursor_right();
+            }
+        }
+    }
+
+    pub fn new_session_move_cursor_up(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_cursor_up();
+            }
+        }
+    }
+
+    pub fn new_session_move_cursor_down(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_cursor_down();
+            }
+        }
+    }
+
+    pub fn new_session_move_to_line_start(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_to_line_start();
+            }
+        }
+    }
+
+    pub fn new_session_move_to_line_end(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_to_line_end();
+            }
+        }
+    }
+
+    pub fn new_session_insert_newline(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.insert_newline();
             }
         }
     }
@@ -1334,7 +1514,7 @@ impl AppState {
                                 state.skip_permissions,
                                 state.mode.clone(),
                                 if state.mode == crate::models::SessionMode::Boss { 
-                                    Some(state.boss_prompt.clone()) 
+                                    Some(state.boss_prompt.to_string()) 
                                 } else { 
                                     None 
                                 }
