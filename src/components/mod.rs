@@ -11,6 +11,7 @@ pub mod confirmation_dialog;
 pub mod non_git_notification;
 pub mod attached_terminal;
 pub mod auth_setup;
+pub mod fuzzy_file_finder;
 
 pub use session_list::SessionListComponent;
 pub use logs_viewer::LogsViewerComponent;

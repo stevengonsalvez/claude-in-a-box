@@ -508,49 +508,109 @@ impl NewSessionComponent {
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
 
-        // Instructions
-        let instructions_text = vec![
-            Line::from("Enter the task or prompt for Claude to execute:"),
-            Line::from("• Direct task: \"Analyze this codebase and suggest improvements\""),
-            Line::from("• File reference: \"Review the file src/main.rs\""),
-            Line::from("• GitHub issue: \"Fix issue #123\""),
-        ];
+        // Instructions - update to mention @ symbol for file finder
+        let instructions_text = if session_state.file_finder.is_active {
+            vec![
+                Line::from("🔍 File Finder Active - Type to filter files:"),
+                Line::from("• ↑/↓ or j/k: Navigate files"),
+                Line::from("• Enter: Select file • Esc: Cancel file finder"),
+                Line::from("• Type characters to filter by filename"),
+            ]
+        } else {
+            vec![
+                Line::from("Enter the task or prompt for Claude to execute:"),
+                Line::from("• Direct task: \"Analyze this codebase and suggest improvements\""),
+                Line::from("• File reference: \"Review the file @src/main.rs\" (type @ for file finder)"),
+                Line::from("• GitHub issue: \"Fix issue #123\""),
+            ]
+        };
         
         let instructions = Paragraph::new(instructions_text)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Blue))
+                    .border_style(if session_state.file_finder.is_active {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::Blue)
+                    })
             )
-            .style(Style::default().fg(Color::Cyan))
+            .style(if session_state.file_finder.is_active {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::Cyan)
+            })
             .alignment(Alignment::Left);
         frame.render_widget(instructions, chunks[1]);
 
-        // Prompt input area - multi-line text area
-        let prompt_text = if session_state.boss_prompt.is_empty() {
-            "Type your prompt here..."
+        // Split the prompt input area if file finder is active
+        if session_state.file_finder.is_active {
+            let input_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([
+                    Constraint::Percentage(50),  // Prompt
+                    Constraint::Percentage(50),  // File finder
+                ])
+                .split(chunks[2]);
+
+            // Render prompt on the left
+            let prompt_text = if session_state.boss_prompt.is_empty() {
+                "Type your prompt here..."
+            } else {
+                &session_state.boss_prompt
+            };
+            
+            let prompt_input = Paragraph::new(prompt_text)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Green))
+                        .title("Prompt")
+                )
+                .style(if session_state.boss_prompt.is_empty() {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default().fg(Color::White)
+                })
+                .alignment(Alignment::Left)
+                .wrap(ratatui::widgets::Wrap { trim: true });
+            frame.render_widget(prompt_input, input_chunks[0]);
+
+            // Render file finder on the right
+            self.render_file_finder(frame, input_chunks[1], session_state);
         } else {
-            &session_state.boss_prompt
+            // Normal full-width prompt input
+            let prompt_text = if session_state.boss_prompt.is_empty() {
+                "Type your prompt here..."
+            } else {
+                &session_state.boss_prompt
+            };
+            
+            let prompt_input = Paragraph::new(prompt_text)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Green))
+                        .title("Prompt")
+                )
+                .style(if session_state.boss_prompt.is_empty() {
+                    Style::default().fg(Color::DarkGray)
+                } else {
+                    Style::default().fg(Color::White)
+                })
+                .alignment(Alignment::Left)
+                .wrap(ratatui::widgets::Wrap { trim: true });
+            frame.render_widget(prompt_input, chunks[2]);
+        }
+
+        // Controls - update based on file finder state
+        let controls_text = if session_state.file_finder.is_active {
+            "File Finder: ↑/↓ or j/k Navigate • Enter: Select • Esc: Cancel • Type: Filter"
+        } else {
+            "Type to enter prompt • @ for file finder • Enter: Continue • Esc: Cancel"
         };
         
-        let prompt_input = Paragraph::new(prompt_text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title("Prompt")
-            )
-            .style(if session_state.boss_prompt.is_empty() {
-                Style::default().fg(Color::DarkGray)
-            } else {
-                Style::default().fg(Color::White)
-            })
-            .alignment(Alignment::Left)
-            .wrap(ratatui::widgets::Wrap { trim: true });
-        frame.render_widget(prompt_input, chunks[2]);
-
-        // Controls
-        let controls = Paragraph::new("Type to enter prompt • Enter: Continue • Esc: Cancel")
+        let controls = Paragraph::new(controls_text)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -559,6 +619,54 @@ impl NewSessionComponent {
             .style(Style::default().fg(Color::Gray))
             .alignment(Alignment::Center);
         frame.render_widget(controls, chunks[3]);
+    }
+
+    fn render_file_finder(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),  // Query input
+                Constraint::Min(0),     // File list
+            ])
+            .split(area);
+
+        // Query input
+        let query_display = format!("@{}", session_state.file_finder.query);
+        let query_input = Paragraph::new(query_display)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .title("File Filter")
+            )
+            .style(Style::default().fg(Color::Yellow))
+            .alignment(Alignment::Left);
+        frame.render_widget(query_input, chunks[0]);
+
+        // File list
+        let file_items: Vec<ListItem> = session_state.file_finder.matches
+            .iter()
+            .enumerate()
+            .map(|(idx, file_match)| {
+                let style = if idx == session_state.file_finder.selected_index {
+                    Style::default().fg(Color::Black).bg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                
+                ListItem::new(file_match.relative_path.as_str()).style(style)
+            })
+            .collect();
+
+        let file_list = List::new(file_items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow))
+                    .title(format!("Files ({} matches)", session_state.file_finder.matches.len()))
+            );
+
+        frame.render_widget(file_list, chunks[1]);
     }
 
     fn centered_rect(&self, percent_x: u16, percent_y: u16, r: Rect) -> Rect {

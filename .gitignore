@@ -30,3 +30,4 @@ worktrees/
 test-repos/
 temp/
 docker/claude-dev/.claude.json
+logs/
