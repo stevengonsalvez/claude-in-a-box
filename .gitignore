@@ -31,3 +31,7 @@ test-repos/
 temp/
 docker/claude-dev/.claude.json
 logs/
+
+# Amazonq
+.amazonq/
+AmazonQ.md

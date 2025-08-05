@@ -86,9 +86,9 @@ run_claude_with_logging() {
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
                 # Split CLAUDE_CONTINUE_FLAG into array elements safely
                 IFS=' ' read -ra CLAUDE_FLAGS <<< "$CLAUDE_CONTINUE_FLAG"
-                response=$(claude "${CLAUDE_FLAGS[@]}" --print "$query" 2>&1)
+                response=$(claude "${CLAUDE_FLAGS[@]}" --print --output-format text "$query" 2>&1)
             else
-                response=$(claude --print "$query" 2>&1)
+                response=$(claude --print --output-format text "$query" 2>&1)
             fi
             if [ $? -eq 0 ]; then
                 log_to_docker "${GREEN}🤖 Claude: ${response}${NC}"
@@ -105,9 +105,9 @@ run_claude_with_logging() {
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
                 # Split CLAUDE_CONTINUE_FLAG into array elements safely
                 IFS=' ' read -ra CLAUDE_FLAGS <<< "$CLAUDE_CONTINUE_FLAG"
-                response=$(claude "${CLAUDE_FLAGS[@]}" --print 2>&1)
+                response=$(claude "${CLAUDE_FLAGS[@]}" --print --output-format text 2>&1)
             else
-                response=$(claude --print 2>&1)
+                response=$(claude --print --output-format text 2>&1)
             fi
             if [ $? -eq 0 ]; then
                 log_to_docker "${GREEN}🤖 Claude: ${response}${NC}"
