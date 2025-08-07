@@ -77,6 +77,15 @@ pub enum AppEvent {
     AuthSetupCheckStatus,   // Check authentication status
     AuthSetupRefresh,       // Manual refresh to check auth completion
     AuthSetupShowCommand,   // Show manual CLI command
+    // Git view events
+    ShowGitView,            // Show git view for selected session
+    GitViewSwitchTab,       // Switch between Files and Diff tabs
+    GitViewNextFile,        // Navigate to next file
+    GitViewPrevFile,        // Navigate to previous file
+    GitViewScrollUp,        // Scroll diff up
+    GitViewScrollDown,      // Scroll diff down
+    GitViewCommitPush,      // Commit and push changes
+    GitViewBack,            // Return to session list
 }
 
 pub struct EventHandler;
@@ -147,6 +156,11 @@ impl EventHandler {
             return Self::handle_auth_setup_keys(key_event, state);
         }
 
+        // Handle git view
+        if state.current_view == View::GitView {
+            return Self::handle_git_view_keys(key_event, state);
+        }
+
         // Handle key events based on focused pane
         use crate::app::state::FocusedPane;
         
@@ -161,6 +175,8 @@ impl EventHandler {
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
+            KeyCode::Char('g') => Some(AppEvent::ShowGitView),  // Show git view
+            KeyCode::Char('p') => Some(AppEvent::GitViewCommitPush), // Quick push from main view
             
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
@@ -187,13 +203,13 @@ impl EventHandler {
                     FocusedPane::LiveLogs => None, // No left/right scrolling in logs
                 }
             },
-            KeyCode::Char('g') => {
+            KeyCode::Home => {
                 match state.focused_pane {
                     FocusedPane::Sessions => Some(AppEvent::GoToTop),
                     FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToTop),
                 }
             },
-            KeyCode::Char('G') => {
+            KeyCode::End => {
                 match state.focused_pane {
                     FocusedPane::Sessions => Some(AppEvent::GoToBottom),
                     FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToBottom),
@@ -453,6 +469,35 @@ impl EventHandler {
             }
         } else {
             None
+        }
+    }
+
+    fn handle_git_view_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        match key_event.code {
+            KeyCode::Esc => Some(AppEvent::GitViewBack),
+            KeyCode::Tab => Some(AppEvent::GitViewSwitchTab),
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let Some(ref git_state) = state.git_view_state {
+                    match git_state.active_tab {
+                        crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewNextFile),
+                        crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollDown),
+                    }
+                } else {
+                    None
+                }
+            },
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Some(ref git_state) = state.git_view_state {
+                    match git_state.active_tab {
+                        crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewPrevFile),
+                        crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollUp),
+                    }
+                } else {
+                    None
+                }
+            },
+            KeyCode::Char('p') => Some(AppEvent::GitViewCommitPush),
+            _ => None,
         }
     }
 
@@ -754,6 +799,42 @@ impl EventHandler {
                 if let Some(ref mut session_state) = state.new_session_state {
                     session_state.file_finder.deactivate();
                 }
+            },
+            // Git view events
+            AppEvent::ShowGitView => {
+                state.show_git_view();
+            },
+            AppEvent::GitViewSwitchTab => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.switch_tab();
+                }
+            },
+            AppEvent::GitViewNextFile => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.next_file();
+                }
+            },
+            AppEvent::GitViewPrevFile => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.previous_file();
+                }
+            },
+            AppEvent::GitViewScrollUp => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.scroll_diff_up();
+                }
+            },
+            AppEvent::GitViewScrollDown => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.scroll_diff_down();
+                }
+            },
+            AppEvent::GitViewCommitPush => {
+                state.git_commit_and_push();
+            },
+            AppEvent::GitViewBack => {
+                state.current_view = crate::app::state::View::SessionList;
+                state.git_view_state = None;
             },
         }
     }

@@ -158,6 +158,7 @@ pub enum View {
     AttachedTerminal,
     AuthSetup,  // New view for authentication setup
     ClaudeChat, // Claude chat popup overlay
+    GitView,    // Git status and diff view
 }
 
 #[derive(Debug, Clone)]
@@ -304,6 +305,8 @@ pub struct AppState {
     pub log_streaming_coordinator: Option<LogStreamingCoordinator>,
     // Channel sender for log streaming
     pub log_sender: Option<mpsc::UnboundedSender<(Uuid, LogEntry)>>,
+    // Git view state
+    pub git_view_state: Option<crate::components::GitViewState>,
 }
 
 #[derive(Debug)]
@@ -405,6 +408,7 @@ impl Default for AppState {
             claude_manager: None,
             log_streaming_coordinator: None,
             log_sender: None,
+            git_view_state: None,
         }
     }
 }
@@ -880,6 +884,17 @@ impl AppState {
         self.workspaces.get(workspace_idx)?.sessions.get(session_idx).map(|s| s.id)
     }
 
+    /// Get a reference to the currently selected session
+    pub fn get_selected_session(&self) -> Option<&crate::models::Session> {
+        let workspace_idx = self.selected_workspace_index?;
+        let session_idx = self.selected_session_index?;
+        
+        self.workspaces
+            .get(workspace_idx)?
+            .sessions
+            .get(session_idx)
+    }
+
     /// Attach to a container session using docker exec with proper terminal handling
     pub async fn attach_to_container(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
         use crate::docker::ContainerManager;
@@ -1291,6 +1306,10 @@ impl AppState {
                 state.step = NewSessionStep::InputBranch;
                 let uuid_str = uuid::Uuid::new_v4().to_string();
                 state.branch_name = format!("claude-session-{}", &uuid_str[..8]);
+                
+                // Change view from SearchWorkspace to NewSession to show branch input
+                self.current_view = View::NewSession;
+                tracing::info!("Repository confirmed, transitioning to branch input step");
             }
         }
     }
@@ -2078,6 +2097,44 @@ impl AppState {
         
         info!("Re-authentication initiated - switched to auth setup view");
         Ok(())
+    }
+
+    pub fn show_git_view(&mut self) {
+        // Get the selected session's workspace path
+        if let Some(session) = self.get_selected_session() {
+            let worktree_path = std::path::PathBuf::from(&session.workspace_path);
+            let mut git_state = crate::components::GitViewState::new(worktree_path);
+            
+            // Refresh git status
+            if let Err(e) = git_state.refresh_git_status() {
+                tracing::error!("Failed to refresh git status: {}", e);
+                return;
+            }
+            
+            self.git_view_state = Some(git_state);
+            self.current_view = View::GitView;
+        } else {
+            tracing::warn!("No session selected for git view");
+        }
+    }
+
+    pub fn git_commit_and_push(&mut self) {
+        if let Some(ref git_state) = self.git_view_state {
+            match git_state.commit_and_push() {
+                Ok(message) => {
+                    tracing::info!("Git commit and push successful: {}", message);
+                    // Refresh git status after successful push
+                    if let Some(ref mut git_state) = self.git_view_state {
+                        if let Err(e) = git_state.refresh_git_status() {
+                            tracing::error!("Failed to refresh git status after push: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Git commit and push failed: {}", e);
+                }
+            }
+        }
     }
 }
 
