@@ -27,6 +27,16 @@ mod models;
 use app::{App, EventHandler};
 use components::LayoutComponent;
 
+/// Terminal cleanup utility to ensure proper restoration
+fn cleanup_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(
+        io::stderr(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    );
+}
+
 #[derive(Parser)]
 #[command(name = "claude-box")]
 #[command(about = "Terminal-based development environment manager for Claude Code containers")]
@@ -48,9 +58,9 @@ async fn main() -> Result<()> {
     
     let cli = Cli::parse();
     
-    match cli.command {
+    let result = match cli.command {
         Some(Commands::Auth) => {
-            run_auth_setup().await?;
+            run_auth_setup().await
         }
         None => {
             // No command specified, run TUI
@@ -58,11 +68,16 @@ async fn main() -> Result<()> {
             app.init().await;
             let mut layout = LayoutComponent::new();
             
-            run_tui(&mut app, &mut layout).await?;
+            run_tui(&mut app, &mut layout).await
         }
+    };
+    
+    // Ensure terminal is cleaned up on any error
+    if result.is_err() {
+        cleanup_terminal();
     }
     
-    Ok(())
+    result
 }
 
 async fn run_auth_setup() -> Result<()> {
@@ -188,6 +203,22 @@ async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // Ensure terminal cleanup happens even if there's an error
+    let result = run_tui_loop(app, layout, &mut terminal).await;
+    
+    // Always clean up terminal
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    result
+}
+
+async fn run_tui_loop(app: &mut App, layout: &mut LayoutComponent, terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
     let tick_rate = Duration::from_millis(250);
     let mut last_tick = Instant::now();
 
@@ -269,14 +300,6 @@ async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
         }
     }
 
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
     Ok(())
 }
 
@@ -322,12 +345,7 @@ fn setup_panic_handler() {
     
     std::panic::set_hook(Box::new(|panic_info| {
         // Ensure terminal is restored before logging the panic
-        let _ = disable_raw_mode();
-        let _ = execute!(
-            std::io::stderr(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        );
+        cleanup_terminal();
         
         error!("Application panicked: {}", panic_info);
         eprintln!("Application panicked: {}", panic_info);
