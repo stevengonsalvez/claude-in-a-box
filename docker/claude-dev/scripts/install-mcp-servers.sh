@@ -30,21 +30,21 @@ success() {
 # Function to substitute environment variables in a string
 substitute_env_vars() {
     local input="$1"
-    
+
     # Try envsubst first
     if command -v envsubst >/dev/null 2>&1; then
         echo "$input" | envsubst
     else
         # Fallback: simple shell-based substitution
         local result="$input"
-        
+
         # Find all ${VAR} patterns and substitute them
         while [[ $result =~ \$\{([A-Z_][A-Z0-9_]*)\} ]]; do
             local var_name="${BASH_REMATCH[1]}"
             local var_value="${!var_name}"
             result="${result//\$\{$var_name\}/$var_value}"
         done
-        
+
         echo "$result"
     fi
 }
@@ -53,45 +53,45 @@ substitute_env_vars() {
 check_required_env_vars() {
     local command="$1"
     local missing_vars=()
-    
+
     # Extract environment variable references from the command
     local env_vars=$(echo "$command" | grep -oE '\$\{[A-Z_][A-Z0-9_]*\}' | sed 's/${//g' | sed 's/}//g' | sort -u)
-    
+
     for var in $env_vars; do
         if [ -z "${!var}" ]; then
             missing_vars+=("$var")
         fi
     done
-    
+
     if [ ${#missing_vars[@]} -ne 0 ]; then
         warn "Missing environment variables: ${missing_vars[*]}"
         return 1
     fi
-    
+
     return 0
 }
 
 # Function to execute MCP installation command
 execute_mcp_command() {
     local command="$1"
-    
+
     log "Executing: $command"
-    
+
     # Check for required environment variables
     if ! check_required_env_vars "$command"; then
         warn "Skipping command due to missing environment variables"
         return 0
     fi
-    
+
     # Substitute environment variables
     local substituted_command=$(substitute_env_vars "$command")
-    
+
     # Execute the command (disable exit-on-error temporarily)
     set +e
     eval "$substituted_command"
     local exit_code=$?
     set -e
-    
+
     if [ $exit_code -eq 0 ]; then
         success "Command executed successfully"
         return 0
@@ -120,19 +120,19 @@ while IFS= read -r line; do
     if [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]]; then
         continue
     fi
-    
+
     # Execute the MCP installation command (continue on failure)
     set +e
     execute_mcp_command "$line"
     cmd_result=$?
     set -e
-    
+
     if [ $cmd_result -eq 0 ]; then
         ((installed_count++))
     else
         ((skipped_count++))
     fi
-    
+
 done < /app/config/mcp-servers.txt
 
 log "Installation summary: $installed_count installed, $skipped_count skipped"

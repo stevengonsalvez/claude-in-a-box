@@ -23,11 +23,13 @@ To add a new MCP server:
 ⚠️ **IMPORTANT**: Always use `-s user` flag to make MCPs available across all projects!
 
 Add a line like this to `config/mcp-servers.txt`:
+
 ```bash
 claude mcp add -s user <name> -- <command> <args>
 ```
 
 Example:
+
 ```bash
 claude mcp add -s user filesystem -- npx -y @modelcontextprotocol/server-filesystem
 ```
@@ -38,11 +40,13 @@ claude mcp add -s user filesystem -- npx -y @modelcontextprotocol/server-filesys
 ### MCP Servers with Environment Variables
 
 For servers that need API keys or configuration:
+
 ```bash
 claude mcp add-json <name> -s user '{"command":"...","args":[...],"env":{"KEY":"${ENV_VAR}"}}'
 ```
 
 Example:
+
 ```bash
 claude mcp add-json github -s user '{"command":"npx","args":["-y","@modelcontextprotocol/server-github"],"env":{"GITHUB_TOKEN":"${GITHUB_TOKEN}"}}'
 ```
@@ -50,6 +54,7 @@ claude mcp add-json github -s user '{"command":"npx","args":["-y","@modelcontext
 ## Environment Variables
 
 1. Add required variables to `.env`:
+
 ```env
 GITHUB_TOKEN=your_token_here
 ANTHROPIC_API_KEY=your_key_here
@@ -107,18 +112,23 @@ claude mcp add -s user sqlite -- npx -y @modelcontextprotocol/server-sqlite
 ## Troubleshooting
 
 ### MCP Server Not Installing
+
 - Check if required environment variables are set in `.env`
 - Run the docker build to rebuild with latest changes
 - Check Docker build logs for error messages
 
 ### Finding MCP Server Commands
+
 Most MCP servers provide installation instructions on their GitHub pages. Look for:
+
 - `claude mcp add` commands
 - `npx` commands that can be wrapped in `claude mcp add`
 - JSON configurations for servers with environment variables
 
 ### Debugging
+
 The install script logs:
+
 - Which servers are being installed
 - Missing environment variables
 - Success/failure for each installation

@@ -32,19 +32,22 @@ I have successfully implemented a fuzzy file finder that activates when typing `
 ### Key Features
 
 #### File Discovery
+
 - Recursively scans workspace directories (up to 5 levels deep)
 - Filters out common build artifacts and hidden files
 - Excludes directories like `node_modules`, `target`, `.git`
 - Includes only relevant file types for development
 
 #### Fuzzy Matching Algorithm
+
 - **Exact substring matching**: Highest priority (1000+ points)
 - **Character sequence matching**: Finds all query characters in order
-- **Consecutive bonus**: Extra points for consecutive character matches  
+- **Consecutive bonus**: Extra points for consecutive character matches
 - **Path length bonus**: Shorter paths get higher scores
 - **Smart filtering**: Empty query shows all files, typed characters filter results
 
 #### User Experience
+
 - **Activation**: Type `@` anywhere in the boss mode prompt
 - **Navigation**: Use ↑/↓ or j/k to navigate through matches
 - **Filtering**: Type characters after `@` to filter files
@@ -53,6 +56,7 @@ I have successfully implemented a fuzzy file finder that activates when typing `
 - **Auto-deactivation**: Whitespace (space, tab) closes file finder
 
 #### UI Design
+
 - **Split view**: When active, prompt and file finder appear side-by-side
 - **Visual feedback**: Yellow highlighting for active state
 - **Real-time updates**: File list updates as you type
@@ -62,12 +66,14 @@ I have successfully implemented a fuzzy file finder that activates when typing `
 ### File Filtering Logic
 
 #### Included Files
+
 - Source code files (.rs, .js, .ts, .py, .md, etc.)
 - Configuration files (.toml, .json, .yaml, etc.)
 - Documentation files
 - Any non-binary files in the workspace
 
 #### Excluded Files
+
 - Hidden files and directories (starting with .)
 - Build artifacts (target/, dist/, build/, node_modules/)
 - Binary files (.exe, .dll, .so, .bin)
@@ -77,25 +83,31 @@ I have successfully implemented a fuzzy file finder that activates when typing `
 ### Usage Examples
 
 1. **Basic file reference**:
+
    ```
    Review the file @main.rs
    ```
+
    User types `@main` and sees matching files, selects `src/main.rs`
 
 2. **Multiple file references**:
+
    ```
    Compare @docker/claude_dev.rs with @docker/session_lifecycle.rs
    ```
 
 3. **Fuzzy matching**:
+
    ```
    Check @seslif
    ```
+
    Would match `src/docker/session_lifecycle.rs` using character sequence matching
 
 ### Technical Architecture
 
 #### State Flow
+
 1. User types `@` → File finder activates
 2. Workspace scan starts → Files indexed and scored
 3. User types query → Results filtered and sorted
@@ -103,12 +115,14 @@ I have successfully implemented a fuzzy file finder that activates when typing `
 5. User presses Enter → File path inserted, finder deactivated
 
 #### Error Handling
+
 - Graceful handling of inaccessible directories
 - Protection against infinite recursion
 - Safe fallbacks for missing workspace roots
 - Non-blocking file system operations
 
 #### Performance Optimizations
+
 - Depth-limited directory traversal (max 5 levels)
 - File limit cap (50 matches maximum)
 - Efficient string matching algorithms
@@ -127,16 +141,19 @@ The implementation includes comprehensive unit tests for:
 ## Integration Points
 
 ### With Existing Boss Mode
+
 - Seamlessly integrates with existing prompt input
 - Preserves all existing boss mode functionality
 - Maintains backward compatibility
 
-### With Workspace Detection  
+### With Workspace Detection
+
 - Uses existing workspace scanner for root directory detection
 - Leverages current repository path resolution
 - Integrates with git worktree management
 
 ### With UI Framework
+
 - Built using existing Ratatui components
 - Follows established styling and layout patterns
 - Maintains consistent user experience

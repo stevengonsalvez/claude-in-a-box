@@ -88,11 +88,11 @@ fi
 if [ -n "${GITHUB_TOKEN}" ]; then
     log "Configuring GitHub CLI with token authentication"
     echo "${GITHUB_TOKEN}" | gh auth login --with-token
-    
+
     # Configure git to use the token for authentication
     git config --global credential.helper store
     echo "https://oauth:${GITHUB_TOKEN}@github.com" > /home/claude-user/.git-credentials
-    
+
     # Test gh CLI connection
     if gh auth status > /dev/null 2>&1; then
         success "GitHub CLI authenticated successfully"
@@ -148,13 +148,13 @@ log "Using Claude CLI with args: $CLI_ARGS"
 if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
     # Create log directory
     mkdir -p /workspace/.claude-box/logs
-    
+
     success "Container environment ready!"
     if [ "${AUTH_OK}" = "true" ]; then
         success "✅ Authentication detected - Claude will work immediately"
         log "🤖 Executing boss mode prompt..."
         log "Prompt: ${CLAUDE_BOX_PROMPT}"
-        
+
         # Execute Claude with the boss prompt and stream JSON output
         log "Running: claude -p \"${CLAUDE_BOX_PROMPT}\" --output-format stream-json --verbose"
         exec claude -p "${CLAUDE_BOX_PROMPT}" --output-format stream-json --verbose $CLI_ARGS
@@ -176,7 +176,7 @@ fi
 if [ $# -eq 0 ]; then
     # Create log directory
     mkdir -p /workspace/.claude-box/logs
-    
+
     success "Container environment ready!"
     if [ "${AUTH_OK}" = "true" ]; then
         success "✅ Authentication detected - Claude will work immediately"
@@ -189,7 +189,7 @@ if [ $# -eq 0 ]; then
         warn "⚠️  No authentication detected"
         warn "📝 Set ANTHROPIC_API_KEY or mount authentication files"
     fi
-    
+
     log "Starting interactive shell..."
     # Use sleep infinity to keep container running when not attached to TTY
     if [ -t 0 ]; then

@@ -7,19 +7,22 @@ Claude-in-a-Box is a terminal-based development environment manager that provide
 ## Development Progress
 
 ### ✅ Phase 1: UI Foundation (COMPLETED)
+
 - [x] Terminal User Interface (TUI) with Ratatui
 - [x] Basic application structure with components
 - [x] Event handling system
 - [x] Layout management
 - [x] Session state management
 
-### ✅ Phase 2: Core Models (COMPLETED) 
+### ✅ Phase 2: Core Models (COMPLETED)
+
 - [x] Session data models
 - [x] Workspace management models
 - [x] Container lifecycle models
 - [x] Application state management
 
 ### ✅ Phase 3: Git Integration (COMPLETED)
+
 - [x] Workspace detection and scanning
 - [x] Git worktree operations with hybrid path structure
 - [x] Branch isolation for development sessions
@@ -27,6 +30,7 @@ Claude-in-a-Box is a terminal-based development environment manager that provide
 - [x] Cross-platform symlink support
 
 ### ✅ Phase 4: Docker Integration (COMPLETED)
+
 - [x] Docker container management using Bollard
 - [x] Session lifecycle coordination (worktrees + containers)
 - [x] Container status monitoring and logging
@@ -35,24 +39,25 @@ Claude-in-a-Box is a terminal-based development environment manager that provide
 - [x] Resource limits (CPU, memory)
 
 ### 🆕 Phase 4.5: Configuration & Templates (COMPLETED)
+
 - [x] **JSON/TOML Configuration System**
   - Global config: `~/.claude-in-a-box/config/config.toml`
   - Project config: `.claude-in-a-box/project.toml`
   - Configuration merging and precedence
-  
+
 - [x] **Container Templates**
   - `claude-dev`: Full Claude development environment based on claude-docker
   - `node`: Node.js development environment
-  - `python`: Python development environment  
+  - `python`: Python development environment
   - `rust`: Rust development environment
   - Template-based container configuration
-  
+
 - [x] **Claude-Docker Integration**
   - Reused claude-docker Dockerfile and setup scripts
   - MCP server installation and configuration
   - Authentication handling (Claude API keys)
   - Environment variable management
-  
+
 - [x] **MCP Initialization Strategy**
   - **Per-Container**: MCP servers installed in each container
   - **Central Mount**: Mount host ~/.claude directory
@@ -61,6 +66,7 @@ Claude-in-a-Box is a terminal-based development environment manager that provide
   - Environment variable validation for optional servers
 
 ### 🔄 Phase 5: Interactive Features (PENDING)
+
 - [ ] Container template selection UI
 - [ ] Real-time container status monitoring
 - [ ] Log viewer and streaming
@@ -68,6 +74,7 @@ Claude-in-a-Box is a terminal-based development environment manager that provide
 - [ ] MCP server status and configuration UI
 
 ### 🔄 Phase 6: Persistence & Polish (PENDING)
+
 - [ ] Session persistence across restarts
 - [ ] Configuration file generation UI
 - [ ] Error handling and recovery
@@ -106,7 +113,7 @@ Based on the existing claude-docker implementation:
 
 - **Base Image**: `node:20-slim`
 - **User**: `claude-user` (UID/GID matched to host)
-- **AI Tools**: 
+- **AI Tools**:
   - `@anthropic-ai/claude-code` (Claude CLI)
   - `@google/gemini-cli` (Gemini CLI)
 - **MCP Servers**:
@@ -120,6 +127,7 @@ Based on the existing claude-docker implementation:
 ### Configuration Examples
 
 #### Global Configuration (`~/.config/claude-box/config.toml`)
+
 ```toml
 version = "0.1.0"
 default_container_template = "claude-dev"
@@ -138,6 +146,7 @@ show_git_status = true
 ```
 
 #### Project Configuration (`.claude-in-a-box/project.toml`)
+
 ```toml
 container_template = "claude-dev"
 mount_claude_config = true
@@ -159,11 +168,13 @@ cpu_limit = 2.0      # CPUs
 ## Development Environment Setup
 
 ### Prerequisites
+
 - Docker installed and running
 - Rust toolchain (for building)
 - Git
 
 ### Building
+
 ```bash
 # Clone the repository
 git clone <repository-url>
@@ -192,12 +203,12 @@ Templates are built automatically when needed:
 
 1. **Workspace Detection**: Auto-scan for Git repositories
 2. **Template Selection**: Choose or auto-detect container template
-3. **Session Creation**: 
+3. **Session Creation**:
    - Create isolated git worktree
    - Build/pull container image
    - Initialize MCP servers
    - Mount workspace and configuration
-4. **Development**: 
+4. **Development**:
    - Full Claude CLI with MCP servers
    - Isolated development environment
    - Git operations in dedicated worktree

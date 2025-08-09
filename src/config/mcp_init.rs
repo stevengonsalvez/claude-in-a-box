@@ -247,29 +247,29 @@ impl McpInitializer {
                 r#"
                 # Merge host and container MCP configurations
                 mkdir -p /home/claude-user/.claude
-                
+
                 # Copy host config if it exists
                 if [ -f /mnt/host-claude-config/mcp-config.json ]; then
                     cp /mnt/host-claude-config/mcp-config.json /home/claude-user/.claude/host-mcp-config.json
                 fi
-                
+
                 # Write container config
                 echo '{}' > /home/claude-user/.claude/container-mcp-config.json
-                
+
                 # Create merged config using simple merge (container servers take precedence)
                 if [ -f /home/claude-user/.claude/host-mcp-config.json ]; then
                     node -e "
                         const fs = require('fs');
                         const hostConfig = JSON.parse(fs.readFileSync('/home/claude-user/.claude/host-mcp-config.json', 'utf8'));
                         const containerConfig = JSON.parse(fs.readFileSync('/home/claude-user/.claude/container-mcp-config.json', 'utf8'));
-                        
+
                         const merged = {
                             mcpServers: {
                                 ...hostConfig.mcpServers,
                                 ...containerConfig.mcpServers
                             }
                         };
-                        
+
                         fs.writeFileSync('/home/claude-user/.claude/mcp-config.json', JSON.stringify(merged, null, 2));
                     "
                 else

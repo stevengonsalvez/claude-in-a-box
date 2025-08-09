@@ -17,7 +17,7 @@ check_claude_session() {
 
 # Only show welcome message in interactive shells
 case "$-" in
-    *i*) 
+    *i*)
         # Interactive shell - show welcome message
         clear
         ;;

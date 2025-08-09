@@ -56,9 +56,9 @@ impl SessionLifecycleManager {
     pub async fn new() -> Result<Self, SessionLifecycleError> {
         let worktree_manager = WorktreeManager::new()
             .map_err(|e| SessionLifecycleError::ConfigError(format!("Failed to create worktree manager: {}", e)))?;
-        
+
         let container_manager = ContainerManager::new().await?;
-        
+
         let app_config = AppConfig::load()
             .map_err(|e| SessionLifecycleError::ConfigError(format!("Failed to load config: {}", e)))?;
 
@@ -74,12 +74,12 @@ impl SessionLifecycleManager {
     pub async fn create_session(&mut self, request: SessionRequest) -> Result<SessionState, SessionLifecycleError> {
         self.create_session_with_logs(request, None).await
     }
-    
+
     /// Create a new claude-dev session using the native claude_dev module
     pub async fn create_claude_dev_session(&mut self, request: SessionRequest) -> Result<SessionState, SessionLifecycleError> {
         self.create_claude_dev_session_with_logs(request, None).await
     }
-    
+
     /// Create a new claude-dev session using the native claude_dev module with progress tracking
     pub async fn create_claude_dev_session_with_logs(&mut self, request: SessionRequest, progress_sender: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<SessionState, SessionLifecycleError> {
         info!("Creating new claude-dev session {} for workspace {}", request.session_id, request.workspace_name);
@@ -92,7 +92,7 @@ impl SessionLifecycleManager {
         // Load project configuration to check mount_claude_config setting
         let project_config = ProjectConfig::load_from_dir(&request.workspace_path)
             .map_err(|e| SessionLifecycleError::ConfigError(format!("Failed to load project config: {}", e)))?;
-        
+
         let mount_claude_config = project_config.as_ref().map_or(true, |pc| pc.mount_claude_config);
         info!("Project mount_claude_config setting: {}", mount_claude_config);
 
@@ -169,7 +169,7 @@ impl SessionLifecycleManager {
         };
 
         self.active_sessions.insert(request.session_id, session_state.clone());
-        
+
         info!("Successfully created claude-dev session {}", request.session_id);
         Ok(session_state)
     }
@@ -180,14 +180,14 @@ impl SessionLifecycleManager {
 
         // Create progress adapter that converts SessionProgress to String logs
         let (progress_tx, mut progress_rx) = mpsc::channel::<SessionProgress>(100);
-        
+
         // Spawn task to convert progress updates to string logs
         if let Some(log_sender) = log_sender {
             tokio::spawn(async move {
                 while let Some(progress) = progress_rx.recv().await {
                     let log_message = progress.description();
                     let _ = log_sender.send(log_message);
-                    
+
                     // Stop listening when complete
                     if progress.is_complete() {
                         break;
@@ -195,7 +195,7 @@ impl SessionLifecycleManager {
                 }
             });
         }
-        
+
         // Use the unified session creation method
         self.create_session(request, Some(progress_tx)).await
 
@@ -221,7 +221,7 @@ impl SessionLifecycleManager {
         let container = if let Some(config) = request.container_config {
             // Use provided config
             let mut final_config = config;
-            
+
             // Mount the worktree into the container
             final_config = final_config.with_volume(
                 worktree_info.path.clone(),
@@ -243,55 +243,55 @@ impl SessionLifecycleManager {
             // Check for project-specific config
             let project_config = ProjectConfig::load_from_dir(&request.workspace_path)
                 .map_err(|e| SessionLifecycleError::ConfigError(format!("Failed to load project config: {}", e)))?;
-            
+
             // Determine which template to use
             let template_name = project_config
                 .as_ref()
                 .and_then(|pc| pc.container_template.as_ref())
                 .map(|s| s.as_str())
                 .unwrap_or(&self.app_config.default_container_template);
-            
+
             if let Some(template) = self.app_config.get_container_template(template_name) {
                 info!("Using container template '{}' for session {}", template_name, request.session_id);
-                
+
                 // Convert template to container config
                 let mut config = template.to_container_config();
-                
+
                 // Apply project-specific overrides
                 if let Some(project_config) = &project_config {
                     self.apply_project_config(&mut config, project_config);
                 }
-                
+
                 // Mount the worktree
                 config = config.with_volume(
                     worktree_info.path.clone(),
                     "/workspace".to_string(),
                     false,
                 );
-                
+
                 // Initialize MCP servers
                 let mcp_initializer = McpInitializer::new(
                     McpInitializer::default_strategy(),
                     self.app_config.mcp_servers.clone(),
                 );
-                
+
                 let mcp_result = mcp_initializer.initialize_for_session(
                     request.session_id,
                     &request.workspace_path,
                     &mut config,
                 ).await.map_err(|e| SessionLifecycleError::ConfigError(format!("MCP initialization failed: {}", e)))?;
-                
+
                 // Apply MCP configuration to container
                 apply_mcp_init_result(&mut config, &mcp_result);
-                
+
                 info!("MCP initialization completed for session {}", request.session_id);
-                
+
                 // Mount ~/.claude if requested and not already handled by MCP init
                 if project_config.as_ref().map_or(true, |pc| pc.mount_claude_config) {
                     // Check if MCP init already mounted claude config
                     let already_mounted = mcp_result.volumes.iter()
                         .any(|v| v.container_path == "/home/claude-user/.claude");
-                    
+
                     if !already_mounted {
                         if let Some(home_dir) = dirs::home_dir() {
                             let claude_dir = home_dir.join(".claude");
@@ -304,7 +304,7 @@ impl SessionLifecycleManager {
                             }
                         }
                     }
-                    
+
                     // Also mount .claude.json individually if it exists
                     if let Some(home_dir) = dirs::home_dir() {
                         let claude_json_path = home_dir.join(".claude.json");
@@ -322,7 +322,7 @@ impl SessionLifecycleManager {
                 } else {
                     info!("Skipping Claude config mounting (mount_claude_config is false)");
                 }
-                
+
                 let mut container = self.container_manager
                     .create_session_container_with_logs(request.session_id, config, log_sender)
                     .await?;
@@ -351,7 +351,7 @@ impl SessionLifecycleManager {
         };
 
         self.active_sessions.insert(request.session_id, session_state.clone());
-        
+
         info!("Successfully created session {}", request.session_id);
         Ok(session_state)
     }
@@ -461,7 +461,7 @@ impl SessionLifecycleManager {
     /// Refresh all session statuses
     pub async fn refresh_all_sessions(&mut self) -> Result<(), SessionLifecycleError> {
         let session_ids: Vec<Uuid> = self.active_sessions.keys().copied().collect();
-        
+
         for session_id in session_ids {
             if let Err(e) = self.refresh_session_status(session_id).await {
                 warn!("Failed to refresh status for session {}: {}", session_id, e);
@@ -541,14 +541,14 @@ impl SessionLifecycleManager {
 
         Ok(orphaned)
     }
-    
+
     /// Apply project-specific configuration to container config
     fn apply_project_config(&self, config: &mut ContainerConfig, project_config: &ProjectConfig) {
         // Apply environment variables
         for (key, value) in &project_config.environment {
             config.environment_vars.insert(key.clone(), value.clone());
         }
-        
+
         // Apply additional mounts
         for mount in &project_config.additional_mounts {
             *config = config.clone().with_volume(
@@ -557,39 +557,39 @@ impl SessionLifecycleManager {
                 mount.read_only,
             );
         }
-        
+
         // Apply container config overrides if provided
         if let Some(template_config) = &project_config.container_config {
             if let Some(memory) = template_config.memory_limit {
                 config.memory_limit = Some(memory * 1024 * 1024); // MB to bytes
             }
-            
+
             if let Some(cpu) = template_config.cpu_limit {
                 config.cpu_limit = Some(cpu);
             }
-            
+
             // Add environment variables from template config
             for (key, value) in &template_config.environment {
                 config.environment_vars.insert(key.clone(), value.clone());
             }
         }
     }
-    
+
     /// Get available container templates
     pub fn get_container_templates(&self) -> &HashMap<String, ContainerTemplate> {
         &self.app_config.container_templates
     }
-    
+
     /// Get app configuration
     pub fn get_app_config(&self) -> &AppConfig {
         &self.app_config
     }
-    
+
     /// Unified session creation method that works with any container template
     /// This is the future replacement for both claude-dev specific and generic template paths
     pub async fn create_session(
-        &mut self, 
-        request: SessionRequest, 
+        &mut self,
+        request: SessionRequest,
         progress_sender: Option<mpsc::Sender<SessionProgress>>
     ) -> Result<SessionState, SessionLifecycleError> {
         info!("Creating new session {} for workspace {} using unified path", request.session_id, request.workspace_name);
@@ -601,37 +601,37 @@ impl SessionLifecycleManager {
 
         // Step 1: Load and validate configuration
         let (project_config, template) = self.load_session_configuration(&request, &progress_sender).await?;
-        
+
         // Step 2: Create worktree
         let worktree_info = self.create_session_worktree(&request, &progress_sender).await?;
-        
+
         // Step 3: Create base container configuration from template
         let mut container_config = self.create_base_container_config(&template, &worktree_info, &progress_sender).await?;
-        
+
         // Step 4: Apply project-specific overrides
         self.apply_project_overrides(&mut container_config, &project_config, &progress_sender).await?;
-        
+
         // Step 5: Initialize MCP servers
         let mcp_result = self.initialize_mcp_servers(&mut container_config, &request, &project_config, &progress_sender).await?;
-        
+
         // Step 6: Apply mounting logic (unified for all templates)
         self.apply_mounting_logic(&mut container_config, &project_config, &mcp_result, &progress_sender).await?;
-        
+
         // Step 7: Create and start container
         let container = self.create_and_start_container(request.session_id, container_config, &progress_sender).await?;
-        
+
         // Step 8: Create session model and register it
         let session_state = self.create_session_state(request, container, worktree_info).await?;
-        
+
         // Send final progress update
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::Ready).await;
         }
-        
+
         info!("Successfully created session {} using unified path", session_state.session.id);
         Ok(session_state)
     }
-    
+
     /// Load and validate session configuration
     async fn load_session_configuration(
         &self,
@@ -641,34 +641,34 @@ impl SessionLifecycleManager {
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::LoadingConfiguration).await;
         }
-        
+
         // Load project configuration
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::LoadingProjectConfig).await;
         }
-        
+
         let project_config = ProjectConfig::load_from_dir(&request.workspace_path)
             .map_err(|e| SessionLifecycleError::ConfigError(format!("Failed to load project config: {}", e)))?;
-        
+
         // Determine which template to use
         let template_name = project_config
             .as_ref()
             .and_then(|pc| pc.container_template.as_ref())
             .map(|s| s.as_str())
             .unwrap_or(&self.app_config.default_container_template);
-        
+
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::ValidatingTemplate(template_name.to_string())).await;
         }
-        
+
         let template = self.app_config.get_container_template(template_name)
             .ok_or_else(|| SessionLifecycleError::ConfigError(format!("Container template '{}' not found", template_name)))?
             .clone();
-        
+
         info!("Using container template '{}' for session {}", template_name, request.session_id);
         Ok((project_config, template))
     }
-    
+
     /// Create worktree for the session
     async fn create_session_worktree(
         &mut self,
@@ -678,23 +678,23 @@ impl SessionLifecycleManager {
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::CreatingWorktree).await;
         }
-        
+
         let worktree_info = self.worktree_manager.create_worktree(
             request.session_id,
             &request.workspace_path,
             &request.branch_name,
             request.base_branch.as_deref(),
         )?;
-        
+
         info!("Created worktree at: {}", worktree_info.path.display());
-        
+
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::InitializingWorkspace).await;
         }
-        
+
         Ok(worktree_info)
     }
-    
+
     /// Create base container configuration from template
     async fn create_base_container_config(
         &self,
@@ -705,19 +705,19 @@ impl SessionLifecycleManager {
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::PreparingContainer).await;
         }
-        
+
         let mut config = template.to_container_config();
-        
+
         // Mount the worktree
         config = config.with_volume(
             worktree_info.path.clone(),
             "/workspace".to_string(),
             false, // read-write
         );
-        
+
         Ok(config)
     }
-    
+
     /// Apply project-specific configuration overrides
     async fn apply_project_overrides(
         &self,
@@ -730,7 +730,7 @@ impl SessionLifecycleManager {
         }
         Ok(())
     }
-    
+
     /// Initialize MCP servers
     async fn initialize_mcp_servers(
         &self,
@@ -742,7 +742,7 @@ impl SessionLifecycleManager {
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::InitializingMcpServers).await;
         }
-        
+
         let mcp_initializer = McpInitializer::new(&self.app_config);
         let mcp_result = mcp_initializer
             .initialize(
@@ -755,11 +755,11 @@ impl SessionLifecycleManager {
 
         // Apply MCP configuration to container
         apply_mcp_init_result(config, &mcp_result);
-        
+
         info!("MCP initialization completed for session {}", request.session_id);
         Ok(mcp_result)
     }
-    
+
     /// Apply mounting logic for authentication and configuration
     async fn apply_mounting_logic(
         &self,
@@ -773,7 +773,7 @@ impl SessionLifecycleManager {
             // Check if MCP init already mounted claude config
             let already_mounted = mcp_result.volumes.iter()
                 .any(|v| v.container_path == "/home/claude-user/.claude");
-            
+
             if !already_mounted {
                 if let Some(home_dir) = dirs::home_dir() {
                     let claude_dir = home_dir.join(".claude");
@@ -786,7 +786,7 @@ impl SessionLifecycleManager {
                     }
                 }
             }
-            
+
             // Also mount .claude.json individually if it exists
             if let Some(home_dir) = dirs::home_dir() {
                 let claude_json_path = home_dir.join(".claude.json");
@@ -804,14 +804,14 @@ impl SessionLifecycleManager {
         } else {
             info!("Skipping Claude config mounting (mount_claude_config is false)");
         }
-        
+
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::CheckingEnvironment).await;
         }
-        
+
         Ok(())
     }
-    
+
     /// Create and start the container
     async fn create_and_start_container(
         &mut self,
@@ -822,26 +822,26 @@ impl SessionLifecycleManager {
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::StartingContainer).await;
         }
-        
+
         let mut container = self.container_manager
             .create_session_container(session_id, config)
             .await?;
-        
+
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::WaitingForContainer).await;
         }
-        
+
         // Start the container
         self.container_manager.start_container(&mut container).await?;
-        
+
         if let Some(ref tx) = progress_sender {
             let _ = tx.send(SessionProgress::VerifyingContainer).await;
         }
-        
+
         info!("Started container for session {}", session_id);
         Ok(container)
     }
-    
+
     /// Create session state model
     async fn create_session_state(
         &mut self,
@@ -856,16 +856,16 @@ impl SessionLifecycleManager {
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
         session.container_id = container.container_id.clone();
-        
+
         let session_state = SessionState {
             session,
             container: Some(container),
             worktree_info: Some(worktree_info),
         };
-        
+
         // Register the session
         self.active_sessions.insert(request.session_id, session_state.clone());
-        
+
         Ok(session_state)
     }
 }
@@ -914,7 +914,7 @@ impl SessionRequest {
             container_config: None, // Will use "claude-dev" template by default
         }
     }
-    
+
     /// Create a request with specific container template
     pub fn with_template(
         session_id: Uuid,
@@ -950,7 +950,7 @@ mod tests {
     async fn test_session_lifecycle() {
         let mut manager = SessionLifecycleManager::new().await.unwrap();
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create a test git repository
         let repo = git2::Repository::init(temp_dir.path()).unwrap();
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
@@ -1001,14 +1001,14 @@ mod tests {
     async fn test_claude_dev_session_lifecycle() {
         let mut manager = SessionLifecycleManager::new().await.unwrap();
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create a test git repository
         let repo = git2::Repository::init(temp_dir.path()).unwrap();
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
-        
+
         // Create a test file
         std::fs::write(temp_dir.path().join("test.py"), "print('Hello claude-dev!')\n").unwrap();
-        
+
         let tree_id = {
             let mut index = repo.index().unwrap();
             index.add_path(std::path::Path::new("test.py")).unwrap();
@@ -1053,14 +1053,14 @@ mod tests {
     async fn test_claude_dev_session_with_progress() {
         let mut manager = SessionLifecycleManager::new().await.unwrap();
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create a test git repository
         let repo = git2::Repository::init(temp_dir.path()).unwrap();
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
-        
+
         // Create a test file
         std::fs::write(temp_dir.path().join("package.json"), r#"{"name": "test-workspace"}"#).unwrap();
-        
+
         let tree_id = {
             let mut index = repo.index().unwrap();
             index.add_path(std::path::Path::new("package.json")).unwrap();
@@ -1087,7 +1087,7 @@ mod tests {
 
         // Create progress channel
         let (tx, mut rx) = mpsc::channel(100);
-        
+
         // Create claude-dev session with progress tracking
         let session_task = tokio::spawn(async move {
             manager.create_claude_dev_session_with_logs(request, Some(tx)).await
@@ -1110,7 +1110,7 @@ mod tests {
 
         // Should have received progress messages
         assert!(!progress_messages.is_empty());
-        
+
         // Should have authentication sync progress
         let has_auth_sync = progress_messages.iter().any(|p| {
             matches!(p, ClaudeDevProgress::SyncingAuthentication)

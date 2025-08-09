@@ -20,7 +20,7 @@ bollard = "0.16"
 futures-util = "0.3"
 tar = "0.4"
 
-# Git operations  
+# Git operations
 git2 = "0.18"
 
 # Data persistence

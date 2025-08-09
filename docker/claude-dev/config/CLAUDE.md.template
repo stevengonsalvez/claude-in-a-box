@@ -9,7 +9,7 @@ This environment includes the following MCP (Model Context Protocol) servers:
 ### Serena
 An AI coding agent that can work alongside you to:
 - Generate code and documentation
-- Analyze codebases 
+- Analyze codebases
 - Suggest improvements
 - Help with debugging
 

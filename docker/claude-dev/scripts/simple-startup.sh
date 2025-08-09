@@ -75,11 +75,11 @@ fi
 if [ -n "${GITHUB_TOKEN}" ]; then
     log "Configuring GitHub CLI with token authentication"
     gh auth login --with-token <<< "${GITHUB_TOKEN}"
-    
+
     # Configure git to use the token for authentication
     git config --global credential.helper store
     echo "https://oauth:${GITHUB_TOKEN}@github.com" > /home/claude-user/.git-credentials
-    
+
     # Test gh CLI connection
     if gh auth status > /dev/null 2>&1; then
         success "GitHub CLI authenticated successfully"

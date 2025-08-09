@@ -7,19 +7,24 @@ This project is set up with a Claude-in-a-Box development environment.
 This environment includes the following MCP (Model Context Protocol) servers:
 
 ### Serena
+
 An AI coding agent that can work alongside you to:
+
 - Generate code and documentation
-- Analyze codebases 
+- Analyze codebases
 - Suggest improvements
 - Help with debugging
 
 ### Context7
+
 Provides access to library documentation and code examples:
+
 - Search for function signatures
 - Get usage examples
 - Access up-to-date documentation
 
 ### Additional Tools
+
 - **Git integration**: Full git support with worktree isolation
 - **Docker isolation**: Each session runs in its own container
 - **Port forwarding**: Development servers are automatically accessible
@@ -47,18 +52,21 @@ Provides access to library documentation and code examples:
 
 The environment provides several ways to interact with Claude:
 
-### Logged Commands (responses appear in TUI logs):
+### Logged Commands (responses appear in TUI logs)
+
 - `claude-ask "your question"` - Ask Claude a question with logged response
 - `claude-print "query"` - Same as claude-ask
 - `claude-script` - Read from stdin, useful for piping files
 
-### Interactive Commands:
+### Interactive Commands
+
 - `claude-start` - Start persistent tmux session with Claude CLI
-- `claude-interactive` - Alias for claude-start  
+- `claude-interactive` - Alias for claude-start
 - `claude` - Direct Claude CLI (respects permission settings)
 - `claude-help` - Show all available commands
 
-### Examples:
+### Examples
+
 ```bash
 # Ask Claude with logged response (visible in TUI)
 claude-ask "How do I create a React component?"
@@ -81,6 +89,7 @@ To customize this environment for your project:
 3. Restart your claude-box session to apply changes
 
 Example project configuration:
+
 ```toml
 container_template = "claude-dev"
 mount_claude_config = true

@@ -9,6 +9,7 @@ The current session creation system has **two separate code paths** that impleme
 ### Dual Path Problem
 
 #### Path 1: Claude-Dev Specific (Legacy)
+
 **Location**: `src/docker/claude_dev.rs` + specific methods in `src/docker/session_lifecycle.rs`
 
 ```rust
@@ -20,6 +21,7 @@ pub async fn create_claude_dev_session_with_logs() {
 ```
 
 **Characteristics**:
+
 - Hardcoded for "claude-dev" containers only
 - Uses `ClaudeDevManager` class
 - Custom mounting logic in `claude_dev.rs:300-306`
@@ -27,13 +29,14 @@ pub async fn create_claude_dev_session_with_logs() {
 - Direct container creation without project config integration
 
 #### Path 2: Generic Template System (Current)
+
 **Location**: `src/docker/session_lifecycle.rs:227-320`
 
 ```rust
 // Load project config and determine template
 let template_name = project_config
     .as_ref()
-    .and_then(|pc| pc.container_template.as_ref())  
+    .and_then(|pc| pc.container_template.as_ref())
     .map(|s| s.as_str())
     .unwrap_or(&self.app_config.default_container_template);
 
@@ -44,6 +47,7 @@ if let Some(template) = self.app_config.get_container_template(template_name) {
 ```
 
 **Characteristics**:
+
 - Works with any container template
 - Respects project configuration (`project.toml`)
 - Template-driven approach
@@ -62,6 +66,7 @@ if let Some(template) = self.app_config.get_container_template(template_name) {
 ### Path Selection Logic (Current)
 
 The path selection appears to be:
+
 - **Path 1**: Direct calls to `create_claude_dev_session()` (unclear when this happens)
 - **Path 2**: When project config exists with `container_template` specified (most common case)
 
@@ -74,28 +79,28 @@ This selection logic is **implicit and undocumented**, making it impossible to p
 ```rust
 // Single entry point
 pub async fn create_session(
-    &mut self, 
-    request: SessionRequest, 
+    &mut self,
+    request: SessionRequest,
     progress_sender: Option<mpsc::Sender<SessionProgress>>
 ) -> Result<SessionState, SessionLifecycleError> {
     // 1. Load and validate configuration
     let (project_config, template) = self.load_session_configuration(&request)?;
-    
+
     // 2. Create base container configuration from template
     let mut container_config = template.to_container_config();
-    
+
     // 3. Apply project-specific overrides
     self.apply_project_overrides(&mut container_config, &project_config);
-    
+
     // 4. Initialize MCP servers
     let mcp_result = self.initialize_mcp_servers(&mut container_config, &request, &project_config).await?;
-    
+
     // 5. Apply mounting logic (unified for all templates)
     self.apply_mounting_logic(&mut container_config, &project_config, &mcp_result)?;
-    
+
     // 6. Create and start container
     let container = self.create_and_start_container(request.session_id, container_config, progress_sender).await?;
-    
+
     // 7. Return session state
     Ok(self.create_session_state(request, container))
 }
@@ -113,30 +118,35 @@ pub async fn create_session(
 ### Implementation Plan
 
 #### Phase 1: Preparation
+
 - [ ] Create unified session progress enum
 - [ ] Extract common functionality into helper methods
 - [ ] Create comprehensive test suite for current behavior
 - [ ] Document current path selection logic
 
 #### Phase 2: Template System Enhancement
+
 - [ ] Ensure claude-dev template has all required features
 - [ ] Migrate claude-dev specific logic to template configuration
 - [ ] Add template validation
 - [ ] Create template-specific configuration options
 
 #### Phase 3: Unified Implementation
+
 - [ ] Implement `create_session()` method
 - [ ] Migrate mounting logic to unified approach
 - [ ] Integrate MCP initialization
 - [ ] Add comprehensive error handling
 
 #### Phase 4: Migration and Cleanup
+
 - [ ] Update all callers to use new unified method
 - [ ] Mark old methods as deprecated
 - [ ] Remove claude-dev specific path
 - [ ] Update tests to use unified approach
 
 #### Phase 5: Validation
+
 - [ ] End-to-end testing with all container types
 - [ ] Performance validation
 - [ ] Documentation updates
@@ -145,11 +155,13 @@ pub async fn create_session(
 ### Breaking Changes
 
 #### For End Users
+
 - **None expected**: The unified approach should maintain all current functionality
 - Project configurations should continue to work unchanged
 - All container templates should behave identically
 
 #### For Developers
+
 - **API Changes**: `create_claude_dev_session()` methods will be deprecated
 - **Import Changes**: Some internal modules may be restructured
 - **Test Changes**: Test code will need to use new unified methods
@@ -157,11 +169,13 @@ pub async fn create_session(
 ### Benefits
 
 #### Immediate Benefits
+
 - **Bug Prevention**: Mounting logic bugs like we encountered won't happen
 - **Consistency**: All templates behave identically
 - **Maintainability**: Single place to implement features
 
 #### Long-term Benefits
+
 - **Extensibility**: Easy to add new container types (golang, rust, etc.)
 - **Performance**: Reduced code paths and complexity
 - **Documentation**: Clear, single behavior to document
@@ -170,19 +184,25 @@ pub async fn create_session(
 ### Risks and Mitigation
 
 #### Risk: Breaking Existing Functionality
-**Mitigation**: 
+
+**Mitigation**:
+
 - Comprehensive test suite before refactoring
 - Gradual migration with backward compatibility
 - Thorough end-to-end testing
 
 #### Risk: Performance Regression
+
 **Mitigation**:
+
 - Benchmark current performance
 - Optimize unified path
 - Monitor performance during migration
 
 #### Risk: Extended Development Time
+
 **Mitigation**:
+
 - Phased approach allows incremental progress
 - Keep old path working during migration
 - Focus on high-impact areas first
@@ -190,10 +210,12 @@ pub async fn create_session(
 ## Current Status
 
 ### Immediate Fix Applied
+
 - Added `.claude.json` mounting logic to both paths for consistency
 - This provides a working solution while we plan the refactoring
 
 ### Next Steps
+
 1. **Review and approve this plan**
 2. **Create GitHub issues for each phase**
 3. **Begin Phase 1 implementation**
@@ -202,19 +224,23 @@ pub async fn create_session(
 ## Files Affected
 
 ### Core Session Management
+
 - `src/docker/session_lifecycle.rs` - Main refactoring target
 - `src/docker/claude_dev.rs` - Will be simplified/removed
 - `src/docker/mod.rs` - API updates
 
 ### Configuration System
+
 - `src/config/mod.rs` - Template system enhancements
 - `src/config/container.rs` - Template validation
 
 ### Testing
+
 - `src/docker/session_lifecycle_tests.rs` - New comprehensive tests
 - `src/docker/claude_dev_tests.rs` - Migration to unified tests
 
 ### Documentation
+
 - `CLAUDE.md` - Usage documentation updates
 - `README.md` - Architecture documentation updates
 

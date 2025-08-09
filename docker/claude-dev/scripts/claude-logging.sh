@@ -53,13 +53,13 @@ export CLAUDE_DISABLE_NONESSENTIAL_TRAFFIC=true
 run_claude_with_logging() {
     local mode="$1"
     shift
-    
+
     case "$mode" in
         "interactive")
             log_to_docker "${BLUE}🚀 Starting Claude CLI in interactive mode${NC}"
             log_to_docker "To see Claude responses in these logs, use non-interactive mode"
             log_to_docker "Commands: 'claude-print' for single queries, 'claude-script' for scripts"
-            
+
             # For interactive mode, we can't capture the TTY output easily
             # but we log the session start/end
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
@@ -71,16 +71,16 @@ run_claude_with_logging() {
             fi
             log_to_docker "${BLUE}📝 Claude interactive session ended${NC}"
             ;;
-            
+
         "print")
             if [ $# -eq 0 ]; then
                 log_to_docker "${YELLOW}Usage: claude-print \"your question here\"${NC}"
                 return 1
             fi
-            
+
             local query="$*"
             log_to_docker "${BLUE}👤 User: ${query}${NC}"
-            
+
             # Use claude with --print flag to get output we can capture
             local response
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
@@ -96,11 +96,11 @@ run_claude_with_logging() {
                 log_to_docker "${YELLOW}❌ Claude error: ${response}${NC}"
             fi
             ;;
-            
+
         "script")
             # For script mode - pipe input and capture output
             log_to_docker "${BLUE}📄 Running Claude script mode (reading from stdin)${NC}"
-            
+
             local response
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
                 # Split CLAUDE_CONTINUE_FLAG into array elements safely
@@ -115,7 +115,7 @@ run_claude_with_logging() {
                 log_to_docker "${YELLOW}❌ Claude error: ${response}${NC}"
             fi
             ;;
-            
+
         *)
             log_to_docker "${YELLOW}Unknown mode: $mode${NC}"
             return 1

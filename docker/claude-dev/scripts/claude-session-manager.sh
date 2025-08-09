@@ -52,20 +52,20 @@ start_session() {
         warn "Claude session already exists. Use 'attach' to connect or 'restart' to restart."
         return 1
     fi
-    
+
     if ! check_auth; then
         error "No authentication found. Please set up authentication first:"
         error "  • Set ANTHROPIC_API_KEY environment variable"
         error "  • Or mount ~/.claude.json for OAuth authentication"
         return 1
     fi
-    
+
     ensure_log_dir
     local log_file=$(get_log_file)
-    
+
     log "Starting new Claude session..."
     log "Logs will be written to: $log_file"
-    
+
     # Create the session
     tmux new-session -d -s "$SESSION_NAME" \
         "echo 'Claude session starting...' | tee '$log_file'; \
@@ -73,7 +73,7 @@ start_session() {
          /app/scripts/start-claude-interactive.sh 2>&1 | tee -a '$log_file'; \
          echo 'Claude CLI exited. Press Enter to restart or Ctrl+C to exit.' | tee -a '$log_file'; \
          read; exec bash"
-    
+
     if session_exists; then
         success "Claude session started successfully!"
         success "Use 'claude-start attach' to connect to it"
@@ -90,10 +90,10 @@ attach_session() {
         warn "No Claude session found. Starting a new one..."
         start_session || return 1
     fi
-    
+
     log "Attaching to Claude session..."
     log "Press Ctrl-b then d to detach (Claude keeps running)"
-    
+
     if [ -n "$TMUX" ]; then
         # Inside tmux, use switch-client
         tmux switch-client -t "$SESSION_NAME"
@@ -109,7 +109,7 @@ stop_session() {
         warn "No Claude session to stop"
         return 0
     fi
-    
+
     log "Stopping Claude session..."
     tmux kill-session -t "$SESSION_NAME"
     success "Claude session stopped"

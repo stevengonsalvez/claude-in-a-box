@@ -1,8 +1,0 @@
-# Project configuration for claude-in-a-box development
-container_template = "claude-dev"
-
-# Mount claude config by default (this is the default behavior, explicitly shown here)
-mount_claude_config = true
-
-[environment]
-RUST_LOG = "debug"

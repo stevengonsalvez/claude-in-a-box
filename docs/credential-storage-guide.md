@@ -28,6 +28,7 @@ Claude-in-a-Box maintains an isolated credential storage system in `~/.claude-in
 When you run OAuth authentication:
 
 1. **Auth Container Creation**: A Docker container is created with volume mount:
+
    ```bash
    -v ~/.claude-in-a-box/auth:/home/claude-user/.claude
    ```
@@ -39,6 +40,7 @@ When you run OAuth authentication:
    - This maps to `~/.claude-in-a-box/auth/.credentials.json` on host
 
 3. **Credential Storage**: The `.credentials.json` file contains:
+
    ```json
    {
      "accessToken": "...",
@@ -53,6 +55,7 @@ If you choose API key method:
 
 1. **Storage Location**: `~/.claude-in-a-box/.env`
 2. **Format**:
+
    ```env
    ANTHROPIC_API_KEY=sk-ant-xxx...
    ```
@@ -62,6 +65,7 @@ If you choose API key method:
 ### During Authentication Setup
 
 The auth container mounts:
+
 ```
 ~/.claude-in-a-box/auth → /home/claude-user/.claude (read-write)
 ```
@@ -73,21 +77,24 @@ This allows the Claude CLI to write credentials during OAuth flow.
 Each session container mounts:
 
 1. **OAuth Credentials** (if present):
+
    ```
    ~/.claude-in-a-box/auth → /home/claude-user/.claude (read-only)
    ```
 
 2. **Claude Preferences** (if present):
+
    ```
    ~/.claude-in-a-box/.claude.json → /home/claude-user/.claude.json (read-write)
    ```
-   
+
    The `.claude.json` is mounted read-write to allow Claude CLI to update:
    - Theme preferences (light/dark mode)
    - Editor preferences
    - Other Claude CLI settings
 
 3. **API Key** (if present):
+
    ```
    ~/.claude-in-a-box/.env → /app/.env (read-only)
    ```
@@ -95,14 +102,17 @@ Each session container mounts:
 ## What Gets Stored Where
 
 ### `~/.claude-in-a-box/auth/.credentials.json`
+
 - **Created by**: OAuth authentication flow
 - **Contains**: OAuth access tokens, refresh tokens
 - **Security**: Read-only mount in sessions
 - **Purpose**: Authenticate Claude CLI commands
 
 ### `~/.claude-in-a-box/.claude.json`
+
 - **Created by**: Claude CLI on first use or settings change
 - **Contains**: User preferences
+
   ```json
   {
     "theme": "dark",
@@ -110,10 +120,12 @@ Each session container mounts:
     "telemetry": false
   }
   ```
+
 - **Security**: Read-write mount to allow preference updates
 - **Purpose**: Persist user preferences across sessions
 
 ### `~/.claude-in-a-box/.env`
+
 - **Created by**: API key authentication method
 - **Contains**: `ANTHROPIC_API_KEY=...`
 - **Security**: Read-only mount, file permissions 600
@@ -137,6 +149,7 @@ When a container starts, it checks for authentication in this order:
 ## Common Scenarios
 
 ### First-Time Setup
+
 1. Launch claude-in-a-box
 2. Presented with auth setup screen
 3. Choose OAuth or API key
@@ -144,6 +157,7 @@ When a container starts, it checks for authentication in this order:
 5. All future sessions use these credentials
 
 ### Switching Authentication Methods
+
 ```bash
 # Remove existing auth
 rm -rf ~/.claude-in-a-box/auth
@@ -154,21 +168,26 @@ claude-box
 ```
 
 ### Manual OAuth Re-authentication
+
 ```bash
 # Run auth setup directly
 claude-box auth
 ```
 
 ### Theme Persistence
+
 When you change theme in Claude CLI:
+
 ```bash
 claude config set theme dark
 ```
+
 This updates `~/.claude-in-a-box/.claude.json` which persists across sessions.
 
 ## Troubleshooting
 
 ### Check What's Stored
+
 ```bash
 # List all claude-in-a-box files
 ls -la ~/.claude-in-a-box/
@@ -184,6 +203,7 @@ cat ~/.claude-in-a-box/.env
 ```
 
 ### Verify Mounts in Container
+
 ```bash
 # Inside a session container
 ls -la ~/.claude/
@@ -192,6 +212,7 @@ env | grep ANTHROPIC
 ```
 
 ### Reset Everything
+
 ```bash
 # Complete reset
 rm -rf ~/.claude-in-a-box/

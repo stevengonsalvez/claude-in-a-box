@@ -119,12 +119,12 @@ fi
 if [ "$NEED_REBUILD" = true ]; then
     # Build docker command with host UID/GID
     BUILD_ARGS="--build-arg HOST_UID=$(id -u) --build-arg HOST_GID=$(id -g)"
-    
+
     # Add environment variables from .env if they exist
     if [ -n "$ANTHROPIC_API_KEY" ]; then
         BUILD_ARGS="$BUILD_ARGS --build-arg ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY\""
     fi
-    
+
     echo "Building image: $IMAGE_NAME"
     eval "docker build $NO_CACHE $BUILD_ARGS -t $IMAGE_NAME \"$SCRIPT_DIR\""
 fi
@@ -156,12 +156,12 @@ fi
 
 if [ "$SYNC_NEEDED" = true ]; then
     echo "✓ Syncing Claude configuration to persistent directory"
-    
+
     # Sync .claude.json if it exists
     if [ -f "$HOME/.claude.json" ]; then
         cp "$HOME/.claude.json" "$HOME/.claude-box/claude-home/.claude.json"
     fi
-    
+
     # Sync .claude directory contents if they exist
     if [ -d "$HOME/.claude" ]; then
         # Use rsync for efficient sync, or cp if rsync not available
@@ -205,14 +205,14 @@ else
     echo "   3. Or export environment variable:"
     echo "      export GITHUB_TOKEN=ghp_your_token_here"
     echo ""
-    
+
     # Check SSH keys as fallback
     SSH_KEY_PATH="$HOME/.claude-box/ssh/id_rsa"
     SSH_PUB_KEY_PATH="$HOME/.claude-box/ssh/id_rsa.pub"
-    
+
     if [ -f "$SSH_KEY_PATH" ] && [ -f "$SSH_PUB_KEY_PATH" ]; then
         echo "✓ SSH keys found as fallback for git operations"
-        
+
         # Create SSH config if it doesn't exist
         SSH_CONFIG_PATH="$HOME/.claude-box/ssh/config"
         if [ ! -f "$SSH_CONFIG_PATH" ]; then

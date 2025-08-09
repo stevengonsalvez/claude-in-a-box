@@ -71,11 +71,13 @@ docker info
 ```
 
 **Windows Users:**
+
 1. Start Docker Desktop from the Start Menu
 2. Wait for the system tray icon to show "Docker Desktop is running"
 3. Open PowerShell/Command Prompt and verify: `docker info`
 
 **Verify Docker is Working:**
+
 ```bash
 # This command should complete without errors
 docker run --rm hello-world
@@ -300,7 +302,7 @@ npm_packages = ["typescript", "nodemon"]
 #### Default MCP Servers
 
 - **Serena** (`@ambergristle/serena`): AI coding agent
-- **Context7** (`context7`): Library documentation and examples  
+- **Context7** (`context7`): Library documentation and examples
 - **Twilio** (`@twilio-labs/mcp-server-twilio`): SMS notifications
 
 #### MCP Initialization Strategies
@@ -325,6 +327,7 @@ merge_configs = true
 Claude-in-a-Box automatically detects Docker installations across different platforms:
 
 **Detection Priority:**
+
 1. **Environment Variable**: `DOCKER_HOST` (highest priority)
 2. **Docker Context**: Current active Docker context
 3. **Platform Detection**: OS-specific socket locations
@@ -333,16 +336,19 @@ Claude-in-a-Box automatically detects Docker installations across different plat
 **Supported Platforms:**
 
 **macOS:**
+
 - Docker Desktop: `~/.docker/run/docker.sock`
 - Colima: `~/.colima/default/docker.sock`
 - Podman Desktop: `~/.local/share/containers/podman/machine/podman.sock`
 
 **Linux:**
+
 - Standard Docker: `/var/run/docker.sock`
 - Rootless Docker: `$XDG_RUNTIME_DIR/docker.sock`
 - Podman: `$XDG_RUNTIME_DIR/podman/podman.sock`
 
 **Windows:**
+
 - Docker Desktop: `npipe:////./pipe/docker_engine`
 - WSL2: `/var/run/docker.sock`
 
@@ -351,6 +357,7 @@ Claude-in-a-Box automatically detects Docker installations across different plat
 If automatic detection fails, you can manually configure Docker:
 
 **Environment Variable:**
+
 ```bash
 # Unix socket
 export DOCKER_HOST=unix:///var/run/docker.sock
@@ -363,6 +370,7 @@ export DOCKER_HOST=npipe:////./pipe/docker_engine
 ```
 
 **Global Configuration:**
+
 ```toml
 # ~/.claude-in-a-box/config/config.toml
 [docker]
@@ -383,6 +391,7 @@ client_key = "/path/to/key.pem"
 ```
 
 **Project Configuration:**
+
 ```toml
 # .claude-in-a-box/project.toml
 [docker]
@@ -408,6 +417,7 @@ cargo run
 #### Docker Connection Troubleshooting
 
 **Check Docker Status:**
+
 ```bash
 # Verify Docker is running
 docker info
@@ -422,6 +432,7 @@ docker ps
 **Common Issues:**
 
 1. **Permission Denied (Linux):**
+
    ```bash
    # Add user to docker group
    sudo usermod -aG docker $USER
@@ -429,6 +440,7 @@ docker ps
    ```
 
 2. **Docker Desktop Not Started (macOS/Windows):**
+
    ```bash
    # Start Docker Desktop
    open -a Docker  # macOS
@@ -436,6 +448,7 @@ docker ps
    ```
 
 3. **Socket Not Found:**
+
    ```bash
    # Check if Docker socket exists
    ls -la /var/run/docker.sock
@@ -444,6 +457,7 @@ docker ps
    ```
 
 4. **Connection Refused:**
+
    ```bash
    # Check Docker daemon status
    systemctl status docker  # Linux
@@ -451,6 +465,7 @@ docker ps
    ```
 
 **Debug Docker Connection:**
+
 ```bash
 # Run with debug logging to see Docker detection
 RUST_LOG=debug cargo run
@@ -461,6 +476,7 @@ RUST_LOG=debug cargo run
 Claude-in-a-Box automatically scans for Git repositories in your system. By default, it searches in common development directories:
 
 **Default Search Paths:**
+
 - `~/projects`
 - `~/code`
 - `~/dev`
@@ -486,6 +502,7 @@ workspace_scan_paths = [
 ```
 
 The scanner will:
+
 - Recursively search up to 3 levels deep
 - Skip common build/dependency directories (node_modules, target, etc.)
 - Only include directories that are valid Git repositories
@@ -517,9 +534,11 @@ export TWILIO_FROM_PHONE="+1234567890"
 ### Environment Variables
 
 #### Required
+
 - `ANTHROPIC_API_KEY`: Claude API key
 
 #### Optional
+
 - `CLAUDE_BOX_MODE`: Set to "true" for claude-box specific behavior
 - `TWILIO_AUTH_TOKEN`: Twilio authentication token
 - `TWILIO_ACCOUNT_SID`: Twilio account SID
@@ -542,9 +561,10 @@ The claude-in-a-box interface is divided into several sections:
 ### Keyboard Navigation
 
 #### Basic Movement
+
 ```
 j / ↓      Move down in session list
-k / ↑      Move up in session list  
+k / ↑      Move up in session list
 h / ←      Previous workspace
 l / →      Next workspace
 g          Go to top of list
@@ -552,6 +572,7 @@ G          Go to bottom of list
 ```
 
 #### Session Management
+
 ```
 n          Create new session
 a          Attach to session (opens interactive terminal)
@@ -561,6 +582,7 @@ r          Refresh workspace list
 ```
 
 #### Interface Controls
+
 ```
 ?          Toggle help overlay
 Tab        Switch between panes
@@ -584,7 +606,9 @@ Ctrl+C     Force quit
 ### Working in Sessions
 
 #### Container Environment
+
 Each session provides:
+
 - **Workspace Mount**: Your project at `/workspace`
 - **Claude CLI**: Pre-configured with MCP servers
 - **Development Tools**: Git, Node.js, Python, build tools
@@ -592,6 +616,7 @@ Each session provides:
 - **Isolated Git**: Dedicated worktree for clean branching
 
 #### Common Workflow
+
 ```bash
 # Inside a session container
 cd /workspace              # Navigate to your project
@@ -614,6 +639,7 @@ git push origin claude/feature-branch
 ```
 
 #### Session Lifecycle
+
 - **Active**: Container running, can attach anytime
 - **Stopped**: Container paused, data preserved
 - **Deleted**: Container and worktree removed
@@ -621,12 +647,14 @@ git push origin claude/feature-branch
 ### Multi-Project Management
 
 **Workspace Auto-Detection**:
+
 - Scans common development directories
 - Recursively finds Git repositories
 - Configurable search paths
 - Real-time workspace refresh (`r` key)
 
 **Session Organization**:
+
 - Multiple sessions per project supported
 - Each session has isolated git worktree
 - Independent container environments
@@ -635,6 +663,7 @@ git push origin claude/feature-branch
 ### Advanced Features
 
 #### Container Templates
+
 - **claude-dev**: Full AI development environment
 - **node**: Node.js focused environment
 - **python**: Python development setup
@@ -642,12 +671,14 @@ git push origin claude/feature-branch
 - **custom**: User-defined templates
 
 #### MCP Server Integration
+
 - **Serena**: AI coding agent toolkit
 - **Context7**: Library documentation access
 - **Twilio**: SMS notifications (optional)
 - **Custom**: Add your own MCP servers
 
 #### Resource Management
+
 - Memory and CPU limits per container
 - Port forwarding for development servers
 - Volume mounts for SSH keys, configs
@@ -818,17 +849,19 @@ docker logs <container-id>
 **Docker Connection Issues:**
 
 1. **Check Docker Detection:**
+
    ```bash
    # Run with debug logging to see detection process
    RUST_LOG=debug cargo run
-   
+
    # Look for these log messages:
    # "Using Docker host from config: ..."
-   # "Using DOCKER_HOST: ..."  
+   # "Using DOCKER_HOST: ..."
    # "Found Docker socket at: ..."
    ```
 
 2. **Manual Docker Configuration:**
+
    ```bash
    # Create config file
    mkdir -p ~/.claude-in-a-box/config
@@ -840,13 +873,14 @@ docker logs <container-id>
    ```
 
 3. **Override with Environment:**
+
    ```bash
    # For Docker Desktop on macOS
    export DOCKER_HOST=unix:///Users/$USER/.docker/run/docker.sock
-   
+
    # For standard Docker on Linux
    export DOCKER_HOST=unix:///var/run/docker.sock
-   
+
    # For Windows Docker Desktop
    export DOCKER_HOST=npipe:////./pipe/docker_engine
    ```

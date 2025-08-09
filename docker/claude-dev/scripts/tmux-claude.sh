@@ -25,12 +25,12 @@ if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
 else
     echo "No existing Claude session found. Starting new session..."
     echo "Press Ctrl-b then d to detach without stopping Claude"
-    
+
     # Create log directory if it doesn't exist
     mkdir -p /workspace/.claude-box/logs
-    
+
     LOG_FILE="/workspace/.claude-box/logs/claude-$(date +%Y%m%d-%H%M%S).log"
-    
+
     # Create new tmux session
     if [ -n "$TMUX" ]; then
         # We're already in tmux, create detached session then switch
