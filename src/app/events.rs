@@ -482,7 +482,7 @@ impl EventHandler {
         }
     }
     
-    fn handle_claude_chat_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+    fn handle_claude_chat_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
         match key_event.code {
             // Escape closes the Claude chat popup
             KeyCode::Esc => Some(AppEvent::ToggleClaudeChat),
@@ -497,7 +497,7 @@ impl EventHandler {
                 None
             },
             // All other characters are input to the chat
-            KeyCode::Char(ch) => {
+            KeyCode::Char(_ch) => {
                 // TODO: Add character input handling
                 None
             },

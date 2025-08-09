@@ -482,7 +482,7 @@ impl WorktreeManager {
         let named_path = self.base_worktree_dir.join("by-name").join(&dir_name);
         
         // Create session symlink path
-        let session_path = self.base_worktree_dir.join("by-session").join(session_id.to_string());
+        let _session_path = self.base_worktree_dir.join("by-session").join(session_id.to_string());
         
         // Store both paths in the WorktreeInfo for later cleanup
         // For now, return the named path as the primary path

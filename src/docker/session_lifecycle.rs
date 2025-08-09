@@ -88,7 +88,7 @@ impl SessionLifecycleManager {
     #[deprecated(since = "0.1.0", note = "Use create_session() instead for unified session creation")]
     pub async fn create_claude_dev_session(&mut self, request: SessionRequest) -> Result<SessionState, SessionLifecycleError> {
         tracing::warn!("create_claude_dev_session is deprecated. Use create_session() for unified session creation.");
-        self.create_claude_dev_session_with_logs(request, None).await
+        self.create_session(request, None).await
     }
     
     /// Create a new claude-dev session using the native claude_dev module with progress tracking
@@ -665,7 +665,7 @@ impl SessionLifecycleManager {
         &self,
         config: &mut ContainerConfig,
         request: &SessionRequest,
-        project_config: &Option<ProjectConfig>,
+        _project_config: &Option<ProjectConfig>,
         progress_sender: &Option<mpsc::Sender<SessionProgress>>
     ) -> Result<crate::config::McpInitResult, SessionLifecycleError> {
         if let Some(ref tx) = progress_sender {
@@ -702,7 +702,7 @@ impl SessionLifecycleManager {
         &self,
         config: &mut ContainerConfig,
         project_config: &Option<ProjectConfig>,
-        mcp_result: &crate::config::McpInitResult,
+        _mcp_result: &crate::config::McpInitResult,
         progress_sender: &Option<mpsc::Sender<SessionProgress>>
     ) -> Result<(), SessionLifecycleError> {
         // Mount claude-in-a-box authentication if requested and not already handled by MCP init
@@ -900,7 +900,7 @@ impl SessionRequest {
         workspace_name: String,
         workspace_path: PathBuf,
         branch_name: String,
-        template_name: String,
+        _template_name: String,
     ) -> Self {
         // For now, we'll let the project config specify the template
         // In the future, we could add template selection to SessionRequest

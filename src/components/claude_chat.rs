@@ -228,7 +228,7 @@ impl ClaudeChatComponent {
     }
 
     /// Handle character input
-    pub fn handle_char_input(&mut self, ch: char) {
+    pub fn handle_char_input(&mut self, _ch: char) {
         // Input handling is managed by AppState
         // This component just renders the state
     }
@@ -291,7 +291,7 @@ pub struct ClaudeConnectionStatus {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum ConnectionStatus {
+pub enum ConnectionStatus {
     Unknown,
     Connected,
     Disconnected(String),

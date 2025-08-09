@@ -764,7 +764,7 @@ impl ContainerManager {
             terminal::{disable_raw_mode, enable_raw_mode, LeaveAlternateScreen, EnterAlternateScreen},
             execute,
         };
-        use std::io::{self, Write};
+        use std::io;
         use std::process::{Command, Stdio};
 
         info!("Executing blocking interactive command in container {}: {:?}", container_id, command);

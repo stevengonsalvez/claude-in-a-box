@@ -1017,7 +1017,7 @@ impl AppState {
     }
 
     /// Helper method to find a session container by session ID
-    fn find_session_container_mut(&mut self, session_id: Uuid) -> Option<&mut crate::docker::SessionContainer> {
+    fn find_session_container_mut(&mut self, _session_id: Uuid) -> Option<&mut crate::docker::SessionContainer> {
         // This is a simplified approach - in a real implementation you'd need to track
         // SessionContainer objects separately or modify the Session model to include them
         None // Placeholder - would need container tracking

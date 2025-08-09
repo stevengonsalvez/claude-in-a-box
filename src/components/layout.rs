@@ -153,7 +153,7 @@ impl LayoutComponent {
         }
         
         // Active session info
-        if let Some(session_id) = state.get_selected_session_id() {
+        if let Some(_session_id) = state.get_selected_session_id() {
             if let Some(workspace_idx) = state.selected_workspace_index {
                 if let Some(session_idx) = state.selected_session_index {
                     if let Some(workspace) = state.workspaces.get(workspace_idx) {

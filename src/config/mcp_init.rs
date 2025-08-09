@@ -68,7 +68,7 @@ impl McpInitializer {
     }
     
     /// Initialize MCP with per-container strategy
-    async fn init_per_container(&self, container_config: &mut ContainerConfig) -> Result<McpInitResult> {
+    async fn init_per_container(&self, _container_config: &mut ContainerConfig) -> Result<McpInitResult> {
         info!("Using per-container MCP initialization");
         
         // Enable MCP servers that don't require missing environment variables
@@ -118,7 +118,7 @@ impl McpInitializer {
     }
     
     /// Initialize MCP with central mount strategy
-    async fn init_central_mount(&self, host_path: &str, container_config: &mut ContainerConfig) -> Result<McpInitResult> {
+    async fn init_central_mount(&self, host_path: &str, _container_config: &mut ContainerConfig) -> Result<McpInitResult> {
         info!("Using central mount MCP initialization from {}", host_path);
         
         // Expand tilde in path
@@ -177,8 +177,8 @@ impl McpInitializer {
         &self,
         config_path: &str,
         merge_configs: bool,
-        workspace_path: &Path,
-        container_config: &mut ContainerConfig,
+        _workspace_path: &Path,
+        _container_config: &mut ContainerConfig,
     ) -> Result<McpInitResult> {
         info!("Using hybrid MCP initialization");
         

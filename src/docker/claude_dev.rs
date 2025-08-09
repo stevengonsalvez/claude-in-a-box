@@ -174,7 +174,7 @@ impl ClaudeDevManager {
         let github_token = std::env::var("GITHUB_TOKEN")
             .or_else(|_| self.config.env_vars.get("GITHUB_TOKEN").cloned().ok_or_else(|| std::env::VarError::NotPresent));
         
-        if let Ok(token) = github_token {
+        if let Ok(_token) = github_token {
             info!("GITHUB_TOKEN found - will use token-based authentication");
             debug!("GitHub CLI and token-based git operations will be available");
         } else {
