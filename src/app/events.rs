@@ -166,7 +166,10 @@ impl EventHandler {
         
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
-            KeyCode::Tab => Some(AppEvent::SwitchPaneFocus),
+            KeyCode::Tab => {
+                tracing::debug!("Tab key pressed, current focused_pane: {:?}", state.focused_pane);
+                Some(AppEvent::SwitchPaneFocus)
+            },
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
             KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces),  // Manual refresh
@@ -180,27 +183,55 @@ impl EventHandler {
             
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
+                tracing::debug!("Down key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::NextSession),
-                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsDown),
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Sessions pane focused, triggering NextSession");
+                        Some(AppEvent::NextSession)
+                    },
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("LiveLogs pane focused, triggering ScrollLogsDown");
+                        Some(AppEvent::ScrollLogsDown)
+                    },
                 }
             },
             KeyCode::Char('k') | KeyCode::Up => {
+                tracing::debug!("Up key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::PreviousSession),
-                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsUp),
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Sessions pane focused, triggering PreviousSession");
+                        Some(AppEvent::PreviousSession)
+                    },
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("LiveLogs pane focused, triggering ScrollLogsUp");
+                        Some(AppEvent::ScrollLogsUp)
+                    },
                 }
             },
             KeyCode::Char('h') | KeyCode::Left => {
+                tracing::debug!("Left key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::PreviousWorkspace),
-                    FocusedPane::LiveLogs => None, // No left/right scrolling in logs
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Sessions pane focused, triggering PreviousWorkspace");
+                        Some(AppEvent::PreviousWorkspace)
+                    },
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("LiveLogs pane focused, no left/right scrolling");
+                        None // No left/right scrolling in logs
+                    },
                 }
             },
             KeyCode::Char('l') | KeyCode::Right => {
+                tracing::debug!("Right key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::NextWorkspace),
-                    FocusedPane::LiveLogs => None, // No left/right scrolling in logs
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Sessions pane focused, triggering NextWorkspace");
+                        Some(AppEvent::NextWorkspace)
+                    },
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("LiveLogs pane focused, no left/right scrolling");
+                        None // No left/right scrolling in logs
+                    },
                 }
             },
             KeyCode::Home => {
@@ -543,12 +574,30 @@ impl EventHandler {
             },
             AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
             AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),
-            AppEvent::NewSessionConfirmRepo => state.new_session_confirm_repo(),
-            AppEvent::NewSessionInputChar(ch) => state.new_session_update_branch(ch),
-            AppEvent::NewSessionBackspace => state.new_session_backspace(),
-            AppEvent::NewSessionProceedToModeSelection => state.new_session_proceed_to_mode_selection(),
-            AppEvent::NewSessionToggleMode => state.new_session_toggle_mode(),
-            AppEvent::NewSessionProceedFromMode => state.new_session_proceed_from_mode(),
+            AppEvent::NewSessionConfirmRepo => {
+                tracing::info!("Event: NewSessionConfirmRepo");
+                state.new_session_confirm_repo();
+            },
+            AppEvent::NewSessionInputChar(ch) => {
+                tracing::debug!("Event: NewSessionInputChar({})", ch);
+                state.new_session_update_branch(ch);
+            },
+            AppEvent::NewSessionBackspace => {
+                tracing::debug!("Event: NewSessionBackspace");
+                state.new_session_backspace();
+            },
+            AppEvent::NewSessionProceedToModeSelection => {
+                tracing::info!("Event: NewSessionProceedToModeSelection");
+                state.new_session_proceed_to_mode_selection();
+            },
+            AppEvent::NewSessionToggleMode => {
+                tracing::info!("Event: NewSessionToggleMode");
+                state.new_session_toggle_mode();
+            },
+            AppEvent::NewSessionProceedFromMode => {
+                tracing::info!("Event: NewSessionProceedFromMode");
+                state.new_session_proceed_from_mode();
+            },
             AppEvent::NewSessionInputPromptChar(ch) => state.new_session_add_char_to_prompt(ch),
             AppEvent::NewSessionBackspacePrompt => state.new_session_backspace_prompt(),
             AppEvent::NewSessionInsertNewline => state.new_session_insert_newline(),
@@ -614,10 +663,12 @@ impl EventHandler {
             },
             AppEvent::SwitchPaneFocus => {
                 use crate::app::state::FocusedPane;
+                let old_pane = state.focused_pane.clone();
                 state.focused_pane = match state.focused_pane {
                     FocusedPane::Sessions => FocusedPane::LiveLogs,
                     FocusedPane::LiveLogs => FocusedPane::Sessions,
                 };
+                tracing::debug!("Switched focus from {:?} to {:?}", old_pane, state.focused_pane);
             },
             AppEvent::ScrollLogsUp => {
                 // This will be handled by the LiveLogsStreamComponent

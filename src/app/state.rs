@@ -1303,13 +1303,25 @@ impl AppState {
     pub fn new_session_confirm_repo(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.selected_repo_index.is_some() {
+                tracing::info!("Confirming repository selection - selected_repo_index: {:?}", state.selected_repo_index);
+                tracing::info!("Available repos count: {}, Filtered repos count: {}", state.available_repos.len(), state.filtered_repos.len());
+                
+                if let Some(repo_index) = state.selected_repo_index {
+                    if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
+                        tracing::info!("Selected repository path: {:?}", repo_path);
+                    } else {
+                        tracing::error!("Failed to get repository at index {} from filtered_repos", repo_index);
+                        return;
+                    }
+                }
+                
                 state.step = NewSessionStep::InputBranch;
                 let uuid_str = uuid::Uuid::new_v4().to_string();
                 state.branch_name = format!("claude-session-{}", &uuid_str[..8]);
                 
                 // Change view from SearchWorkspace to NewSession to show branch input
                 self.current_view = View::NewSession;
-                tracing::info!("Repository confirmed, transitioning to branch input step");
+                tracing::info!("Repository confirmed, transitioning to branch input step with branch: {}", state.branch_name);
             }
         }
     }
@@ -1333,6 +1345,7 @@ impl AppState {
     pub fn new_session_proceed_to_mode_selection(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputBranch {
+                tracing::info!("Proceeding from InputBranch to SelectMode with branch: {}", state.branch_name);
                 state.step = NewSessionStep::SelectMode;
             }
         }
@@ -1341,14 +1354,17 @@ impl AppState {
     pub fn new_session_proceed_from_mode(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::SelectMode {
+                tracing::info!("Proceeding from SelectMode to next step with mode: {:?}", state.mode);
                 match state.mode {
                     crate::models::SessionMode::Interactive => {
                         // Interactive mode: go directly to permissions
                         state.step = NewSessionStep::ConfigurePermissions;
+                        tracing::info!("Interactive mode selected, going to ConfigurePermissions");
                     }
                     crate::models::SessionMode::Boss => {
                         // Boss mode: go to prompt input first
                         state.step = NewSessionStep::InputPrompt;
+                        tracing::info!("Boss mode selected, going to InputPrompt");
                     }
                 }
             }
@@ -1518,9 +1534,11 @@ impl AppState {
 
         let (repo_path, branch_name, session_id, skip_permissions, mode, boss_prompt) = {
             if let Some(ref mut state) = self.new_session_state {
+                tracing::info!("new_session_create called with step: {:?}", state.step);
                 if state.step == NewSessionStep::ConfigurePermissions {
                     if let Some(repo_index) = state.selected_repo_index {
                         if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
+                            tracing::info!("Creating session for repository: {:?}, branch: {}", repo_path, state.branch_name);
                             state.step = NewSessionStep::Creating;
                             let session_id = uuid::Uuid::new_v4();
                             (
@@ -1536,15 +1554,19 @@ impl AppState {
                                 }
                             )
                         } else {
+                            tracing::error!("Failed to get repository path from filtered_repos at index: {}", repo_index);
                             return;
                         }
                     } else {
+                        tracing::error!("No repository selected (selected_repo_index is None)");
                         return;
                     }
                 } else {
+                    tracing::warn!("new_session_create called but step is not ConfigurePermissions, current step: {:?}", state.step);
                     return;
                 }
             } else {
+                tracing::error!("new_session_create called but new_session_state is None");
                 return;
             }
         };
