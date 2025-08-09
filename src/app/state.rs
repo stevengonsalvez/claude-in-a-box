@@ -131,6 +131,12 @@ impl TextEditor {
         self.cursor_col = self.lines[self.cursor_line].len();
     }
 
+    pub fn insert_text(&mut self, text: &str) {
+        for ch in text.chars() {
+            self.insert_char(ch);
+        }
+    }
+
     pub fn get_cursor_position(&self) -> (usize, usize) {
         (self.cursor_line, self.cursor_col)
     }
@@ -1503,6 +1509,15 @@ impl AppState {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
                 state.boss_prompt.insert_newline();
+            }
+        }
+    }
+
+    pub fn new_session_paste_text(&mut self, text: String) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                // Insert the pasted text at the current cursor position
+                state.boss_prompt.insert_text(&text);
             }
         }
     }

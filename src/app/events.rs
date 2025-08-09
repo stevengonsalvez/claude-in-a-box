@@ -45,6 +45,7 @@ pub enum AppEvent {
     NewSessionInputPromptChar(char),
     NewSessionBackspacePrompt,
     NewSessionInsertNewline,
+    NewSessionPasteText(String),  // Paste text into boss mode prompt
     // Cursor movement events for boss mode prompt
     NewSessionCursorLeft,
     NewSessionCursorRight,
@@ -91,6 +92,14 @@ pub enum AppEvent {
 pub struct EventHandler;
 
 impl EventHandler {
+    /// Get text from system clipboard
+    fn get_clipboard_text() -> Result<String, Box<dyn std::error::Error>> {
+        use arboard::Clipboard;
+        let mut clipboard = Clipboard::new()?;
+        let text = clipboard.get_text()?;
+        Ok(text)
+    }
+
     pub fn handle_key_event(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
         use crate::app::state::View;
         
@@ -256,8 +265,8 @@ impl EventHandler {
             KeyCode::Esc => {
                 Some(AppEvent::NewSessionCancel)
             },
-            KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
-            KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
+            KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
+            KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
             KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
             KeyCode::Backspace => Some(AppEvent::SearchWorkspaceBackspace),
             KeyCode::Char(ch) => Some(AppEvent::SearchWorkspaceInputChar(ch)),
@@ -273,8 +282,8 @@ impl EventHandler {
                 NewSessionStep::SelectRepo => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
-                        KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
+                        KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
+                        KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
                         KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
                         _ => None,
                     }
@@ -292,7 +301,7 @@ impl EventHandler {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
                         KeyCode::Enter => Some(AppEvent::NewSessionProceedFromMode),
-                        KeyCode::Char('j') | KeyCode::Down | KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionToggleMode),
+                        KeyCode::Down | KeyCode::Up => Some(AppEvent::NewSessionToggleMode),
                         _ => None,
                     }
                 }
@@ -314,11 +323,11 @@ impl EventHandler {
                                 tracing::debug!("InputPrompt: Escape pressed while file finder active, cancelling file finder");
                                 Some(AppEvent::FileFinderCancel)
                             },
-                            KeyCode::Up | KeyCode::Char('k') => {
+                            KeyCode::Up => {
                                 tracing::debug!("InputPrompt: Up navigation in file finder");
                                 Some(AppEvent::FileFinderNavigateUp)
                             },
-                            KeyCode::Down | KeyCode::Char('j') => {
+                            KeyCode::Down => {
                                 tracing::debug!("InputPrompt: Down navigation in file finder");
                                 Some(AppEvent::FileFinderNavigateDown)
                             },
@@ -369,24 +378,38 @@ impl EventHandler {
                                 tracing::debug!("InputPrompt: Ctrl+J pressed, inserting newline");
                                 Some(AppEvent::NewSessionInsertNewline)
                             },
+                            KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                                tracing::debug!("InputPrompt: Ctrl+V pressed, attempting to paste from clipboard");
+                                // Try to get clipboard content
+                                match Self::get_clipboard_text() {
+                                    Ok(text) => {
+                                        tracing::debug!("InputPrompt: Successfully got clipboard text: {} chars", text.len());
+                                        Some(AppEvent::NewSessionPasteText(text))
+                                    },
+                                    Err(e) => {
+                                        tracing::warn!("InputPrompt: Failed to get clipboard content: {}", e);
+                                        None
+                                    }
+                                }
+                            },
                             KeyCode::Backspace => {
                                 tracing::debug!("InputPrompt: Backspace pressed");
                                 Some(AppEvent::NewSessionBackspacePrompt)
                             },
-                            // VIM-style cursor movement keys
-                            KeyCode::Left | KeyCode::Char('h') => {
+                            // Arrow keys only for cursor movement (removed hjkl to allow typing those letters)
+                            KeyCode::Left => {
                                 tracing::debug!("InputPrompt: Cursor left");
                                 Some(AppEvent::NewSessionCursorLeft)
                             },
-                            KeyCode::Right | KeyCode::Char('l') => {
+                            KeyCode::Right => {
                                 tracing::debug!("InputPrompt: Cursor right");
                                 Some(AppEvent::NewSessionCursorRight)
                             },
-                            KeyCode::Up | KeyCode::Char('k') => {
+                            KeyCode::Up => {
                                 tracing::debug!("InputPrompt: Cursor up");
                                 Some(AppEvent::NewSessionCursorUp)
                             },
-                            KeyCode::Down | KeyCode::Char('j') => {
+                            KeyCode::Down => {
                                 tracing::debug!("InputPrompt: Cursor down");
                                 Some(AppEvent::NewSessionCursorDown)
                             },
@@ -601,6 +624,7 @@ impl EventHandler {
             AppEvent::NewSessionInputPromptChar(ch) => state.new_session_add_char_to_prompt(ch),
             AppEvent::NewSessionBackspacePrompt => state.new_session_backspace_prompt(),
             AppEvent::NewSessionInsertNewline => state.new_session_insert_newline(),
+            AppEvent::NewSessionPasteText(text) => state.new_session_paste_text(text),
             AppEvent::NewSessionCursorLeft => state.new_session_move_cursor_left(),
             AppEvent::NewSessionCursorRight => state.new_session_move_cursor_right(),
             AppEvent::NewSessionCursorUp => state.new_session_move_cursor_up(),
