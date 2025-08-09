@@ -123,7 +123,7 @@ impl SessionLifecycleManager {
         // Create session model
         let mut session = Session::new_with_options(
             format!("{}-{}", request.workspace_name, request.branch_name),
-            request.workspace_path.to_string_lossy().to_string(),
+            worktree_info.path.to_string_lossy().to_string(), // Use worktree path, not original repo path
             request.skip_permissions,
             request.mode.clone(),
             request.boss_prompt.clone(),
@@ -821,7 +821,7 @@ impl SessionLifecycleManager {
     ) -> Result<SessionState, SessionLifecycleError> {
         let mut session = Session::new_with_options(
             format!("{}-{}", request.workspace_name, request.branch_name),
-            request.workspace_path.to_string_lossy().to_string(),
+            worktree_info.path.to_string_lossy().to_string(), // Use worktree path, not original repo path
             request.skip_permissions,
             request.mode.clone(),
             request.boss_prompt.clone(),
