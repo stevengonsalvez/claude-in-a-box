@@ -58,6 +58,14 @@ impl LayoutComponent {
             return;
         }
 
+        // Special handling for git view (full screen)
+        if state.current_view == View::GitView {
+            if let Some(ref git_state) = state.git_view_state {
+                crate::components::GitViewComponent::render(frame, frame.size(), git_state);
+            }
+            return;
+        }
+
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -118,7 +126,7 @@ impl LayoutComponent {
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        let menu_text = "[n]ew [s]earch [a]ttach [c]laude [f]refresh [Tab]focus [r]e-auth [d]elete [?]help [q]uit";
+        let menu_text = "[n]ew [s]earch [a]ttach [g]it [p]ush [c]laude [f]refresh [Tab]focus [r]e-auth [d]elete [?]help [q]uit";
         
         let menu = Paragraph::new(menu_text)
             .block(

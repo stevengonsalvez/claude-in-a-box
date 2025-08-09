@@ -10,7 +10,7 @@ use crate::components::fuzzy_file_finder::FuzzyFileFinderState;
 use crate::docker::LogStreamingCoordinator;
 use std::collections::HashMap;
 use std::time::Instant;
-use std::path::PathBuf;
+
 use uuid::Uuid;
 use chrono;
 use tracing::{warn, info, error};
@@ -131,6 +131,27 @@ impl TextEditor {
         self.cursor_col = self.lines[self.cursor_line].len();
     }
 
+    pub fn insert_text(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        
+        let mut lines = text.lines();
+        
+        // Insert first line of text at current cursor position
+        if let Some(first_line) = lines.next() {
+            self.lines[self.cursor_line].insert_str(self.cursor_col, first_line);
+            self.cursor_col += first_line.len();
+        }
+
+        // Insert newlines and subsequent lines
+        for line in lines {
+            self.insert_newline();
+            self.lines[self.cursor_line].insert_str(self.cursor_col, line);
+            self.cursor_col += line.len();
+        }
+    }
+
     pub fn get_cursor_position(&self) -> (usize, usize) {
         (self.cursor_line, self.cursor_col)
     }
@@ -158,6 +179,7 @@ pub enum View {
     AttachedTerminal,
     AuthSetup,  // New view for authentication setup
     ClaudeChat, // Claude chat popup overlay
+    GitView,    // Git status and diff view
 }
 
 #[derive(Debug, Clone)]
@@ -304,6 +326,8 @@ pub struct AppState {
     pub log_streaming_coordinator: Option<LogStreamingCoordinator>,
     // Channel sender for log streaming
     pub log_sender: Option<mpsc::UnboundedSender<(Uuid, LogEntry)>>,
+    // Git view state
+    pub git_view_state: Option<crate::components::GitViewState>,
 }
 
 #[derive(Debug)]
@@ -405,6 +429,7 @@ impl Default for AppState {
             claude_manager: None,
             log_streaming_coordinator: None,
             log_sender: None,
+            git_view_state: None,
         }
     }
 }
@@ -880,6 +905,17 @@ impl AppState {
         self.workspaces.get(workspace_idx)?.sessions.get(session_idx).map(|s| s.id)
     }
 
+    /// Get a reference to the currently selected session
+    pub fn get_selected_session(&self) -> Option<&crate::models::Session> {
+        let workspace_idx = self.selected_workspace_index?;
+        let session_idx = self.selected_session_index?;
+        
+        self.workspaces
+            .get(workspace_idx)?
+            .sessions
+            .get(session_idx)
+    }
+
     /// Attach to a container session using docker exec with proper terminal handling
     pub async fn attach_to_container(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
         use crate::docker::ContainerManager;
@@ -1288,9 +1324,25 @@ impl AppState {
     pub fn new_session_confirm_repo(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.selected_repo_index.is_some() {
+                tracing::info!("Confirming repository selection - selected_repo_index: {:?}", state.selected_repo_index);
+                tracing::info!("Available repos count: {}, Filtered repos count: {}", state.available_repos.len(), state.filtered_repos.len());
+                
+                if let Some(repo_index) = state.selected_repo_index {
+                    if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
+                        tracing::info!("Selected repository path: {:?}", repo_path);
+                    } else {
+                        tracing::error!("Failed to get repository at index {} from filtered_repos", repo_index);
+                        return;
+                    }
+                }
+                
                 state.step = NewSessionStep::InputBranch;
                 let uuid_str = uuid::Uuid::new_v4().to_string();
                 state.branch_name = format!("claude-session-{}", &uuid_str[..8]);
+                
+                // Change view from SearchWorkspace to NewSession to show branch input
+                self.current_view = View::NewSession;
+                tracing::info!("Repository confirmed, transitioning to branch input step with branch: {}", state.branch_name);
             }
         }
     }
@@ -1314,6 +1366,7 @@ impl AppState {
     pub fn new_session_proceed_to_mode_selection(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputBranch {
+                tracing::info!("Proceeding from InputBranch to SelectMode with branch: {}", state.branch_name);
                 state.step = NewSessionStep::SelectMode;
             }
         }
@@ -1322,14 +1375,17 @@ impl AppState {
     pub fn new_session_proceed_from_mode(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::SelectMode {
+                tracing::info!("Proceeding from SelectMode to next step with mode: {:?}", state.mode);
                 match state.mode {
                     crate::models::SessionMode::Interactive => {
                         // Interactive mode: go directly to permissions
                         state.step = NewSessionStep::ConfigurePermissions;
+                        tracing::info!("Interactive mode selected, going to ConfigurePermissions");
                     }
                     crate::models::SessionMode::Boss => {
                         // Boss mode: go to prompt input first
                         state.step = NewSessionStep::InputPrompt;
+                        tracing::info!("Boss mode selected, going to InputPrompt");
                     }
                 }
             }
@@ -1472,6 +1528,15 @@ impl AppState {
         }
     }
 
+    pub fn new_session_paste_text(&mut self, text: String) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                // Insert the pasted text at the current cursor position
+                state.boss_prompt.insert_text(&text);
+            }
+        }
+    }
+
     pub fn new_session_toggle_permissions(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::ConfigurePermissions {
@@ -1499,9 +1564,11 @@ impl AppState {
 
         let (repo_path, branch_name, session_id, skip_permissions, mode, boss_prompt) = {
             if let Some(ref mut state) = self.new_session_state {
+                tracing::info!("new_session_create called with step: {:?}", state.step);
                 if state.step == NewSessionStep::ConfigurePermissions {
                     if let Some(repo_index) = state.selected_repo_index {
                         if let Some((_, repo_path)) = state.filtered_repos.get(repo_index) {
+                            tracing::info!("Creating session for repository: {:?}, branch: {}", repo_path, state.branch_name);
                             state.step = NewSessionStep::Creating;
                             let session_id = uuid::Uuid::new_v4();
                             (
@@ -1517,15 +1584,19 @@ impl AppState {
                                 }
                             )
                         } else {
+                            tracing::error!("Failed to get repository path from filtered_repos at index: {}", repo_index);
                             return;
                         }
                     } else {
+                        tracing::error!("No repository selected (selected_repo_index is None)");
                         return;
                     }
                 } else {
+                    tracing::warn!("new_session_create called but step is not ConfigurePermissions, current step: {:?}", state.step);
                     return;
                 }
             } else {
+                tracing::error!("new_session_create called but new_session_state is None");
                 return;
             }
         };
@@ -2078,6 +2149,42 @@ impl AppState {
         
         info!("Re-authentication initiated - switched to auth setup view");
         Ok(())
+    }
+
+    pub fn show_git_view(&mut self) {
+        // Get the selected session's workspace path
+        if let Some(session) = self.get_selected_session() {
+            let worktree_path = std::path::PathBuf::from(&session.workspace_path);
+            let mut git_state = crate::components::GitViewState::new(worktree_path);
+            
+            // Refresh git status
+            if let Err(e) = git_state.refresh_git_status() {
+                tracing::error!("Failed to refresh git status: {}", e);
+                return;
+            }
+            
+            self.git_view_state = Some(git_state);
+            self.current_view = View::GitView;
+        } else {
+            tracing::warn!("No session selected for git view");
+        }
+    }
+
+    pub fn git_commit_and_push(&mut self) {
+        if let Some(git_state) = self.git_view_state.as_mut() {
+            match git_state.commit_and_push() {
+                Ok(message) => {
+                    tracing::info!("Git commit and push successful: {}", message);
+                    // Refresh git status after successful push
+                    if let Err(e) = git_state.refresh_git_status() {
+                        tracing::error!("Failed to refresh git status after push: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Git commit and push failed: {}", e);
+                }
+            }
+        }
     }
 }
 

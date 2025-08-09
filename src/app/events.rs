@@ -45,6 +45,7 @@ pub enum AppEvent {
     NewSessionInputPromptChar(char),
     NewSessionBackspacePrompt,
     NewSessionInsertNewline,
+    NewSessionPasteText(String),  // Paste text into boss mode prompt
     // Cursor movement events for boss mode prompt
     NewSessionCursorLeft,
     NewSessionCursorRight,
@@ -77,11 +78,36 @@ pub enum AppEvent {
     AuthSetupCheckStatus,   // Check authentication status
     AuthSetupRefresh,       // Manual refresh to check auth completion
     AuthSetupShowCommand,   // Show manual CLI command
+    // Git view events
+    ShowGitView,            // Show git view for selected session
+    GitViewSwitchTab,       // Switch between Files and Diff tabs
+    GitViewNextFile,        // Navigate to next file
+    GitViewPrevFile,        // Navigate to previous file
+    GitViewScrollUp,        // Scroll diff up
+    GitViewScrollDown,      // Scroll diff down
+    GitViewCommitPush,      // Commit and push changes
+    GitViewBack,            // Return to session list
+    // Commit message input events
+    GitViewStartCommit,     // Start commit message input (p key)
+    GitViewCommitInputChar(char), // Character input for commit message
+    GitViewCommitBackspace, // Backspace in commit message
+    GitViewCommitCursorLeft, // Move cursor left in commit message
+    GitViewCommitCursorRight, // Move cursor right in commit message
+    GitViewCommitCancel,    // Cancel commit message input (Esc)
+    GitViewCommitConfirm,   // Confirm and execute commit (Enter)
 }
 
 pub struct EventHandler;
 
 impl EventHandler {
+    /// Get text from system clipboard
+    fn get_clipboard_text() -> Result<String, Box<dyn std::error::Error>> {
+        use arboard::Clipboard;
+        let mut clipboard = Clipboard::new()?;
+        let text = clipboard.get_text()?;
+        Ok(text)
+    }
+
     pub fn handle_key_event(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
         use crate::app::state::View;
         
@@ -147,12 +173,20 @@ impl EventHandler {
             return Self::handle_auth_setup_keys(key_event, state);
         }
 
+        // Handle git view
+        if state.current_view == View::GitView {
+            return Self::handle_git_view_keys(key_event, state);
+        }
+
         // Handle key events based on focused pane
         use crate::app::state::FocusedPane;
         
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
-            KeyCode::Tab => Some(AppEvent::SwitchPaneFocus),
+            KeyCode::Tab => {
+                tracing::debug!("Tab key pressed, current focused_pane: {:?}", state.focused_pane);
+                Some(AppEvent::SwitchPaneFocus)
+            },
             KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
             KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces),  // Manual refresh
@@ -161,39 +195,68 @@ impl EventHandler {
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
+            KeyCode::Char('g') => Some(AppEvent::ShowGitView),  // Show git view
             
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
+                tracing::debug!("Down key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::NextSession),
-                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsDown),
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Sessions pane focused, triggering NextSession");
+                        Some(AppEvent::NextSession)
+                    },
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("LiveLogs pane focused, triggering ScrollLogsDown");
+                        Some(AppEvent::ScrollLogsDown)
+                    },
                 }
             },
             KeyCode::Char('k') | KeyCode::Up => {
+                tracing::debug!("Up key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::PreviousSession),
-                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsUp),
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Sessions pane focused, triggering PreviousSession");
+                        Some(AppEvent::PreviousSession)
+                    },
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("LiveLogs pane focused, triggering ScrollLogsUp");
+                        Some(AppEvent::ScrollLogsUp)
+                    },
                 }
             },
             KeyCode::Char('h') | KeyCode::Left => {
+                tracing::debug!("Left key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::PreviousWorkspace),
-                    FocusedPane::LiveLogs => None, // No left/right scrolling in logs
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Sessions pane focused, triggering PreviousWorkspace");
+                        Some(AppEvent::PreviousWorkspace)
+                    },
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("LiveLogs pane focused, no left/right scrolling");
+                        None // No left/right scrolling in logs
+                    },
                 }
             },
             KeyCode::Char('l') | KeyCode::Right => {
+                tracing::debug!("Right key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::NextWorkspace),
-                    FocusedPane::LiveLogs => None, // No left/right scrolling in logs
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Sessions pane focused, triggering NextWorkspace");
+                        Some(AppEvent::NextWorkspace)
+                    },
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("LiveLogs pane focused, no left/right scrolling");
+                        None // No left/right scrolling in logs
+                    },
                 }
             },
-            KeyCode::Char('g') => {
+            KeyCode::Home => {
                 match state.focused_pane {
                     FocusedPane::Sessions => Some(AppEvent::GoToTop),
                     FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToTop),
                 }
             },
-            KeyCode::Char('G') => {
+            KeyCode::End => {
                 match state.focused_pane {
                     FocusedPane::Sessions => Some(AppEvent::GoToBottom),
                     FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToBottom),
@@ -209,8 +272,8 @@ impl EventHandler {
             KeyCode::Esc => {
                 Some(AppEvent::NewSessionCancel)
             },
-            KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
-            KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
+            KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
+            KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
             KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
             KeyCode::Backspace => Some(AppEvent::SearchWorkspaceBackspace),
             KeyCode::Char(ch) => Some(AppEvent::SearchWorkspaceInputChar(ch)),
@@ -226,8 +289,8 @@ impl EventHandler {
                 NewSessionStep::SelectRepo => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Char('j') | KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
-                        KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
+                        KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
+                        KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
                         KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
                         _ => None,
                     }
@@ -245,7 +308,7 @@ impl EventHandler {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
                         KeyCode::Enter => Some(AppEvent::NewSessionProceedFromMode),
-                        KeyCode::Char('j') | KeyCode::Down | KeyCode::Char('k') | KeyCode::Up => Some(AppEvent::NewSessionToggleMode),
+                        KeyCode::Down | KeyCode::Up => Some(AppEvent::NewSessionToggleMode),
                         _ => None,
                     }
                 }
@@ -267,11 +330,11 @@ impl EventHandler {
                                 tracing::debug!("InputPrompt: Escape pressed while file finder active, cancelling file finder");
                                 Some(AppEvent::FileFinderCancel)
                             },
-                            KeyCode::Up | KeyCode::Char('k') => {
+                            KeyCode::Up => {
                                 tracing::debug!("InputPrompt: Up navigation in file finder");
                                 Some(AppEvent::FileFinderNavigateUp)
                             },
-                            KeyCode::Down | KeyCode::Char('j') => {
+                            KeyCode::Down => {
                                 tracing::debug!("InputPrompt: Down navigation in file finder");
                                 Some(AppEvent::FileFinderNavigateDown)
                             },
@@ -322,24 +385,38 @@ impl EventHandler {
                                 tracing::debug!("InputPrompt: Ctrl+J pressed, inserting newline");
                                 Some(AppEvent::NewSessionInsertNewline)
                             },
+                            KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                                tracing::debug!("InputPrompt: Ctrl+V pressed, attempting to paste from clipboard");
+                                // Try to get clipboard content
+                                match Self::get_clipboard_text() {
+                                    Ok(text) => {
+                                        tracing::debug!("InputPrompt: Successfully got clipboard text: {} chars", text.len());
+                                        Some(AppEvent::NewSessionPasteText(text))
+                                    },
+                                    Err(e) => {
+                                        tracing::warn!("InputPrompt: Failed to get clipboard content: {}", e);
+                                        None
+                                    }
+                                }
+                            },
                             KeyCode::Backspace => {
                                 tracing::debug!("InputPrompt: Backspace pressed");
                                 Some(AppEvent::NewSessionBackspacePrompt)
                             },
-                            // VIM-style cursor movement keys
-                            KeyCode::Left | KeyCode::Char('h') => {
+                            // Arrow keys only for cursor movement (removed hjkl to allow typing those letters)
+                            KeyCode::Left => {
                                 tracing::debug!("InputPrompt: Cursor left");
                                 Some(AppEvent::NewSessionCursorLeft)
                             },
-                            KeyCode::Right | KeyCode::Char('l') => {
+                            KeyCode::Right => {
                                 tracing::debug!("InputPrompt: Cursor right");
                                 Some(AppEvent::NewSessionCursorRight)
                             },
-                            KeyCode::Up | KeyCode::Char('k') => {
+                            KeyCode::Up => {
                                 tracing::debug!("InputPrompt: Cursor up");
                                 Some(AppEvent::NewSessionCursorUp)
                             },
-                            KeyCode::Down | KeyCode::Char('j') => {
+                            KeyCode::Down => {
                                 tracing::debug!("InputPrompt: Cursor down");
                                 Some(AppEvent::NewSessionCursorDown)
                             },
@@ -456,6 +533,56 @@ impl EventHandler {
         }
     }
 
+    fn handle_git_view_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        // Check if we're in commit message input mode
+        let in_commit_mode = if let Some(ref git_state) = state.git_view_state {
+            git_state.is_in_commit_mode()
+        } else {
+            false
+        };
+        
+        if in_commit_mode {
+            // Handle commit message input
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::GitViewCommitCancel),
+                KeyCode::Enter => Some(AppEvent::GitViewCommitConfirm),
+                KeyCode::Backspace => Some(AppEvent::GitViewCommitBackspace),
+                KeyCode::Left => Some(AppEvent::GitViewCommitCursorLeft),
+                KeyCode::Right => Some(AppEvent::GitViewCommitCursorRight),
+                KeyCode::Char(ch) => Some(AppEvent::GitViewCommitInputChar(ch)),
+                _ => None,
+            }
+        } else {
+            // Normal git view navigation
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::GitViewBack),
+                KeyCode::Tab => Some(AppEvent::GitViewSwitchTab),
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if let Some(ref git_state) = state.git_view_state {
+                        match git_state.active_tab {
+                            crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewNextFile),
+                            crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollDown),
+                        }
+                    } else {
+                        None
+                    }
+                },
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if let Some(ref git_state) = state.git_view_state {
+                        match git_state.active_tab {
+                            crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewPrevFile),
+                            crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollUp),
+                        }
+                    } else {
+                        None
+                    }
+                },
+                KeyCode::Char('p') => Some(AppEvent::GitViewStartCommit),
+                _ => None,
+            }
+        }
+    }
+
     pub fn process_event(event: AppEvent, state: &mut AppState) {
         match event {
             AppEvent::Quit => state.quit(),
@@ -498,15 +625,34 @@ impl EventHandler {
             },
             AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
             AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),
-            AppEvent::NewSessionConfirmRepo => state.new_session_confirm_repo(),
-            AppEvent::NewSessionInputChar(ch) => state.new_session_update_branch(ch),
-            AppEvent::NewSessionBackspace => state.new_session_backspace(),
-            AppEvent::NewSessionProceedToModeSelection => state.new_session_proceed_to_mode_selection(),
-            AppEvent::NewSessionToggleMode => state.new_session_toggle_mode(),
-            AppEvent::NewSessionProceedFromMode => state.new_session_proceed_from_mode(),
+            AppEvent::NewSessionConfirmRepo => {
+                tracing::info!("Event: NewSessionConfirmRepo");
+                state.new_session_confirm_repo();
+            },
+            AppEvent::NewSessionInputChar(ch) => {
+                tracing::debug!("Event: NewSessionInputChar({})", ch);
+                state.new_session_update_branch(ch);
+            },
+            AppEvent::NewSessionBackspace => {
+                tracing::debug!("Event: NewSessionBackspace");
+                state.new_session_backspace();
+            },
+            AppEvent::NewSessionProceedToModeSelection => {
+                tracing::info!("Event: NewSessionProceedToModeSelection");
+                state.new_session_proceed_to_mode_selection();
+            },
+            AppEvent::NewSessionToggleMode => {
+                tracing::info!("Event: NewSessionToggleMode");
+                state.new_session_toggle_mode();
+            },
+            AppEvent::NewSessionProceedFromMode => {
+                tracing::info!("Event: NewSessionProceedFromMode");
+                state.new_session_proceed_from_mode();
+            },
             AppEvent::NewSessionInputPromptChar(ch) => state.new_session_add_char_to_prompt(ch),
             AppEvent::NewSessionBackspacePrompt => state.new_session_backspace_prompt(),
             AppEvent::NewSessionInsertNewline => state.new_session_insert_newline(),
+            AppEvent::NewSessionPasteText(text) => state.new_session_paste_text(text),
             AppEvent::NewSessionCursorLeft => state.new_session_move_cursor_left(),
             AppEvent::NewSessionCursorRight => state.new_session_move_cursor_right(),
             AppEvent::NewSessionCursorUp => state.new_session_move_cursor_up(),
@@ -569,10 +715,12 @@ impl EventHandler {
             },
             AppEvent::SwitchPaneFocus => {
                 use crate::app::state::FocusedPane;
+                let old_pane = state.focused_pane.clone();
                 state.focused_pane = match state.focused_pane {
                     FocusedPane::Sessions => FocusedPane::LiveLogs,
                     FocusedPane::LiveLogs => FocusedPane::Sessions,
                 };
+                tracing::debug!("Switched focus from {:?} to {:?}", old_pane, state.focused_pane);
             },
             AppEvent::ScrollLogsUp => {
                 // This will be handled by the LiveLogsStreamComponent
@@ -754,6 +902,76 @@ impl EventHandler {
                 if let Some(ref mut session_state) = state.new_session_state {
                     session_state.file_finder.deactivate();
                 }
+            },
+            // Git view events
+            AppEvent::ShowGitView => {
+                state.show_git_view();
+            },
+            AppEvent::GitViewSwitchTab => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.switch_tab();
+                }
+            },
+            AppEvent::GitViewNextFile => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.next_file();
+                }
+            },
+            AppEvent::GitViewPrevFile => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.previous_file();
+                }
+            },
+            AppEvent::GitViewScrollUp => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.scroll_diff_up();
+                }
+            },
+            AppEvent::GitViewScrollDown => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.scroll_diff_down();
+                }
+            },
+            AppEvent::GitViewCommitPush => {
+                state.git_commit_and_push();
+            },
+            AppEvent::GitViewBack => {
+                state.current_view = crate::app::state::View::SessionList;
+                state.git_view_state = None;
+            },
+            // Commit message input events
+            AppEvent::GitViewStartCommit => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.start_commit_message_input();
+                }
+            },
+            AppEvent::GitViewCommitInputChar(ch) => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.add_char_to_commit_message(ch);
+                }
+            },
+            AppEvent::GitViewCommitBackspace => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.backspace_commit_message();
+                }
+            },
+            AppEvent::GitViewCommitCursorLeft => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.move_commit_cursor_left();
+                }
+            },
+            AppEvent::GitViewCommitCursorRight => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.move_commit_cursor_right();
+                }
+            },
+            AppEvent::GitViewCommitCancel => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.cancel_commit_message_input();
+                }
+            },
+            AppEvent::GitViewCommitConfirm => {
+                state.git_commit_and_push();
             },
         }
     }

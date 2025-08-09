@@ -12,6 +12,7 @@ pub mod non_git_notification;
 pub mod attached_terminal;
 pub mod auth_setup;
 pub mod fuzzy_file_finder;
+pub mod git_view;
 
 pub use session_list::SessionListComponent;
 pub use logs_viewer::LogsViewerComponent;
@@ -24,3 +25,4 @@ pub use confirmation_dialog::ConfirmationDialogComponent;
 pub use non_git_notification::NonGitNotificationComponent;
 pub use attached_terminal::AttachedTerminalComponent;
 pub use auth_setup::AuthSetupComponent;
+pub use git_view::{GitViewComponent, GitViewState};

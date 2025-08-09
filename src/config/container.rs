@@ -333,7 +333,7 @@ impl ContainerTemplate {
 }
 
 /// Build a Docker image from a template
-pub async fn build_template_image(template: &ContainerTemplate, tag: &str) -> anyhow::Result<()> {
+pub async fn build_template_image(template: &ContainerTemplate, _tag: &str) -> anyhow::Result<()> {
     
     
     match &template.config.image_source {
@@ -341,11 +341,11 @@ pub async fn build_template_image(template: &ContainerTemplate, tag: &str) -> an
             // Nothing to build, just use the image
             Ok(())
         },
-        ImageSource::Dockerfile { path, build_args } => {
+        ImageSource::Dockerfile { path: _path, build_args: _build_args } => {
             // TODO: Implement Dockerfile building
             todo!("Dockerfile building not yet implemented")
         },
-        ImageSource::ClaudeDocker { base_image, build_args } => {
+        ImageSource::ClaudeDocker { base_image: _base_image, build_args: _build_args } => {
             // TODO: Build using claude-docker as base
             todo!("Claude-docker building not yet implemented")
         },

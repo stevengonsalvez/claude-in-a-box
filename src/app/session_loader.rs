@@ -57,7 +57,7 @@ impl SessionLoader {
                         // Create session from container and worktree info
                         let mut session = Session::new(
                             worktree_info.branch_name.clone(),
-                            worktree_info.source_repository.to_string_lossy().to_string(),
+                            worktree_info.path.to_string_lossy().to_string(), // Use worktree path, not source repo
                         );
                         session.id = session_id;
                         session.container_id = container.id;
@@ -113,7 +113,7 @@ impl SessionLoader {
                         // Create session for orphaned worktree
                         let mut session = Session::new(
                             worktree_info.branch_name.clone(),
-                            worktree_info.source_repository.to_string_lossy().to_string(),
+                            worktree_info.path.to_string_lossy().to_string(), // Use worktree path, not source repo
                         );
                         session.id = session_id;
                         session.branch_name = worktree_info.branch_name.clone();
