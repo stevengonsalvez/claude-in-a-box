@@ -10,7 +10,7 @@ use crate::components::fuzzy_file_finder::FuzzyFileFinderState;
 use crate::docker::LogStreamingCoordinator;
 use std::collections::HashMap;
 use std::time::Instant;
-use std::path::PathBuf;
+
 use uuid::Uuid;
 use chrono;
 use tracing::{warn, info, error};
@@ -132,8 +132,23 @@ impl TextEditor {
     }
 
     pub fn insert_text(&mut self, text: &str) {
-        for ch in text.chars() {
-            self.insert_char(ch);
+        if text.is_empty() {
+            return;
+        }
+        
+        let mut lines = text.lines();
+        
+        // Insert first line of text at current cursor position
+        if let Some(first_line) = lines.next() {
+            self.lines[self.cursor_line].insert_str(self.cursor_col, first_line);
+            self.cursor_col += first_line.len();
+        }
+
+        // Insert newlines and subsequent lines
+        for line in lines {
+            self.insert_newline();
+            self.lines[self.cursor_line].insert_str(self.cursor_col, line);
+            self.cursor_col += line.len();
         }
     }
 
@@ -2156,15 +2171,13 @@ impl AppState {
     }
 
     pub fn git_commit_and_push(&mut self) {
-        if let Some(ref git_state) = self.git_view_state {
+        if let Some(git_state) = self.git_view_state.as_mut() {
             match git_state.commit_and_push() {
                 Ok(message) => {
                     tracing::info!("Git commit and push successful: {}", message);
                     // Refresh git status after successful push
-                    if let Some(ref mut git_state) = self.git_view_state {
-                        if let Err(e) = git_state.refresh_git_status() {
-                            tracing::error!("Failed to refresh git status after push: {}", e);
-                        }
+                    if let Err(e) = git_state.refresh_git_status() {
+                        tracing::error!("Failed to refresh git status after push: {}", e);
                     }
                 }
                 Err(e) => {

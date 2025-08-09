@@ -8,6 +8,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{
+    backend::Backend,
     prelude::*,
     Terminal,
 };
@@ -35,6 +36,18 @@ fn cleanup_terminal() {
         LeaveAlternateScreen,
         DisableMouseCapture
     );
+}
+
+/// Unified terminal cleanup that works with a terminal instance
+fn cleanup_terminal_with_instance<B: Backend + std::io::Write>(terminal: &mut Terminal<B>) -> Result<()> {
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+    Ok(())
 }
 
 #[derive(Parser)]
@@ -206,14 +219,12 @@ async fn run_tui(app: &mut App, layout: &mut LayoutComponent) -> Result<()> {
     // Ensure terminal cleanup happens even if there's an error
     let result = run_tui_loop(app, layout, &mut terminal).await;
     
-    // Always clean up terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
+    // Always clean up terminal using unified cleanup
+    if let Err(e) = cleanup_terminal_with_instance(&mut terminal) {
+        tracing::error!("Failed to cleanup terminal: {}", e);
+        // Fallback to basic cleanup
+        cleanup_terminal();
+    }
 
     result
 }

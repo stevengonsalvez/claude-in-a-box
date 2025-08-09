@@ -22,6 +22,8 @@ pub struct GitViewState {
     pub worktree_path: PathBuf,
     pub is_dirty: bool,
     pub can_push: bool,
+    pub commit_message_input: Option<String>, // None = not in commit mode, Some = commit message being entered
+    pub commit_message_cursor: usize, // Cursor position in commit message
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,6 +82,8 @@ impl GitViewState {
             worktree_path,
             is_dirty: false,
             can_push: false,
+            commit_message_input: None,
+            commit_message_cursor: 0,
         }
     }
 
@@ -153,7 +157,10 @@ impl GitViewState {
         // Check if there are commits ahead of the remote
         match repo.head() {
             Ok(head_ref) => {
-                let head_oid = head_ref.target().unwrap();
+                let head_oid = match head_ref.target() {
+                    Some(oid) => oid,
+                    None => return Ok(false), // Symbolic ref pointing to nothing
+                };
                 
                 // Try to find the upstream branch
                 let branch_name = head_ref.shorthand().unwrap_or("HEAD");
@@ -281,8 +288,59 @@ impl GitViewState {
         };
     }
 
-    pub fn commit_and_push(&self) -> Result<String> {
+    pub fn start_commit_message_input(&mut self) {
+        self.commit_message_input = Some(String::new());
+        self.commit_message_cursor = 0;
+    }
+    
+    pub fn cancel_commit_message_input(&mut self) {
+        self.commit_message_input = None;
+        self.commit_message_cursor = 0;
+    }
+    
+    pub fn is_in_commit_mode(&self) -> bool {
+        self.commit_message_input.is_some()
+    }
+    
+    pub fn add_char_to_commit_message(&mut self, ch: char) {
+        if let Some(ref mut message) = self.commit_message_input {
+            message.insert(self.commit_message_cursor, ch);
+            self.commit_message_cursor += 1;
+        }
+    }
+    
+    pub fn backspace_commit_message(&mut self) {
+        if let Some(ref mut message) = self.commit_message_input {
+            if self.commit_message_cursor > 0 {
+                self.commit_message_cursor -= 1;
+                message.remove(self.commit_message_cursor);
+            }
+        }
+    }
+    
+    pub fn move_commit_cursor_left(&mut self) {
+        if self.commit_message_cursor > 0 {
+            self.commit_message_cursor -= 1;
+        }
+    }
+    
+    pub fn move_commit_cursor_right(&mut self) {
+        if let Some(ref message) = self.commit_message_input {
+            if self.commit_message_cursor < message.len() {
+                self.commit_message_cursor += 1;
+            }
+        }
+    }
+
+    pub fn commit_and_push(&mut self) -> Result<String> {
         debug!("Committing and pushing changes for worktree: {:?}", self.worktree_path);
+        
+        // Get the commit message, or return error if not in commit mode
+        let commit_message = match &self.commit_message_input {
+            Some(message) if !message.trim().is_empty() => message.trim().to_string(),
+            Some(_) => return Err(anyhow::anyhow!("Commit message cannot be empty")),
+            None => return Err(anyhow::anyhow!("Not in commit mode - press 'p' to start commit process")),
+        };
         
         let repo = Repository::open(&self.worktree_path)?;
         
@@ -315,11 +373,6 @@ impl GitViewState {
         
         let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
         
-        let commit_message = format!(
-            "Auto-commit: {} files changed",
-            self.changed_files.len()
-        );
-        
         let commit_id = repo.commit(
             Some("HEAD"),
             &signature,
@@ -339,7 +392,11 @@ impl GitViewState {
         
         remote.push(&[&refspec], None)?;
         
-        Ok(format!("Committed and pushed {} files", self.changed_files.len()))
+        // Clear commit message input after successful commit
+        self.commit_message_input = None;
+        self.commit_message_cursor = 0;
+        
+        Ok(format!("Committed and pushed: {}", commit_message))
     }
 }
 

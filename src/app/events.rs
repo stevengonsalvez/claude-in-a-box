@@ -87,6 +87,14 @@ pub enum AppEvent {
     GitViewScrollDown,      // Scroll diff down
     GitViewCommitPush,      // Commit and push changes
     GitViewBack,            // Return to session list
+    // Commit message input events
+    GitViewStartCommit,     // Start commit message input (p key)
+    GitViewCommitInputChar(char), // Character input for commit message
+    GitViewCommitBackspace, // Backspace in commit message
+    GitViewCommitCursorLeft, // Move cursor left in commit message
+    GitViewCommitCursorRight, // Move cursor right in commit message
+    GitViewCommitCancel,    // Cancel commit message input (Esc)
+    GitViewCommitConfirm,   // Confirm and execute commit (Enter)
 }
 
 pub struct EventHandler;
@@ -188,7 +196,6 @@ impl EventHandler {
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView),  // Show git view
-            KeyCode::Char('p') => Some(AppEvent::GitViewCommitPush), // Quick push from main view
             
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
@@ -527,31 +534,52 @@ impl EventHandler {
     }
 
     fn handle_git_view_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
-        match key_event.code {
-            KeyCode::Esc => Some(AppEvent::GitViewBack),
-            KeyCode::Tab => Some(AppEvent::GitViewSwitchTab),
-            KeyCode::Char('j') | KeyCode::Down => {
-                if let Some(ref git_state) = state.git_view_state {
-                    match git_state.active_tab {
-                        crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewNextFile),
-                        crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollDown),
+        // Check if we're in commit message input mode
+        let in_commit_mode = if let Some(ref git_state) = state.git_view_state {
+            git_state.is_in_commit_mode()
+        } else {
+            false
+        };
+        
+        if in_commit_mode {
+            // Handle commit message input
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::GitViewCommitCancel),
+                KeyCode::Enter => Some(AppEvent::GitViewCommitConfirm),
+                KeyCode::Backspace => Some(AppEvent::GitViewCommitBackspace),
+                KeyCode::Left => Some(AppEvent::GitViewCommitCursorLeft),
+                KeyCode::Right => Some(AppEvent::GitViewCommitCursorRight),
+                KeyCode::Char(ch) => Some(AppEvent::GitViewCommitInputChar(ch)),
+                _ => None,
+            }
+        } else {
+            // Normal git view navigation
+            match key_event.code {
+                KeyCode::Esc => Some(AppEvent::GitViewBack),
+                KeyCode::Tab => Some(AppEvent::GitViewSwitchTab),
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if let Some(ref git_state) = state.git_view_state {
+                        match git_state.active_tab {
+                            crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewNextFile),
+                            crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollDown),
+                        }
+                    } else {
+                        None
                     }
-                } else {
-                    None
-                }
-            },
-            KeyCode::Char('k') | KeyCode::Up => {
-                if let Some(ref git_state) = state.git_view_state {
-                    match git_state.active_tab {
-                        crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewPrevFile),
-                        crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollUp),
+                },
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if let Some(ref git_state) = state.git_view_state {
+                        match git_state.active_tab {
+                            crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewPrevFile),
+                            crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollUp),
+                        }
+                    } else {
+                        None
                     }
-                } else {
-                    None
-                }
-            },
-            KeyCode::Char('p') => Some(AppEvent::GitViewCommitPush),
-            _ => None,
+                },
+                KeyCode::Char('p') => Some(AppEvent::GitViewStartCommit),
+                _ => None,
+            }
         }
     }
 
@@ -910,6 +938,40 @@ impl EventHandler {
             AppEvent::GitViewBack => {
                 state.current_view = crate::app::state::View::SessionList;
                 state.git_view_state = None;
+            },
+            // Commit message input events
+            AppEvent::GitViewStartCommit => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.start_commit_message_input();
+                }
+            },
+            AppEvent::GitViewCommitInputChar(ch) => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.add_char_to_commit_message(ch);
+                }
+            },
+            AppEvent::GitViewCommitBackspace => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.backspace_commit_message();
+                }
+            },
+            AppEvent::GitViewCommitCursorLeft => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.move_commit_cursor_left();
+                }
+            },
+            AppEvent::GitViewCommitCursorRight => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.move_commit_cursor_right();
+                }
+            },
+            AppEvent::GitViewCommitCancel => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.cancel_commit_message_input();
+                }
+            },
+            AppEvent::GitViewCommitConfirm => {
+                state.git_commit_and_push();
             },
         }
     }
