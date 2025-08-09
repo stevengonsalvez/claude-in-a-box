@@ -351,7 +351,7 @@ mod tests {
 
         // Test stdout parsing in interactive mode
         let stdout = LogOutput::StdOut {
-            message: b"INFO: Test message\n".to_vec(),
+            message: b"INFO: Test message\n".to_vec().into(),
         };
         let entry = DockerLogStreamingManager::parse_log_output(stdout, container_name, session_id, &crate::models::SessionMode::Interactive);
         assert_eq!(entry.level, LogEntryLevel::Info);
@@ -359,7 +359,7 @@ mod tests {
 
         // Test stderr parsing in interactive mode
         let stderr = LogOutput::StdErr {
-            message: b"Error occurred\n".to_vec(),
+            message: b"Error occurred\n".to_vec().into(),
         };
         let entry = DockerLogStreamingManager::parse_log_output(stderr, container_name, session_id, &crate::models::SessionMode::Interactive);
         assert_eq!(entry.level, LogEntryLevel::Error);
@@ -367,7 +367,7 @@ mod tests {
         
         // Test boss mode JSON parsing
         let boss_stdout = LogOutput::StdOut {
-            message: b"{\"type\": \"message\", \"content\": \"Hello from Claude!\"}\n".to_vec(),
+            message: b"{\"type\": \"message\", \"content\": \"Hello from Claude!\"}\n".to_vec().into(),
         };
         let entry = DockerLogStreamingManager::parse_log_output(boss_stdout, container_name, session_id, &crate::models::SessionMode::Boss);
         assert_eq!(entry.level, LogEntryLevel::Info);

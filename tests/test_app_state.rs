@@ -31,8 +31,9 @@ fn create_test_state() -> AppState {
 fn test_app_state_creation() {
     let state = AppState::new();
     
-    assert!(!state.workspaces.is_empty());
-    assert!(state.selected_workspace_index.is_some());
+    // AppState::new() should create an empty initial state
+    assert!(state.workspaces.is_empty());
+    assert!(state.selected_workspace_index.is_none());
     assert!(!state.should_quit);
     assert!(!state.help_visible);
 }

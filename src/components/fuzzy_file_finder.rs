@@ -300,7 +300,8 @@ mod tests {
 
     #[test]
     fn test_fuzzy_score_partial_match() {
-        let score = calculate_fuzzy_score("src/components/mod.rs", "comp");
+        // Use a query that matches characters but not as a substring
+        let score = calculate_fuzzy_score("src/components/mod.rs", "scm");
         assert!(score > 0);
         assert!(score < 1000); // Less than exact match
     }

@@ -337,14 +337,15 @@ pub fn apply_mcp_init_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::mcp::McpServerConfig;
+    use crate::config::mcp::{McpServerConfig, McpInstallation, McpServerDefinition};
+    use std::collections::HashMap;
     
     #[test]
     fn test_per_container_init() {
         let servers = McpServerConfig::defaults();
         let initializer = McpInitializer::new(McpInitStrategy::PerContainer, servers);
         
-        let mut container_config = ContainerConfig::new("test".to_string());
+        let _container_config = ContainerConfig::new("test".to_string());
         
         // This would require tokio runtime in real usage
         // For testing, we'll just verify the initializer was created correctly
@@ -353,11 +354,30 @@ mod tests {
     
     #[test]
     fn test_validation() {
-        let servers = McpServerConfig::defaults();
+        let mut servers = HashMap::new();
+        
+        // Create a test server that is enabled by default and requires env vars
+        let test_server = McpServerConfig {
+            name: "test-server".to_string(),
+            description: "Test server".to_string(),
+            installation: McpInstallation::Npm {
+                package: "test-package".to_string(),
+                version: None,
+            },
+            definition: McpServerDefinition::Json {
+                config: serde_json::json!({}),
+            },
+            required_env: vec!["TEST_REQUIRED_VAR".to_string()],
+            enabled_by_default: true, // This is enabled by default
+        };
+        
+        servers.insert(test_server.name.clone(), test_server);
+        
         let initializer = McpInitializer::new(McpInitStrategy::PerContainer, servers);
         
         let warnings = initializer.validate_configuration().unwrap();
         // Should have warnings about missing environment variables
         assert!(!warnings.is_empty());
+        assert!(warnings[0].contains("TEST_REQUIRED_VAR"));
     }
 }

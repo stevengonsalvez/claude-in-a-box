@@ -149,10 +149,10 @@ fn test_help_visible_only_responds_to_help_and_esc() {
 fn test_go_to_top_bottom() {
     let mut state = AppState::default();
     
-    let go_top = EventHandler::handle_key_event(create_key_event(KeyCode::Char('g')), &mut state);
+    let go_top = EventHandler::handle_key_event(create_key_event(KeyCode::Home), &mut state);
     assert!(go_top.is_some());
     
-    let go_bottom = EventHandler::handle_key_event(create_key_event(KeyCode::Char('G')), &mut state);
+    let go_bottom = EventHandler::handle_key_event(create_key_event(KeyCode::End), &mut state);
     assert!(go_bottom.is_some());
 }
 

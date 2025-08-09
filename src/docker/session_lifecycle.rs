@@ -912,7 +912,6 @@ impl SessionRequest {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    use crate::git::workspace_scanner::WorkspaceScanner;
 
     // Note: These tests require Docker to be running
     // They are integration tests and should be run with `cargo test --ignored`
@@ -956,7 +955,7 @@ mod tests {
         );
 
         // Create session
-        let session_state = manager.create_session(request).await.unwrap();
+        let session_state = manager.create_session(request, None).await.unwrap();
         assert_eq!(session_state.session.id, session_id);
         assert!(session_state.worktree_info.is_some());
 

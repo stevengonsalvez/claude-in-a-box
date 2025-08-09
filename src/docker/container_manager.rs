@@ -62,8 +62,17 @@ impl ContainerManager {
         let docker = Self::connect_to_docker()
             .map_err(ContainerError::Connection)?;
 
-        // Test the connection
-        docker.ping().await.map_err(ContainerError::Connection)?;
+        // Test the connection with timeout
+        let ping_timeout = std::time::Duration::from_secs(10);
+        tokio::time::timeout(ping_timeout, docker.ping())
+            .await
+            .map_err(|_| ContainerError::Connection(
+                bollard::errors::Error::DockerResponseServerError {
+                    status_code: 408,
+                    message: "Docker ping timeout - daemon may be unresponsive".to_string(),
+                }
+            ))?
+            .map_err(ContainerError::Connection)?;
 
         info!("Successfully connected to Docker daemon");
         Ok(Self { docker })
