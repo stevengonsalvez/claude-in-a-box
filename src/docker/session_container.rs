@@ -59,9 +59,9 @@ pub struct VolumeMount {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PortMapping {
-    pub host_port: Option<u16>,  // None for auto-assignment
+    pub host_port: Option<u16>, // None for auto-assignment
     pub container_port: u16,
-    pub protocol: String,        // tcp, udp
+    pub protocol: String, // tcp, udp
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +88,7 @@ impl Default for ContainerConfig {
             entrypoint: None,
             user: None,
             memory_limit: Some(2 * 1024 * 1024 * 1024), // 2GB default
-            cpu_limit: Some(2.0), // 2 CPUs default
+            cpu_limit: Some(2.0),                       // 2 CPUs default
         }
     }
 }
@@ -111,7 +111,12 @@ impl ContainerConfig {
         self
     }
 
-    pub fn with_volume(mut self, host_path: PathBuf, container_path: String, read_only: bool) -> Self {
+    pub fn with_volume(
+        mut self,
+        host_path: PathBuf,
+        container_path: String,
+        read_only: bool,
+    ) -> Self {
         self.volumes.push(VolumeMount {
             host_path,
             container_path,
@@ -156,13 +161,11 @@ impl ContainerConfig {
             image: "ghcr.io/anthropics/claude-code:latest".to_string(),
             working_dir: "/workspace".to_string(),
             environment_vars: env_vars,
-            volumes: vec![
-                VolumeMount {
-                    host_path: worktree_path,
-                    container_path: "/workspace".to_string(),
-                    read_only: false,
-                }
-            ],
+            volumes: vec![VolumeMount {
+                host_path: worktree_path,
+                container_path: "/workspace".to_string(),
+                read_only: false,
+            }],
             ports: vec![
                 // Common development ports
                 PortMapping {
@@ -180,7 +183,7 @@ impl ContainerConfig {
             entrypoint: None,
             user: Some("developer".to_string()),
             memory_limit: Some(4 * 1024 * 1024 * 1024), // 4GB for development
-            cpu_limit: Some(4.0), // 4 CPUs for development
+            cpu_limit: Some(4.0),                       // 4 CPUs for development
         }
     }
 }

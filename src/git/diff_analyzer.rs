@@ -1,7 +1,7 @@
 // ABOUTME: Git diff analysis for detailed change statistics and file-level insights
 
 use anyhow::Result;
-use git2::{Repository, Diff, DiffOptions};
+use git2::{Diff, DiffOptions, Repository};
 use std::path::Path;
 use tracing::debug;
 
@@ -55,18 +55,22 @@ impl DiffAnalyzer {
     pub fn analyze_staged_changes(&self) -> Result<CustomDiffStats> {
         let head = self.repo.head()?;
         let head_tree = head.peel_to_tree()?;
-        
+
         let diff = self.repo.diff_tree_to_index(Some(&head_tree), None, None)?;
         self.analyze_diff(&diff)
     }
 
-    pub fn analyze_branch_diff(&self, base_branch: &str, target_branch: &str) -> Result<CustomDiffStats> {
+    pub fn analyze_branch_diff(
+        &self,
+        base_branch: &str,
+        target_branch: &str,
+    ) -> Result<CustomDiffStats> {
         let base_commit = self.repo.revparse_single(base_branch)?.peel_to_commit()?;
         let target_commit = self.repo.revparse_single(target_branch)?.peel_to_commit()?;
-        
+
         let base_tree = base_commit.tree()?;
         let target_tree = target_commit.tree()?;
-        
+
         let diff = self.repo.diff_tree_to_tree(Some(&base_tree), Some(&target_tree), None)?;
         self.analyze_diff(&diff)
     }
@@ -114,7 +118,10 @@ impl DiffAnalyzer {
             }
         }
 
-        debug!("Simple changes: +{} ~{} -{}", changes.added, changes.modified, changes.deleted);
+        debug!(
+            "Simple changes: +{} ~{} -{}",
+            changes.added, changes.modified, changes.deleted
+        );
         Ok(changes)
     }
 
@@ -124,7 +131,9 @@ impl DiffAnalyzer {
 
         diff.foreach(
             &mut |delta, _progress| {
-                let file_path = delta.new_file().path()
+                let file_path = delta
+                    .new_file()
+                    .path()
                     .or_else(|| delta.old_file().path())
                     .and_then(|p| p.to_str())
                     .unwrap_or("unknown")
@@ -161,7 +170,9 @@ impl DiffAnalyzer {
             Some(&mut |_delta, _hunk| true),
             Some(&mut |delta, _hunk, line| {
                 if let Some(file_index) = files.iter_mut().find(|f| {
-                    delta.new_file().path()
+                    delta
+                        .new_file()
+                        .path()
                         .or_else(|| delta.old_file().path())
                         .and_then(|p| p.to_str())
                         .map(|p| p == f.path)
@@ -219,12 +230,12 @@ impl DiffAnalyzer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn create_test_repo_with_changes(path: &Path) -> Result<Repository> {
         let repo = Repository::init(path)?;
-        
+
         // Create initial file and commit
         let initial_file = path.join("initial.txt");
         fs::write(&initial_file, "initial content\nline 2\nline 3")?;
@@ -236,7 +247,7 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com")?;
         let tree_id = index.write_tree()?;
         let tree = repo.find_tree(tree_id)?;
-        
+
         repo.commit(
             Some("HEAD"),
             &signature,
@@ -251,7 +262,7 @@ mod tests {
 
         // Create some changes
         fs::write(&initial_file, "modified content\nline 2\nline 3\nnew line")?;
-        
+
         let new_file = path.join("new.txt");
         fs::write(&new_file, "new file content")?;
 
@@ -262,7 +273,7 @@ mod tests {
     fn test_diff_analyzer_creation() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_changes(temp_dir.path()).unwrap();
-        
+
         let analyzer = DiffAnalyzer::new(temp_dir.path());
         assert!(analyzer.is_ok());
     }
@@ -271,17 +282,20 @@ mod tests {
     fn test_analyze_working_directory() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_changes(temp_dir.path()).unwrap();
-        
+
         let analyzer = DiffAnalyzer::new(temp_dir.path()).unwrap();
         let diff_stats = analyzer.analyze_working_directory().unwrap();
-        
+
         assert!(diff_stats.files_changed > 0);
         assert!(!diff_stats.files.is_empty());
-        
+
         // Should have both modified and new files
         let has_modified = diff_stats.files.iter().any(|f| f.status == FileStatus::Modified);
-        let has_new = diff_stats.files.iter().any(|f| f.status == FileStatus::Added || f.status == FileStatus::Untracked);
-        
+        let has_new = diff_stats
+            .files
+            .iter()
+            .any(|f| f.status == FileStatus::Added || f.status == FileStatus::Untracked);
+
         assert!(has_modified || has_new);
     }
 
@@ -289,10 +303,10 @@ mod tests {
     fn test_get_simple_changes() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_changes(temp_dir.path()).unwrap();
-        
+
         let analyzer = DiffAnalyzer::new(temp_dir.path()).unwrap();
         let changes = analyzer.get_simple_changes().unwrap();
-        
+
         assert!(changes.total() > 0);
     }
 
@@ -300,12 +314,12 @@ mod tests {
     fn test_get_file_changes_summary() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_changes(temp_dir.path()).unwrap();
-        
+
         let analyzer = DiffAnalyzer::new(temp_dir.path()).unwrap();
         let summary = analyzer.get_file_changes_summary().unwrap();
-        
+
         assert!(!summary.is_empty());
-        
+
         // Check that summary contains file paths and status indicators
         for line in &summary {
             assert!(line.contains("initial.txt") || line.contains("new.txt"));
@@ -317,7 +331,7 @@ mod tests {
     fn test_analyze_clean_repository() {
         let temp_dir = TempDir::new().unwrap();
         let repo = Repository::init(temp_dir.path()).unwrap();
-        
+
         // Create initial commit
         let test_file = temp_dir.path().join("test.txt");
         fs::write(&test_file, "test content").unwrap();
@@ -329,7 +343,7 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com").unwrap();
         let tree_id = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_id).unwrap();
-        
+
         repo.commit(
             Some("HEAD"),
             &signature,
@@ -337,11 +351,12 @@ mod tests {
             "Initial commit",
             &tree,
             &[],
-        ).unwrap();
+        )
+        .unwrap();
 
         let analyzer = DiffAnalyzer::new(temp_dir.path()).unwrap();
         let changes = analyzer.get_simple_changes().unwrap();
-        
+
         assert_eq!(changes.total(), 0);
     }
 }

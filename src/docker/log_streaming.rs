@@ -3,8 +3,8 @@
 
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
 use crate::docker::ContainerManager;
-use anyhow::{anyhow, Result};
-use bollard::container::{LogsOptions, LogOutput};
+use anyhow::{Result, anyhow};
+use bollard::container::{LogOutput, LogsOptions};
 use futures_util::StreamExt;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -167,8 +167,13 @@ impl DockerLogStreamingManager {
         while let Some(log_result) = log_stream.next().await {
             match log_result {
                 Ok(log_output) => {
-                    let log_entry = Self::parse_log_output(log_output, &container_name, session_id, &session_mode);
-                    
+                    let log_entry = Self::parse_log_output(
+                        log_output,
+                        &container_name,
+                        session_id,
+                        &session_mode,
+                    );
+
                     if let Err(e) = log_sender.send((session_id, log_entry)) {
                         warn!("Failed to send log entry: {}", e);
                         break; // Channel closed, stop streaming
@@ -210,11 +215,18 @@ impl DockerLogStreamingManager {
     }
 
     /// Parse Docker log output into a LogEntry
-    fn parse_log_output(log_output: LogOutput, container_name: &str, session_id: Uuid, session_mode: &crate::models::SessionMode) -> LogEntry {
+    fn parse_log_output(
+        log_output: LogOutput,
+        container_name: &str,
+        session_id: Uuid,
+        session_mode: &crate::models::SessionMode,
+    ) -> LogEntry {
         let (message, is_stderr) = match log_output {
             LogOutput::StdOut { message } => (String::from_utf8_lossy(&message).to_string(), false),
             LogOutput::StdErr { message } => (String::from_utf8_lossy(&message).to_string(), true),
-            LogOutput::Console { message } => (String::from_utf8_lossy(&message).to_string(), false),
+            LogOutput::Console { message } => {
+                (String::from_utf8_lossy(&message).to_string(), false)
+            }
             LogOutput::StdIn { message } => (String::from_utf8_lossy(&message).to_string(), false),
         };
 
@@ -223,7 +235,7 @@ impl DockerLogStreamingManager {
 
         // Use boss mode parsing if this is a boss mode session
         let is_boss_mode = matches!(session_mode, crate::models::SessionMode::Boss);
-        
+
         if is_boss_mode {
             LogEntry::from_docker_log_with_mode(container_name, &message, Some(session_id), true)
         } else {
@@ -245,7 +257,12 @@ impl DockerLogStreamingManager {
     ) -> Result<()> {
         for (session_id, container_id, container_name, session_mode) in sessions {
             if let Err(e) = self
-                .start_streaming(*session_id, container_id.clone(), container_name.clone(), session_mode.clone())
+                .start_streaming(
+                    *session_id,
+                    container_id.clone(),
+                    container_name.clone(),
+                    session_mode.clone(),
+                )
                 .await
             {
                 warn!(
@@ -278,7 +295,7 @@ impl LogStreamingCoordinator {
     /// Create a new coordinator with channels for log communication
     pub fn new() -> (Self, mpsc::UnboundedSender<(Uuid, LogEntry)>) {
         let (log_sender, log_receiver) = mpsc::unbounded_channel();
-        
+
         (
             Self {
                 manager: None,
@@ -289,7 +306,10 @@ impl LogStreamingCoordinator {
     }
 
     /// Initialize the streaming manager
-    pub fn init_manager(&mut self, log_sender: mpsc::UnboundedSender<(Uuid, LogEntry)>) -> Result<()> {
+    pub fn init_manager(
+        &mut self,
+        log_sender: mpsc::UnboundedSender<(Uuid, LogEntry)>,
+    ) -> Result<()> {
         self.manager = Some(DockerLogStreamingManager::new(log_sender)?);
         Ok(())
     }
@@ -298,7 +318,7 @@ impl LogStreamingCoordinator {
     pub fn try_next_log(&mut self) -> Option<(Uuid, LogEntry)> {
         self.log_receiver.try_recv().ok()
     }
-    
+
     /// Get the next log entry from any container (blocking)
     pub async fn next_log(&mut self) -> Option<(Uuid, LogEntry)> {
         self.log_receiver.recv().await
@@ -353,7 +373,12 @@ mod tests {
         let stdout = LogOutput::StdOut {
             message: b"INFO: Test message\n".to_vec().into(),
         };
-        let entry = DockerLogStreamingManager::parse_log_output(stdout, container_name, session_id, &crate::models::SessionMode::Interactive);
+        let entry = DockerLogStreamingManager::parse_log_output(
+            stdout,
+            container_name,
+            session_id,
+            &crate::models::SessionMode::Interactive,
+        );
         assert_eq!(entry.level, LogEntryLevel::Info);
         assert_eq!(entry.message, "INFO: Test message");
 
@@ -361,15 +386,27 @@ mod tests {
         let stderr = LogOutput::StdErr {
             message: b"Error occurred\n".to_vec().into(),
         };
-        let entry = DockerLogStreamingManager::parse_log_output(stderr, container_name, session_id, &crate::models::SessionMode::Interactive);
+        let entry = DockerLogStreamingManager::parse_log_output(
+            stderr,
+            container_name,
+            session_id,
+            &crate::models::SessionMode::Interactive,
+        );
         assert_eq!(entry.level, LogEntryLevel::Error);
         assert_eq!(entry.message, "Error occurred");
-        
+
         // Test boss mode JSON parsing
         let boss_stdout = LogOutput::StdOut {
-            message: b"{\"type\": \"message\", \"content\": \"Hello from Claude!\"}\n".to_vec().into(),
+            message: b"{\"type\": \"message\", \"content\": \"Hello from Claude!\"}\n"
+                .to_vec()
+                .into(),
         };
-        let entry = DockerLogStreamingManager::parse_log_output(boss_stdout, container_name, session_id, &crate::models::SessionMode::Boss);
+        let entry = DockerLogStreamingManager::parse_log_output(
+            boss_stdout,
+            container_name,
+            session_id,
+            &crate::models::SessionMode::Boss,
+        );
         assert_eq!(entry.level, LogEntryLevel::Info);
         assert_eq!(entry.message, "🤖 Claude: Hello from Claude!");
         assert_eq!(entry.source, "claude-boss");

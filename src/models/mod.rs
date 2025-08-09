@@ -3,5 +3,5 @@
 pub mod session;
 pub mod workspace;
 
-pub use session::{Session, SessionStatus, SessionMode, GitChanges};
+pub use session::{GitChanges, Session, SessionMode, SessionStatus};
 pub use workspace::Workspace;

@@ -1,22 +1,24 @@
 // ABOUTME: Docker container management using Bollard for creating and managing development containers
 
-use super::{SessionContainer, ContainerConfig, ContainerStatus};
+use super::{ContainerConfig, ContainerStatus, SessionContainer};
 use anyhow::Result;
+use bollard::Docker;
 use bollard::container::{
-    Config, CreateContainerOptions, LogOutput, LogsOptions, RemoveContainerOptions,
-    StartContainerOptions, StopContainerOptions, ListContainersOptions,
+    Config, CreateContainerOptions, ListContainersOptions, LogOutput, LogsOptions,
+    RemoveContainerOptions, StartContainerOptions, StopContainerOptions,
 };
 use bollard::exec::{CreateExecOptions, StartExecResults};
-use futures_util::stream::StreamExt;
 use bollard::image::{CreateImageOptions, ListImagesOptions};
-use bollard::models::{ContainerSummary, HostConfig, HostConfigLogConfig, Mount, MountTypeEnum, PortBinding};
-use bollard::Docker;
+use bollard::models::{
+    ContainerSummary, HostConfig, HostConfigLogConfig, Mount, MountTypeEnum, PortBinding,
+};
+use futures_util::stream::StreamExt;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use thiserror::Error;
-use tracing::{debug, info, warn, error};
-use uuid::Uuid;
 use tokio::sync::mpsc;
+use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 #[derive(Error, Debug)]
 pub enum ContainerError {
@@ -59,19 +61,18 @@ pub struct ContainerManager {
 
 impl ContainerManager {
     pub async fn new() -> Result<Self, ContainerError> {
-        let docker = Self::connect_to_docker()
-            .map_err(ContainerError::Connection)?;
+        let docker = Self::connect_to_docker().map_err(ContainerError::Connection)?;
 
         // Test the connection with timeout
         let ping_timeout = std::time::Duration::from_secs(10);
         tokio::time::timeout(ping_timeout, docker.ping())
             .await
-            .map_err(|_| ContainerError::Connection(
-                bollard::errors::Error::DockerResponseServerError {
+            .map_err(|_| {
+                ContainerError::Connection(bollard::errors::Error::DockerResponseServerError {
                     status_code: 408,
                     message: "Docker ping timeout - daemon may be unresponsive".to_string(),
-                }
-            ))?
+                })
+            })?
             .map_err(ContainerError::Connection)?;
 
         info!("Successfully connected to Docker daemon");
@@ -79,9 +80,8 @@ impl ContainerManager {
     }
 
     pub fn new_sync() -> Result<Self, ContainerError> {
-        let docker = Self::connect_to_docker()
-            .map_err(ContainerError::Connection)?;
-        
+        let docker = Self::connect_to_docker().map_err(ContainerError::Connection)?;
+
         info!("Successfully connected to Docker daemon (sync)");
         Ok(Self { docker })
     }
@@ -96,11 +96,14 @@ impl ContainerManager {
             if let Some(docker_host) = &config.docker.host {
                 info!("Using Docker host from config: {}", docker_host);
                 std::env::set_var("DOCKER_HOST", docker_host);
-                
+
                 match Docker::connect_with_local_defaults() {
                     Ok(docker) => return Ok(docker),
                     Err(e) => {
-                        warn!("Failed to connect to configured Docker host {}: {}", docker_host, e);
+                        warn!(
+                            "Failed to connect to configured Docker host {}: {}",
+                            docker_host, e
+                        );
                         // Continue with other detection methods
                     }
                 }
@@ -115,7 +118,7 @@ impl ContainerManager {
 
         // Try common Docker socket locations based on OS
         let socket_paths = Self::get_docker_socket_paths();
-        
+
         for socket_path in socket_paths {
             let exists = if socket_path.starts_with("npipe:") {
                 // For Windows named pipes, we can't check existence easily
@@ -124,19 +127,19 @@ impl ContainerManager {
             } else {
                 std::path::Path::new(&socket_path).exists()
             };
-            
+
             if exists {
                 info!("Found Docker socket at: {}", socket_path);
-                
+
                 // Set DOCKER_HOST environment variable for this process
                 let docker_host = if socket_path.starts_with("npipe:") {
                     socket_path.clone()
                 } else {
                     format!("unix://{}", socket_path)
                 };
-                
+
                 std::env::set_var("DOCKER_HOST", docker_host);
-                
+
                 match Docker::connect_with_local_defaults() {
                     Ok(docker) => return Ok(docker),
                     Err(e) => {
@@ -166,15 +169,18 @@ impl ContainerManager {
             if let Some(home) = std::env::var("HOME").ok() {
                 paths.push(format!("{}/.docker/run/docker.sock", home));
             }
-            
+
             // Colima
             if let Some(home) = std::env::var("HOME").ok() {
                 paths.push(format!("{}/.colima/default/docker.sock", home));
             }
-            
+
             // Podman Desktop
             if let Some(home) = std::env::var("HOME").ok() {
-                paths.push(format!("{}/.local/share/containers/podman/machine/podman.sock", home));
+                paths.push(format!(
+                    "{}/.local/share/containers/podman/machine/podman.sock",
+                    home
+                ));
             }
         }
 
@@ -182,12 +188,12 @@ impl ContainerManager {
         if cfg!(target_os = "linux") {
             // Standard Docker socket
             paths.push("/var/run/docker.sock".to_string());
-            
+
             // Rootless Docker
             if let Ok(xdg_runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
                 paths.push(format!("{}/docker.sock", xdg_runtime_dir));
             }
-            
+
             // Podman
             if let Ok(xdg_runtime_dir) = std::env::var("XDG_RUNTIME_DIR") {
                 paths.push(format!("{}/podman/podman.sock", xdg_runtime_dir));
@@ -198,7 +204,7 @@ impl ContainerManager {
         if cfg!(target_os = "windows") {
             // Docker Desktop for Windows (named pipe)
             paths.push("npipe:////./pipe/docker_engine".to_string());
-            
+
             // WSL2 integration
             paths.push("/var/run/docker.sock".to_string());
         }
@@ -209,14 +215,19 @@ impl ContainerManager {
     fn get_docker_context_socket() -> Option<String> {
         // Try to get the current Docker context
         let output = std::process::Command::new("docker")
-            .args(["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"])
+            .args([
+                "context",
+                "inspect",
+                "--format",
+                "{{.Endpoints.docker.Host}}",
+            ])
             .output()
             .ok()?;
 
         if output.status.success() {
             let socket_url = String::from_utf8(output.stdout).ok()?;
             let socket_url = socket_url.trim();
-            
+
             // Extract the socket path from the URL
             if let Some(path) = socket_url.strip_prefix("unix://") {
                 debug!("Docker context socket: {}", path);
@@ -226,7 +237,7 @@ impl ContainerManager {
                 return Some(socket_url.to_string());
             }
         }
-        
+
         None
     }
 
@@ -237,7 +248,7 @@ impl ContainerManager {
     ) -> Result<SessionContainer, ContainerError> {
         self.create_session_container_with_logs(session_id, config, None).await
     }
-    
+
     pub async fn create_session_container_with_logs(
         &self,
         session_id: Uuid,
@@ -260,11 +271,11 @@ impl ContainerManager {
         // Create port bindings
         let mut port_bindings = HashMap::new();
         for port_mapping in &config.ports {
-            let host_port = port_mapping.host_port
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "".to_string()); // Empty string for auto-assignment
-            
-            let container_port_key = format!("{}/{}", port_mapping.container_port, port_mapping.protocol);
+            let host_port =
+                port_mapping.host_port.map(|p| p.to_string()).unwrap_or_else(|| "".to_string()); // Empty string for auto-assignment
+
+            let container_port_key =
+                format!("{}/{}", port_mapping.container_port, port_mapping.protocol);
             port_bindings.insert(
                 container_port_key,
                 Some(vec![PortBinding {
@@ -307,10 +318,8 @@ impl ContainerManager {
         };
 
         // Prepare environment variables
-        let env: Vec<String> = config.environment_vars
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
+        let env: Vec<String> =
+            config.environment_vars.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
 
         // Create container config
         let container_config = Config {
@@ -336,12 +345,13 @@ impl ContainerManager {
             platform: None,
         };
 
-        let create_response = self
-            .docker
-            .create_container(Some(create_options), container_config)
-            .await?;
+        let create_response =
+            self.docker.create_container(Some(create_options), container_config).await?;
 
-        info!("Created container {} with ID {}", container_name, create_response.id);
+        info!(
+            "Created container {} with ID {}",
+            container_name, create_response.id
+        );
 
         let mut container = SessionContainer::new(session_id, config);
         container.container_id = Some(create_response.id.clone());
@@ -353,8 +363,12 @@ impl ContainerManager {
         Ok(container)
     }
 
-    pub async fn start_container(&self, container: &mut SessionContainer) -> Result<(), ContainerError> {
-        let container_id = container.container_id
+    pub async fn start_container(
+        &self,
+        container: &mut SessionContainer,
+    ) -> Result<(), ContainerError> {
+        let container_id = container
+            .container_id
             .as_ref()
             .ok_or_else(|| ContainerError::InvalidConfig("No container ID".to_string()))?;
 
@@ -375,8 +389,12 @@ impl ContainerManager {
         Ok(())
     }
 
-    pub async fn stop_container(&self, container: &mut SessionContainer) -> Result<(), ContainerError> {
-        let container_id = container.container_id
+    pub async fn stop_container(
+        &self,
+        container: &mut SessionContainer,
+    ) -> Result<(), ContainerError> {
+        let container_id = container
+            .container_id
             .as_ref()
             .ok_or_else(|| ContainerError::InvalidConfig("No container ID".to_string()))?;
 
@@ -391,7 +409,9 @@ impl ContainerManager {
                 info!("Successfully stopped container {}", container_id);
                 Ok(())
             }
-            Err(bollard::errors::Error::DockerResponseServerError { status_code: 304, .. }) => {
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 304, ..
+            }) => {
                 // Container was already stopped
                 container.status = ContainerStatus::Stopped;
                 debug!("Container {} was already stopped", container_id);
@@ -401,8 +421,12 @@ impl ContainerManager {
         }
     }
 
-    pub async fn remove_container(&self, container: &mut SessionContainer) -> Result<(), ContainerError> {
-        let container_id = container.container_id
+    pub async fn remove_container(
+        &self,
+        container: &mut SessionContainer,
+    ) -> Result<(), ContainerError> {
+        let container_id = container
+            .container_id
             .as_ref()
             .ok_or_else(|| ContainerError::InvalidConfig("No container ID".to_string()))?
             .clone();
@@ -427,7 +451,9 @@ impl ContainerManager {
                 info!("Successfully removed container {}", container_id);
                 Ok(())
             }
-            Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => {
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => {
                 // Container was already removed
                 container.status = ContainerStatus::NotFound;
                 container.container_id = None;
@@ -438,7 +464,10 @@ impl ContainerManager {
         }
     }
 
-    pub async fn get_container_status(&self, container_id: &str) -> Result<ContainerStatus, ContainerError> {
+    pub async fn get_container_status(
+        &self,
+        container_id: &str,
+    ) -> Result<ContainerStatus, ContainerError> {
         let containers = self
             .docker
             .list_containers(Some(ListContainersOptions::<String> {
@@ -459,7 +488,10 @@ impl ContainerManager {
                 "paused" => Ok(ContainerStatus::Paused),
                 "exited" | "dead" => Ok(ContainerStatus::Stopped),
                 "created" => Ok(ContainerStatus::Creating),
-                _ => Ok(ContainerStatus::Error(format!("Unknown status: {}", status))),
+                _ => Ok(ContainerStatus::Error(format!(
+                    "Unknown status: {}",
+                    status
+                ))),
             }
         } else {
             Ok(ContainerStatus::NotFound)
@@ -534,7 +566,11 @@ impl ContainerManager {
         Ok(!containers.is_empty())
     }
 
-    async fn ensure_image_available(&self, image: &str, log_sender: Option<mpsc::UnboundedSender<String>>) -> Result<(), ContainerError> {
+    async fn ensure_image_available(
+        &self,
+        image: &str,
+        log_sender: Option<mpsc::UnboundedSender<String>>,
+    ) -> Result<(), ContainerError> {
         // Check if image exists locally
         let images = self
             .docker
@@ -556,24 +592,31 @@ impl ContainerManager {
         // Check if this is a local build image (claude-box:*)
         if image.starts_with("claude-box:") {
             info!("Building local image {}", image);
-            
+
             // Extract template name from image tag
             let template_name = image.strip_prefix("claude-box:").unwrap_or("claude-dev");
-            
+
             // Get the appropriate template
-            let app_config = crate::config::AppConfig::load()
-                .map_err(|e| ContainerError::OperationFailed(format!("Failed to load config: {}", e)))?;
-            
-            let template = app_config.get_container_template(template_name)
-                .ok_or_else(|| ContainerError::OperationFailed(format!("Template '{}' not found", template_name)))?;
-            
+            let app_config = crate::config::AppConfig::load().map_err(|e| {
+                ContainerError::OperationFailed(format!("Failed to load config: {}", e))
+            })?;
+
+            let template = app_config.get_container_template(template_name).ok_or_else(|| {
+                ContainerError::OperationFailed(format!("Template '{}' not found", template_name))
+            })?;
+
             // Build the image using ImageBuilder
-            let builder = super::ImageBuilder::new().await
-                .map_err(|e| ContainerError::OperationFailed(format!("Failed to create image builder: {}", e)))?;
-            
-            builder.build_template_with_logs(template, image, log_sender).await
-                .map_err(|e| ContainerError::OperationFailed(format!("Failed to build image: {}", e)))?;
-            
+            let builder = super::ImageBuilder::new().await.map_err(|e| {
+                ContainerError::OperationFailed(format!("Failed to create image builder: {}", e))
+            })?;
+
+            builder
+                .build_template_with_logs(template, image, log_sender)
+                .await
+                .map_err(|e| {
+                    ContainerError::OperationFailed(format!("Failed to build image: {}", e))
+                })?;
+
             info!("Successfully built local image {}", image);
             return Ok(());
         }
@@ -593,7 +636,10 @@ impl ContainerManager {
                 Ok(_) => {} // Progress update
                 Err(e) => {
                     error!("Failed to pull image {}: {}", image, e);
-                    return Err(ContainerError::OperationFailed(format!("Failed to pull image: {}", e)));
+                    return Err(ContainerError::OperationFailed(format!(
+                        "Failed to pull image: {}",
+                        e
+                    )));
                 }
             }
         }
@@ -602,7 +648,10 @@ impl ContainerManager {
         Ok(())
     }
 
-    async fn get_container_port_mappings(&self, container_id: &str) -> Result<HashMap<u16, u16>, ContainerError> {
+    async fn get_container_port_mappings(
+        &self,
+        container_id: &str,
+    ) -> Result<HashMap<u16, u16>, ContainerError> {
         let container = self.docker.inspect_container(container_id, None).await?;
         let mut port_mappings = HashMap::new();
 
@@ -629,9 +678,13 @@ impl ContainerManager {
     }
 
     /// Run a container with the given options
-    pub async fn run_container(&self, name: &str, options: &RunOptions) -> Result<String, ContainerError> {
+    pub async fn run_container(
+        &self,
+        name: &str,
+        options: &RunOptions,
+    ) -> Result<String, ContainerError> {
         info!("Running container: {}", name);
-        
+
         // Check if container already exists
         if self.container_exists(name).await? {
             return Err(ContainerError::AlreadyExists(name.to_string()));
@@ -668,9 +721,15 @@ impl ContainerManager {
             // Parse formats like "4g", "2048m", "1024"
             let limit = limit.to_lowercase();
             if limit.ends_with("g") {
-                limit[..limit.len()-1].parse::<f64>().ok().map(|g| (g * 1024.0 * 1024.0 * 1024.0) as i64)
+                limit[..limit.len() - 1]
+                    .parse::<f64>()
+                    .ok()
+                    .map(|g| (g * 1024.0 * 1024.0 * 1024.0) as i64)
             } else if limit.ends_with("m") {
-                limit[..limit.len()-1].parse::<f64>().ok().map(|m| (m * 1024.0 * 1024.0) as i64)
+                limit[..limit.len() - 1]
+                    .parse::<f64>()
+                    .ok()
+                    .map(|m| (m * 1024.0 * 1024.0) as i64)
             } else {
                 limit.parse::<i64>().ok()
             }
@@ -687,17 +746,19 @@ impl ContainerManager {
         };
 
         // Prepare environment variables
-        let env: Vec<String> = options.env_vars
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
-            .collect();
+        let env: Vec<String> =
+            options.env_vars.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
 
         // Create container config
         let container_config = Config {
             image: Some(options.image.clone()),
             working_dir: options.working_dir.clone(),
             env: Some(env),
-            cmd: if options.command.is_empty() { None } else { Some(options.command.clone()) },
+            cmd: if options.command.is_empty() {
+                None
+            } else {
+                Some(options.command.clone())
+            },
             user: options.user.clone(),
             attach_stdin: Some(options.interactive),
             attach_stdout: Some(true),
@@ -724,10 +785,8 @@ impl ContainerManager {
             platform: None,
         };
 
-        let create_response = self
-            .docker
-            .create_container(Some(create_options), container_config)
-            .await?;
+        let create_response =
+            self.docker.create_container(Some(create_options), container_config).await?;
 
         info!("Created container {} with ID {}", name, create_response.id);
 
@@ -741,76 +800,103 @@ impl ContainerManager {
     }
 
     /// Execute a command in a running container with TTY support
-    pub async fn exec_interactive(&self, container_id: &str, command: Vec<String>) -> Result<tokio::process::Child, ContainerError> {
+    pub async fn exec_interactive(
+        &self,
+        container_id: &str,
+        command: Vec<String>,
+    ) -> Result<tokio::process::Child, ContainerError> {
         use std::process::Stdio;
         use tokio::process::Command;
 
-        info!("Executing interactive command in container {}: {:?}", container_id, command);
+        info!(
+            "Executing interactive command in container {}: {:?}",
+            container_id, command
+        );
 
         // Use docker CLI for better TTY support than Bollard
         let mut cmd = Command::new("docker");
-        cmd.arg("exec")
-            .arg("-it")
-            .arg(container_id);
-        
+        cmd.arg("exec").arg("-it").arg(container_id);
+
         for arg in command {
             cmd.arg(arg);
         }
 
-        cmd.stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+        cmd.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
-        let child = cmd.spawn()
-            .map_err(|e| ContainerError::OperationFailed(format!("Failed to spawn docker exec: {}", e)))?;
+        let child = cmd.spawn().map_err(|e| {
+            ContainerError::OperationFailed(format!("Failed to spawn docker exec: {}", e))
+        })?;
 
         Ok(child)
     }
 
     /// Execute a command interactively with proper terminal handling (blocks until completion)
-    pub async fn exec_interactive_blocking(&self, container_id: &str, command: Vec<String>) -> Result<std::process::ExitStatus, ContainerError> {
+    pub async fn exec_interactive_blocking(
+        &self,
+        container_id: &str,
+        command: Vec<String>,
+    ) -> Result<std::process::ExitStatus, ContainerError> {
         use crossterm::{
-            terminal::{disable_raw_mode, enable_raw_mode, LeaveAlternateScreen, EnterAlternateScreen},
             execute,
+            terminal::{
+                EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+            },
         };
         use std::io;
         use std::process::{Command, Stdio};
 
-        info!("Executing blocking interactive command in container {}: {:?}", container_id, command);
+        info!(
+            "Executing blocking interactive command in container {}: {:?}",
+            container_id, command
+        );
 
         // Exit TUI mode temporarily
-        disable_raw_mode().map_err(|e| ContainerError::OperationFailed(format!("Failed to disable raw mode: {}", e)))?;
-        execute!(io::stdout(), LeaveAlternateScreen).map_err(|e| ContainerError::OperationFailed(format!("Failed to leave alternate screen: {}", e)))?;
+        disable_raw_mode().map_err(|e| {
+            ContainerError::OperationFailed(format!("Failed to disable raw mode: {}", e))
+        })?;
+        execute!(io::stdout(), LeaveAlternateScreen).map_err(|e| {
+            ContainerError::OperationFailed(format!("Failed to leave alternate screen: {}", e))
+        })?;
 
         // Execute docker command in foreground
         let mut cmd = Command::new("docker");
-        cmd.arg("exec")
-            .arg("-it")
-            .arg(container_id);
-        
+        cmd.arg("exec").arg("-it").arg(container_id);
+
         for arg in command {
             cmd.arg(arg);
         }
 
-        cmd.stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+        cmd.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit());
 
         let result = cmd.status();
 
         // Restore TUI mode
-        enable_raw_mode().map_err(|e| ContainerError::OperationFailed(format!("Failed to re-enable raw mode: {}", e)))?;
-        execute!(io::stdout(), EnterAlternateScreen).map_err(|e| ContainerError::OperationFailed(format!("Failed to re-enter alternate screen: {}", e)))?;
+        enable_raw_mode().map_err(|e| {
+            ContainerError::OperationFailed(format!("Failed to re-enable raw mode: {}", e))
+        })?;
+        execute!(io::stdout(), EnterAlternateScreen).map_err(|e| {
+            ContainerError::OperationFailed(format!("Failed to re-enter alternate screen: {}", e))
+        })?;
 
         match result {
             Ok(status) => Ok(status),
-            Err(e) => Err(ContainerError::OperationFailed(format!("Failed to execute docker command: {}", e))),
+            Err(e) => Err(ContainerError::OperationFailed(format!(
+                "Failed to execute docker command: {}",
+                e
+            ))),
         }
     }
 
     /// Execute a command in a running container (non-interactive)
-    pub async fn exec_command(&self, container_id: &str, command: Vec<String>) -> Result<Vec<u8>, ContainerError> {
-        info!("Executing command in container {}: {:?}", container_id, command);
+    pub async fn exec_command(
+        &self,
+        container_id: &str,
+        command: Vec<String>,
+    ) -> Result<Vec<u8>, ContainerError> {
+        info!(
+            "Executing command in container {}: {:?}",
+            container_id, command
+        );
 
         let exec_options = CreateExecOptions {
             cmd: Some(command),
@@ -819,14 +905,11 @@ impl ContainerManager {
             ..Default::default()
         };
 
-        let exec = self.docker
-            .create_exec(container_id, exec_options)
-            .await?;
+        let exec = self.docker.create_exec(container_id, exec_options).await?;
 
         let mut result_output = Vec::new();
-        if let StartExecResults::Attached { mut output, .. } = self.docker
-            .start_exec(&exec.id, None)
-            .await?
+        if let StartExecResults::Attached { mut output, .. } =
+            self.docker.start_exec(&exec.id, None).await?
         {
             while let Some(Ok(msg)) = output.next().await {
                 match msg {
@@ -845,19 +928,24 @@ impl ContainerManager {
     }
 
     /// Get the latest log file from the container
-    pub async fn get_latest_log_file(&self, container_id: &str) -> Result<Option<String>, ContainerError> {
+    pub async fn get_latest_log_file(
+        &self,
+        container_id: &str,
+    ) -> Result<Option<String>, ContainerError> {
         let command = vec![
             "bash".to_string(),
             "-c".to_string(),
             "ls -t /workspace/.claude-box/logs/claude-*.log 2>/dev/null | head -n1".to_string(),
         ];
-        
+
         let output = self.exec_command(container_id, command).await?;
         let log_path = String::from_utf8(output)
-            .map_err(|e| ContainerError::OperationFailed(format!("Failed to parse log path: {}", e)))?
+            .map_err(|e| {
+                ContainerError::OperationFailed(format!("Failed to parse log path: {}", e))
+            })?
             .trim()
             .to_string();
-        
+
         if log_path.is_empty() {
             Ok(None)
         } else {
@@ -866,20 +954,21 @@ impl ContainerManager {
     }
 
     /// Tail logs from the container
-    pub async fn tail_logs(&self, container_id: &str, lines: usize) -> Result<String, ContainerError> {
+    pub async fn tail_logs(
+        &self,
+        container_id: &str,
+        lines: usize,
+    ) -> Result<String, ContainerError> {
         // First get the latest log file
         let log_file = self.get_latest_log_file(container_id).await?;
-        
+
         if let Some(log_path) = log_file {
-            let command = vec![
-                "tail".to_string(),
-                format!("-n{}", lines),
-                log_path,
-            ];
-            
+            let command = vec!["tail".to_string(), format!("-n{}", lines), log_path];
+
             let output = self.exec_command(container_id, command).await?;
-            String::from_utf8(output)
-                .map_err(|e| ContainerError::OperationFailed(format!("Failed to parse logs: {}", e)))
+            String::from_utf8(output).map_err(|e| {
+                ContainerError::OperationFailed(format!("Failed to parse logs: {}", e))
+            })
         } else {
             Ok("No Claude logs found yet.".to_string())
         }
@@ -907,10 +996,14 @@ mod tests {
         let manager = ContainerManager::new().await.unwrap();
         let session_id = Uuid::new_v4();
         let temp_dir = TempDir::new().unwrap();
-        
+
         let config = ContainerConfig::new("alpine:latest".to_string())
             .with_command(vec!["sleep".to_string(), "30".to_string()])
-            .with_volume(temp_dir.path().to_path_buf(), "/workspace".to_string(), false);
+            .with_volume(
+                temp_dir.path().to_path_buf(),
+                "/workspace".to_string(),
+                false,
+            );
 
         // Create container
         let mut container = manager.create_session_container(session_id, config).await.unwrap();

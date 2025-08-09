@@ -9,17 +9,17 @@ use std::path::PathBuf;
 pub struct ContainerTemplate {
     /// Template name
     pub name: String,
-    
+
     /// Template description
     pub description: String,
-    
+
     /// Base configuration
     pub config: ContainerTemplateConfig,
-    
+
     /// Required environment variables
     #[serde(default)]
     pub required_env: Vec<String>,
-    
+
     /// Default MCP servers to include
     #[serde(default)]
     pub default_mcp_servers: Vec<String>,
@@ -29,54 +29,54 @@ pub struct ContainerTemplate {
 pub struct ContainerTemplateConfig {
     /// Docker image or Dockerfile path
     pub image_source: ImageSource,
-    
+
     /// Working directory in container
     #[serde(default = "default_workdir")]
     pub working_dir: String,
-    
+
     /// Command to run
     pub command: Option<Vec<String>>,
-    
+
     /// Entrypoint override
     pub entrypoint: Option<Vec<String>>,
-    
+
     /// Environment variables
     #[serde(default)]
     pub environment: HashMap<String, String>,
-    
+
     /// User to run as (optional)
     pub user: Option<String>,
-    
+
     /// Memory limit in MB
     pub memory_limit: Option<u64>,
-    
+
     /// CPU limit (0.5 = half CPU)
     pub cpu_limit: Option<f64>,
-    
+
     /// Additional packages to install
     #[serde(default)]
     pub system_packages: Vec<String>,
-    
+
     /// NPM packages to install globally
     #[serde(default)]
     pub npm_packages: Vec<String>,
-    
+
     /// Python packages to install
     #[serde(default)]
     pub python_packages: Vec<String>,
-    
+
     /// Ports to expose
     #[serde(default)]
     pub ports: Vec<u16>,
-    
+
     /// Additional volume mounts
     #[serde(default)]
     pub volumes: Vec<VolumeMount>,
-    
+
     /// Whether to mount SSH keys
     #[serde(default = "default_true")]
     pub mount_ssh: bool,
-    
+
     /// Whether to mount git config
     #[serde(default = "default_true")]
     pub mount_git_config: bool,
@@ -87,13 +87,13 @@ pub struct ContainerTemplateConfig {
 pub enum ImageSource {
     /// Use a pre-built image from registry
     Image { name: String },
-    
+
     /// Build from a Dockerfile
-    Dockerfile { 
+    Dockerfile {
         path: PathBuf,
         build_args: HashMap<String, String>,
     },
-    
+
     /// Use claude-docker Dockerfile with modifications
     ClaudeDocker {
         /// Override base image
@@ -141,7 +141,7 @@ impl ContainerTemplate {
                 },
                 user: Some("claude-user".to_string()),
                 memory_limit: Some(4096), // 4GB
-                cpu_limit: Some(2.0), // 2 CPUs
+                cpu_limit: Some(2.0),     // 2 CPUs
                 system_packages: vec![
                     "git".to_string(),
                     "curl".to_string(),
@@ -159,16 +159,11 @@ impl ContainerTemplate {
                 mount_ssh: true,
                 mount_git_config: true,
             },
-            required_env: vec![
-                "ANTHROPIC_API_KEY".to_string(),
-            ],
-            default_mcp_servers: vec![
-                "serena".to_string(),
-                "context7".to_string(),
-            ],
+            required_env: vec!["ANTHROPIC_API_KEY".to_string()],
+            default_mcp_servers: vec!["serena".to_string(), "context7".to_string()],
         }
     }
-    
+
     /// Create a Node.js development template
     pub fn node_default() -> Self {
         Self {
@@ -185,10 +180,7 @@ impl ContainerTemplate {
                 user: None,
                 memory_limit: Some(2048),
                 cpu_limit: Some(1.0),
-                system_packages: vec![
-                    "git".to_string(),
-                    "build-essential".to_string(),
-                ],
+                system_packages: vec!["git".to_string(), "build-essential".to_string()],
                 npm_packages: vec![],
                 python_packages: vec![],
                 ports: vec![3000, 5173],
@@ -200,7 +192,7 @@ impl ContainerTemplate {
             default_mcp_servers: vec![],
         }
     }
-    
+
     /// Create a Python development template
     pub fn python_default() -> Self {
         Self {
@@ -217,10 +209,7 @@ impl ContainerTemplate {
                 user: None,
                 memory_limit: Some(2048),
                 cpu_limit: Some(1.0),
-                system_packages: vec![
-                    "git".to_string(),
-                    "build-essential".to_string(),
-                ],
+                system_packages: vec!["git".to_string(), "build-essential".to_string()],
                 npm_packages: vec![],
                 python_packages: vec![
                     "pip".to_string(),
@@ -236,7 +225,7 @@ impl ContainerTemplate {
             default_mcp_servers: vec![],
         }
     }
-    
+
     /// Create a Rust development template
     pub fn rust_default() -> Self {
         Self {
@@ -269,56 +258,56 @@ impl ContainerTemplate {
             default_mcp_servers: vec![],
         }
     }
-    
+
     /// Convert template to container config for session creation
     pub fn to_container_config(&self) -> crate::docker::ContainerConfig {
         use crate::docker::ContainerConfig;
-        
+
         let mut config = match &self.config.image_source {
             ImageSource::Image { name } => ContainerConfig::new(name.clone()),
             ImageSource::Dockerfile { .. } => {
                 // For now, we'll build the image separately and use the tag
                 ContainerConfig::new("claude-box:custom".to_string())
-            },
+            }
             ImageSource::ClaudeDocker { .. } => {
                 ContainerConfig::new("claude-box:claude-dev".to_string())
-            },
+            }
         };
-        
+
         config.working_dir = self.config.working_dir.clone();
-        
+
         if let Some(cmd) = &self.config.command {
             config = config.with_command(cmd.clone());
         }
-        
+
         if let Some(entrypoint) = &self.config.entrypoint {
             config.entrypoint = Some(entrypoint.clone());
         }
-        
+
         // Add environment variables
         for (k, v) in &self.config.environment {
             config = config.with_environment_var(k.clone(), v.clone());
         }
-        
+
         // Set user
         if let Some(user) = &self.config.user {
             config.user = Some(user.clone());
         }
-        
+
         // Set resource limits
         if let Some(memory) = self.config.memory_limit {
             config = config.with_memory_limit(memory * 1024 * 1024); // Convert MB to bytes
         }
-        
+
         if let Some(cpu) = self.config.cpu_limit {
             config = config.with_cpu_limit(cpu);
         }
-        
+
         // Add ports
         for port in &self.config.ports {
             config = config.with_port(*port, None); // Let Docker assign host port
         }
-        
+
         // Add volumes
         for volume in &self.config.volumes {
             config = config.with_volume(
@@ -327,49 +316,56 @@ impl ContainerTemplate {
                 volume.read_only,
             );
         }
-        
+
         config
     }
 }
 
 /// Build a Docker image from a template
 pub async fn build_template_image(template: &ContainerTemplate, _tag: &str) -> anyhow::Result<()> {
-    
-    
     match &template.config.image_source {
         ImageSource::Image { .. } => {
             // Nothing to build, just use the image
             Ok(())
-        },
-        ImageSource::Dockerfile { path: _path, build_args: _build_args } => {
+        }
+        ImageSource::Dockerfile {
+            path: _path,
+            build_args: _build_args,
+        } => {
             // TODO: Implement Dockerfile building
             todo!("Dockerfile building not yet implemented")
-        },
-        ImageSource::ClaudeDocker { base_image: _base_image, build_args: _build_args } => {
+        }
+        ImageSource::ClaudeDocker {
+            base_image: _base_image,
+            build_args: _build_args,
+        } => {
             // TODO: Build using claude-docker as base
             todo!("Claude-docker building not yet implemented")
-        },
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_claude_dev_template() {
         let template = ContainerTemplate::claude_dev_default();
         assert_eq!(template.name, "claude-dev");
-        assert!(matches!(template.config.image_source, ImageSource::ClaudeDocker { .. }));
+        assert!(matches!(
+            template.config.image_source,
+            ImageSource::ClaudeDocker { .. }
+        ));
         assert_eq!(template.required_env, vec!["ANTHROPIC_API_KEY"]);
         assert_eq!(template.default_mcp_servers.len(), 2);
     }
-    
+
     #[test]
     fn test_template_to_container_config() {
         let template = ContainerTemplate::node_default();
         let config = template.to_container_config();
-        
+
         assert_eq!(config.image, "node:20-slim");
         assert_eq!(config.working_dir, "/workspace");
         assert_eq!(config.memory_limit, Some(2048 * 1024 * 1024));

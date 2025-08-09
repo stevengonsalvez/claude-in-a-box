@@ -85,19 +85,19 @@ impl ClaudeDevManager {
     pub async fn new(config: ClaudeDevConfig) -> Result<Self> {
         let container_manager = ContainerManager::new().await?;
         let image_builder = ImageBuilder::new().await?;
-        
+
         // Setup claude-box directories
         let home_dir = dirs::home_dir().context("Failed to get home directory")?;
         // Mount the actual .claude directory for proper authentication
         let claude_home_dir = home_dir.join(".claude");
         let ssh_dir = home_dir.join(".ssh");
-        
+
         // Only create claude directory if it doesn't exist (be careful with user's actual config)
         if !claude_home_dir.exists() {
             std::fs::create_dir_all(&claude_home_dir)?;
         }
         // SSH directory is read from host, don't create it
-        
+
         Ok(Self {
             config,
             container_manager,
@@ -111,33 +111,35 @@ impl ClaudeDevManager {
     pub fn get_authentication_status(&self) -> Result<AuthenticationStatus> {
         let home_dir = dirs::home_dir().context("Failed to get home directory")?;
         let mut sources = Vec::new();
-        
-        // Check for .claude.json in home directory  
+
+        // Check for .claude.json in home directory
         let claude_json_path = home_dir.join(".claude.json");
-        let claude_json_exists = claude_json_path.exists() && claude_json_path.metadata()?.len() > 0;
+        let claude_json_exists =
+            claude_json_path.exists() && claude_json_path.metadata()?.len() > 0;
         if claude_json_exists {
             sources.push(".claude.json (host)".to_string());
         }
-        
+
         // Check for .credentials.json in .claude directory
         let credentials_path = self.claude_home_dir.join(".credentials.json");
-        let credentials_json_exists = credentials_path.exists() && credentials_path.metadata()?.len() > 0;
+        let credentials_json_exists =
+            credentials_path.exists() && credentials_path.metadata()?.len() > 0;
         if credentials_json_exists {
             sources.push(".claude/.credentials.json (host)".to_string());
         }
-        
+
         // Check for environment variables
         let anthropic_api_key_set = std::env::var("ANTHROPIC_API_KEY").is_ok();
         if anthropic_api_key_set {
             sources.push("ANTHROPIC_API_KEY environment variable".to_string());
         }
-        
-        let github_token_set = std::env::var("GITHUB_TOKEN").is_ok() || 
-                               self.config.env_vars.contains_key("GITHUB_TOKEN");
+
+        let github_token_set = std::env::var("GITHUB_TOKEN").is_ok()
+            || self.config.env_vars.contains_key("GITHUB_TOKEN");
         if github_token_set {
             sources.push("GITHUB_TOKEN environment variable".to_string());
         }
-        
+
         Ok(AuthenticationStatus {
             claude_json_exists,
             credentials_json_exists,
@@ -148,32 +150,45 @@ impl ClaudeDevManager {
     }
 
     /// Check authentication files exist (no syncing needed since we mount directly)
-    pub async fn sync_authentication_files(&self, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<()> {
+    pub async fn sync_authentication_files(
+        &self,
+        progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+    ) -> Result<()> {
         if let Some(ref tx) = progress_tx {
             let _ = tx.send(ClaudeDevProgress::SyncingAuthentication).await;
         }
-        
+
         // Just verify authentication files exist
         let auth_status = self.get_authentication_status()?;
         if auth_status.sources.is_empty() {
-            warn!("No Claude authentication found. Please ensure ~/.claude.json or ~/.claude/.credentials.json exists");
+            warn!(
+                "No Claude authentication found. Please ensure ~/.claude.json or ~/.claude/.credentials.json exists"
+            );
         } else {
             info!("Claude authentication found: {:?}", auth_status.sources);
         }
-        
+
         Ok(())
     }
 
     /// Setup environment variables and GitHub CLI configuration
-    pub async fn setup_environment(&self, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<()> {
+    pub async fn setup_environment(
+        &self,
+        progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+    ) -> Result<()> {
         if let Some(ref tx) = progress_tx {
             let _ = tx.send(ClaudeDevProgress::CheckingEnvironment).await;
         }
-        
+
         // Check for GITHUB_TOKEN
-        let github_token = std::env::var("GITHUB_TOKEN")
-            .or_else(|_| self.config.env_vars.get("GITHUB_TOKEN").cloned().ok_or_else(|| std::env::VarError::NotPresent));
-        
+        let github_token = std::env::var("GITHUB_TOKEN").or_else(|_| {
+            self.config
+                .env_vars
+                .get("GITHUB_TOKEN")
+                .cloned()
+                .ok_or_else(|| std::env::VarError::NotPresent)
+        });
+
         if let Ok(_token) = github_token {
             info!("GITHUB_TOKEN found - will use token-based authentication");
             debug!("GitHub CLI and token-based git operations will be available");
@@ -184,11 +199,11 @@ impl ClaudeDevManager {
             info!("     https://github.com/settings/tokens/new");
             info!("     Required scopes: repo, read:org, workflow");
             info!("  2. Set GITHUB_TOKEN environment variable");
-            
+
             // Check for SSH keys as fallback
             let ssh_key_path = self.ssh_dir.join("id_rsa");
             let ssh_pub_key_path = self.ssh_dir.join("id_rsa.pub");
-            
+
             if ssh_key_path.exists() && ssh_pub_key_path.exists() {
                 info!("SSH keys found as fallback for git operations");
                 self.setup_ssh_config().await?;
@@ -199,37 +214,44 @@ impl ClaudeDevManager {
                 info!("Note: GITHUB_TOKEN is recommended for better integration");
             }
         }
-        
+
         Ok(())
     }
 
     /// Build claude-dev Docker image if needed
-    pub async fn build_image_if_needed(&self, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>) -> Result<()> {
-        let need_rebuild = self.config.force_rebuild || 
-                          !self.image_exists(&self.config.image_name).await?;
-        
+    pub async fn build_image_if_needed(
+        &self,
+        progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+    ) -> Result<()> {
+        let need_rebuild =
+            self.config.force_rebuild || !self.image_exists(&self.config.image_name).await?;
+
         if need_rebuild {
             if let Some(ref tx) = progress_tx {
-                let _ = tx.send(ClaudeDevProgress::BuildingImage("Starting build...".to_string())).await;
+                let _ = tx
+                    .send(ClaudeDevProgress::BuildingImage(
+                        "Starting build...".to_string(),
+                    ))
+                    .await;
             }
-            
+
             info!("Building claude-dev image: {}", self.config.image_name);
-            
+
             // Get current user UID/GID
             let uid = nix::unistd::getuid().as_raw();
             let gid = nix::unistd::getgid().as_raw();
-            
+
             // Build arguments
             let mut build_args = vec![
                 ("HOST_UID".to_string(), uid.to_string()),
                 ("HOST_GID".to_string(), gid.to_string()),
             ];
-            
+
             // Add environment variables if they exist
             if let Ok(api_key) = std::env::var("ANTHROPIC_API_KEY") {
                 build_args.push(("ANTHROPIC_API_KEY".to_string(), api_key));
             }
-            
+
             // Build the image
             let dockerfile_dir = PathBuf::from("docker/claude-dev");
             let build_options = super::builder::BuildOptions {
@@ -241,11 +263,11 @@ impl ClaudeDevManager {
                 labels: vec![],
                 pull: false,
             };
-            
+
             // Create progress sender for image build
             let (build_tx, mut build_rx) = mpsc::channel(100);
             let progress_tx_clone = progress_tx.clone();
-            
+
             // Spawn task to forward build progress
             if progress_tx.is_some() {
                 tokio::spawn(async move {
@@ -256,40 +278,47 @@ impl ClaudeDevManager {
                     }
                 });
             }
-            
-            self.image_builder.build_image(
-                &self.config.image_name,
-                &build_options,
-                Some(build_tx),
-            ).await?;
-            
+
+            self.image_builder
+                .build_image(&self.config.image_name, &build_options, Some(build_tx))
+                .await?;
+
             info!("Successfully built claude-dev image");
         } else {
-            debug!("Image {} already exists, skipping build", self.config.image_name);
+            debug!(
+                "Image {} already exists, skipping build",
+                self.config.image_name
+            );
         }
-        
+
         Ok(())
     }
 
     /// Run claude-dev container
-    pub async fn run_container(&self, workspace_path: &Path, session_id: Uuid, progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>, mount_claude_config: bool) -> Result<String> {
+    pub async fn run_container(
+        &self,
+        workspace_path: &Path,
+        session_id: Uuid,
+        progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+        mount_claude_config: bool,
+    ) -> Result<String> {
         if let Some(ref tx) = progress_tx {
             let _ = tx.send(ClaudeDevProgress::StartingContainer).await;
         }
-        
+
         info!("Starting claude-dev container");
         info!("Container: {}", self.config.image_name);
         info!("Workspace: {}", workspace_path.display());
-        
+
         // Prepare container configuration
         let mut env_vars = self.config.env_vars.clone();
         env_vars.insert("CLAUDE_BOX_MODE".to_string(), "true".to_string());
-        
+
         // Add continue flag if requested
         if self.config.continue_session {
             env_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), "--continue".to_string());
         }
-        
+
         // Add dangerously-skip-permissions flag if requested
         if self.config.skip_permissions {
             let current_flag = env_vars.get("CLAUDE_CONTINUE_FLAG").cloned().unwrap_or_default();
@@ -300,23 +329,32 @@ impl ClaudeDevManager {
             };
             env_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), new_flag);
         }
-        
+
         // Setup volume mounts
         let mut mounts = vec![
             // Workspace mount
             (workspace_path.to_path_buf(), PathBuf::from("/workspace")),
             // Claude home directory
-            (self.claude_home_dir.clone(), PathBuf::from("/home/claude-user/.claude")),
+            (
+                self.claude_home_dir.clone(),
+                PathBuf::from("/home/claude-user/.claude"),
+            ),
             // SSH directory
-            (self.ssh_dir.clone(), PathBuf::from("/home/claude-user/.ssh")),
+            (
+                self.ssh_dir.clone(),
+                PathBuf::from("/home/claude-user/.ssh"),
+            ),
         ];
-        
+
         // Mount .claude.json from home directory if it exists and mount_claude_config is true
         if mount_claude_config {
             let home_dir = dirs::home_dir().context("Failed to get home directory")?;
             let claude_json_path = home_dir.join(".claude.json");
             if claude_json_path.exists() {
-                mounts.push((claude_json_path, PathBuf::from("/home/claude-user/.claude.json")));
+                mounts.push((
+                    claude_json_path,
+                    PathBuf::from("/home/claude-user/.claude.json"),
+                ));
                 info!("Mounting .claude.json as read-write for Claude CLI organic updates");
             } else {
                 warn!("mount_claude_config is true but ~/.claude.json not found");
@@ -324,11 +362,11 @@ impl ClaudeDevManager {
         } else {
             info!("Skipping .claude.json mount (mount_claude_config is false)");
         }
-        
+
         // Container run options
         let mut labels = std::collections::HashMap::new();
         labels.insert("claude-session-id".to_string(), session_id.to_string());
-        
+
         let run_options = super::container_manager::RunOptions {
             image: self.config.image_name.clone(),
             command: vec![],
@@ -346,18 +384,22 @@ impl ClaudeDevManager {
             gpu_access: self.config.gpu_access.clone(),
             labels,
         };
-        
+
         // Generate container name with session ID
         let container_name = format!("claude-session-{}", session_id);
-        
+
         // Run the container
-        let container_id = self.container_manager.run_container(&container_name, &run_options).await?;
-        
+        let container_id =
+            self.container_manager.run_container(&container_name, &run_options).await?;
+
         if let Some(ref tx) = progress_tx {
             let _ = tx.send(ClaudeDevProgress::Ready).await;
         }
-        
-        info!("Claude-dev container started successfully: {}", container_id);
+
+        info!(
+            "Claude-dev container started successfully: {}",
+            container_id
+        );
         Ok(container_id)
     }
 
@@ -367,7 +409,7 @@ impl ClaudeDevManager {
             .args(&["images", "-q", image_name])
             .output()
             .context("Failed to check if image exists")?;
-        
+
         Ok(!output.stdout.is_empty())
     }
 
@@ -376,33 +418,37 @@ impl ClaudeDevManager {
         if !file2.exists() {
             return Ok(true);
         }
-        
+
         let metadata1 = file1.metadata()?;
         let metadata2 = file2.metadata()?;
-        
+
         Ok(metadata1.modified()? > metadata2.modified()?)
     }
 
     /// Sync directory contents recursively
-    fn sync_directory<'a>(&'a self, source: &'a Path, dest: &'a Path) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+    fn sync_directory<'a>(
+        &'a self,
+        source: &'a Path,
+        dest: &'a Path,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
         Box::pin(async move {
             if !dest.exists() {
                 tokio::fs::create_dir_all(dest).await?;
             }
-            
+
             let mut entries = tokio::fs::read_dir(source).await?;
             while let Some(entry) = entries.next_entry().await? {
                 let file_name = entry.file_name();
                 let source_path = entry.path();
                 let dest_path = dest.join(&file_name);
-                
+
                 if source_path.is_file() {
                     tokio::fs::copy(&source_path, &dest_path).await?;
                 } else if source_path.is_dir() {
                     self.sync_directory(&source_path, &dest_path).await?;
                 }
             }
-            
+
             Ok(())
         })
     }
@@ -439,18 +485,20 @@ pub async fn create_claude_dev_session(
     mount_claude_config: bool,
 ) -> Result<String> {
     let manager = ClaudeDevManager::new(config).await?;
-    
+
     // Sync authentication files
     manager.sync_authentication_files(progress_tx.clone()).await?;
-    
+
     // Setup environment
     manager.setup_environment(progress_tx.clone()).await?;
-    
+
     // Build image if needed
     manager.build_image_if_needed(progress_tx.clone()).await?;
-    
+
     // Run container
-    let container_id = manager.run_container(workspace_path, session_id, progress_tx, mount_claude_config).await?;
-    
+    let container_id = manager
+        .run_container(workspace_path, session_id, progress_tx, mount_claude_config)
+        .await?;
+
     Ok(container_id)
 }

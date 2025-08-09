@@ -11,8 +11,8 @@ pub mod session_progress;
 
 pub use builder::ImageBuilder;
 pub use claude_dev::{ClaudeDevConfig, ClaudeDevProgress, create_claude_dev_session};
-pub use container_manager::{ContainerManager, ContainerError};
+pub use container_manager::{ContainerError, ContainerManager};
 pub use log_streaming::LogStreamingCoordinator;
-pub use session_container::{SessionContainer, ContainerConfig, ContainerStatus};
+pub use session_container::{ContainerConfig, ContainerStatus, SessionContainer};
 pub use session_lifecycle::SessionLifecycleManager;
 pub use session_progress::SessionProgress;

@@ -2,12 +2,16 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
     style::{Color, Style},
+    widgets::{Block, Borders, Paragraph},
 };
 
+use super::{
+    AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
+    ConfirmationDialogComponent, HelpComponent, LiveLogsStreamComponent, LogsViewerComponent,
+    NewSessionComponent, NonGitNotificationComponent, SessionListComponent,
+};
 use crate::app::{AppState, state::View};
-use super::{SessionListComponent, LogsViewerComponent, ClaudeChatComponent, LiveLogsStreamComponent, HelpComponent, NewSessionComponent, ConfirmationDialogComponent, NonGitNotificationComponent, AttachedTerminalComponent, AuthSetupComponent};
 
 pub struct LayoutComponent {
     session_list: SessionListComponent,
@@ -45,7 +49,7 @@ impl LayoutComponent {
             self.auth_setup.render(frame, centered_area, state);
             return;
         }
-        
+
         // Special handling for non-git notification view
         if state.current_view == View::NonGitNotification {
             self.non_git_notification.render(frame, frame.size(), state);
@@ -69,10 +73,10 @@ impl LayoutComponent {
         let main_layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),   // Top status bar
-                Constraint::Min(0),      // Main content area
-                Constraint::Length(5),   // Bottom logs area  
-                Constraint::Length(3),   // Bottom menu bar
+                Constraint::Length(3), // Top status bar
+                Constraint::Min(0),    // Main content area
+                Constraint::Length(5), // Bottom logs area
+                Constraint::Length(3), // Bottom menu bar
             ])
             .split(frame.size());
 
@@ -83,8 +87,8 @@ impl LayoutComponent {
         let content_chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(40),  // Session list
-                Constraint::Percentage(60),  // Live logs stream
+                Constraint::Percentage(40), // Session list
+                Constraint::Percentage(60), // Live logs stream
             ])
             .split(main_layout[1]);
 
@@ -119,7 +123,7 @@ impl LayoutComponent {
             self.confirmation_dialog.render(frame, frame.size(), state);
         }
     }
-    
+
     /// Get mutable reference to live logs component for scroll handling
     pub fn live_logs_mut(&mut self) -> &mut LiveLogsStreamComponent {
         &mut self.live_logs_stream
@@ -127,12 +131,12 @@ impl LayoutComponent {
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
         let menu_text = "[n]ew [s]earch [a]ttach [g]it [p]ush [c]laude [f]refresh [Tab]focus [r]e-auth [d]elete [?]help [q]uit";
-        
+
         let menu = Paragraph::new(menu_text)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
+                    .border_style(Style::default().fg(Color::Cyan)),
             )
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
@@ -142,7 +146,7 @@ impl LayoutComponent {
 
     fn render_status_bar(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         let mut status_parts = vec![];
-        
+
         // Current workspace/repo info
         if let Some(workspace_idx) = state.selected_workspace_index {
             if let Some(workspace) = state.workspaces.get(workspace_idx) {
@@ -151,7 +155,7 @@ impl LayoutComponent {
                 }
             }
         }
-        
+
         // Active session info
         if let Some(_session_id) = state.get_selected_session_id() {
             if let Some(workspace_idx) = state.selected_workspace_index {
@@ -160,39 +164,46 @@ impl LayoutComponent {
                         if let Some(session) = workspace.sessions.get(session_idx) {
                             // Branch info
                             status_parts.push(format!("🌿 {}", session.branch_name));
-                            
+
                             // Container info
                             if let Some(container_id) = &session.container_id {
                                 let short_id = &container_id[..8.min(container_id.len())];
                                 let status_icon = match session.status {
                                     crate::models::SessionStatus::Running => "🟢",
-                                    crate::models::SessionStatus::Stopped => "🔴", 
+                                    crate::models::SessionStatus::Stopped => "🔴",
                                     crate::models::SessionStatus::Error(_) => "❌",
                                 };
-                                status_parts.push(format!("{} {} ({})", status_icon, session.name, short_id));
+                                status_parts.push(format!(
+                                    "{} {} ({})",
+                                    status_icon, session.name, short_id
+                                ));
                             }
                         }
                     }
                 }
             }
         }
-        
+
         // Claude chat status
-        let chat_status = if state.claude_chat_visible { "🗨️ ON" } else { "🗨️ OFF" };
+        let chat_status = if state.claude_chat_visible {
+            "🗨️ ON"
+        } else {
+            "🗨️ OFF"
+        };
         status_parts.push(chat_status.to_string());
-        
+
         let status_text = if status_parts.is_empty() {
             "Claude-in-a-Box - No active session".to_string()
         } else {
             status_parts.join(" | ")
         };
-        
+
         let status = Paragraph::new(status_text)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Blue))
-                    .title("Status")
+                    .title("Status"),
             )
             .style(Style::default().fg(Color::White))
             .alignment(Alignment::Left);

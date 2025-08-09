@@ -2,50 +2,50 @@
 // Handles application config, container defaults, and MCP server definitions
 
 use anyhow::{Context, Result};
+use dirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use dirs;
 
 pub mod container;
 pub mod mcp;
 pub mod mcp_init;
 
 pub use container::{ContainerTemplate, ContainerTemplateConfig};
-pub use mcp::{McpServerConfig, McpInitStrategy};
-pub use mcp_init::{McpInitializer, McpInitResult, apply_mcp_init_result};
+pub use mcp::{McpInitStrategy, McpServerConfig};
+pub use mcp_init::{McpInitResult, McpInitializer, apply_mcp_init_result};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Application version
     #[serde(default = "default_version")]
     pub version: String,
-    
+
     /// Default container template to use if none specified
     #[serde(default = "default_container_template")]
     pub default_container_template: String,
-    
+
     /// Available container templates
     #[serde(default)]
     pub container_templates: HashMap<String, ContainerTemplate>,
-    
+
     /// MCP server configurations
     #[serde(default)]
     pub mcp_servers: HashMap<String, McpServerConfig>,
-    
+
     /// Global environment variables
     #[serde(default)]
     pub environment: HashMap<String, String>,
-    
+
     /// Workspace defaults
     #[serde(default)]
     pub workspace_defaults: WorkspaceDefaults,
-    
+
     /// UI preferences
     #[serde(default)]
     pub ui_preferences: UiPreferences,
-    
+
     /// Docker configuration
     #[serde(default)]
     pub docker: DockerConfig,
@@ -56,15 +56,15 @@ pub struct WorkspaceDefaults {
     /// Default branch prefix for new sessions
     #[serde(default = "default_branch_prefix")]
     pub branch_prefix: String,
-    
+
     /// Whether to auto-detect workspaces on startup
     #[serde(default = "default_true")]
     pub auto_detect: bool,
-    
+
     /// Paths to exclude from workspace scanning
     #[serde(default)]
     pub exclude_paths: Vec<String>,
-    
+
     /// Additional paths to scan for git repositories
     /// These are added to the default paths (~/projects, ~/code, etc.)
     #[serde(default)]
@@ -76,11 +76,11 @@ pub struct UiPreferences {
     /// Color theme
     #[serde(default = "default_theme")]
     pub theme: String,
-    
+
     /// Whether to show container status in UI
     #[serde(default = "default_true")]
     pub show_container_status: bool,
-    
+
     /// Whether to show git status in UI
     #[serde(default = "default_true")]
     pub show_git_status: bool,
@@ -94,11 +94,11 @@ pub struct DockerConfig {
     /// - tcp://localhost:2376
     /// - npipe:////./pipe/docker_engine
     pub host: Option<String>,
-    
+
     /// Connection timeout in seconds
     #[serde(default = "default_docker_timeout")]
     pub timeout: u64,
-    
+
     /// TLS configuration for TCP connections
     #[serde(default)]
     pub tls: Option<DockerTlsConfig>,
@@ -108,10 +108,10 @@ pub struct DockerConfig {
 pub struct DockerTlsConfig {
     /// Path to CA certificate
     pub ca_cert: Option<String>,
-    
+
     /// Path to client certificate
     pub client_cert: Option<String>,
-    
+
     /// Path to client private key
     pub client_key: Option<String>,
 }
@@ -145,82 +145,81 @@ impl AppConfig {
     pub fn load() -> Result<Self> {
         // Try loading from multiple locations in order of precedence
         let config_paths = Self::get_config_paths();
-        
+
         let mut config = Self::default();
-        
+
         // Load each config file and merge
         for path in config_paths {
             if path.exists() {
                 let content = fs::read_to_string(&path)
                     .with_context(|| format!("Failed to read config from {}", path.display()))?;
-                
+
                 let file_config: AppConfig = toml::from_str(&content)
                     .with_context(|| format!("Failed to parse config from {}", path.display()))?;
-                
+
                 config.merge(file_config);
             }
         }
-        
+
         // Load built-in container templates if none exist
         if config.container_templates.is_empty() {
             config.load_builtin_templates();
         }
-        
+
         Ok(config)
     }
-    
+
     /// Save configuration to user config directory
     pub fn save(&self) -> Result<()> {
         let config_dir = Self::get_user_config_dir()?;
         fs::create_dir_all(&config_dir)?;
-        
+
         let config_path = config_dir.join("config.toml");
         let content = toml::to_string_pretty(self)?;
         fs::write(&config_path, content)?;
-        
+
         Ok(())
     }
-    
+
     /// Get configuration file paths in order of precedence
     fn get_config_paths() -> Vec<PathBuf> {
         let mut paths = vec![];
-        
+
         // 1. Local project config
         if let Ok(cwd) = std::env::current_dir() {
             paths.push(cwd.join(".claude-in-a-box").join("config.toml"));
         }
-        
+
         // 2. User config (~/.claude-box/config.toml)
         if let Ok(config_dir) = Self::get_user_config_dir() {
             paths.push(config_dir.join("config.toml"));
         }
-        
+
         // 3. System config
         paths.push(PathBuf::from("/etc/claude-in-a-box/config.toml"));
-        
+
         paths
     }
-    
+
     /// Get user configuration directory
     fn get_user_config_dir() -> Result<PathBuf> {
-        let home_dir = dirs::home_dir()
-            .context("Failed to get home directory")?;
+        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
         let config_dir = home_dir.join(".claude-in-a-box").join("config");
         Ok(config_dir)
     }
-    
+
     /// Merge another config into this one
     fn merge(&mut self, other: AppConfig) {
         // Don't override version
         if !other.default_container_template.is_empty() {
             self.default_container_template = other.default_container_template;
         }
-        
+
         // Merge maps
         self.container_templates.extend(other.container_templates);
         self.mcp_servers.extend(other.mcp_servers);
         self.environment.extend(other.environment);
-        
+
         // Override workspace defaults if provided
         if other.workspace_defaults.branch_prefix != default_branch_prefix() {
             self.workspace_defaults.branch_prefix = other.workspace_defaults.branch_prefix;
@@ -230,9 +229,10 @@ impl AppConfig {
             self.workspace_defaults.exclude_paths = other.workspace_defaults.exclude_paths;
         }
         if !other.workspace_defaults.workspace_scan_paths.is_empty() {
-            self.workspace_defaults.workspace_scan_paths = other.workspace_defaults.workspace_scan_paths;
+            self.workspace_defaults.workspace_scan_paths =
+                other.workspace_defaults.workspace_scan_paths;
         }
-        
+
         // Override UI preferences
         if other.ui_preferences.theme != default_theme() {
             self.ui_preferences.theme = other.ui_preferences.theme;
@@ -240,29 +240,29 @@ impl AppConfig {
         self.ui_preferences.show_container_status = other.ui_preferences.show_container_status;
         self.ui_preferences.show_git_status = other.ui_preferences.show_git_status;
     }
-    
+
     /// Load built-in container templates
     fn load_builtin_templates(&mut self) {
         // Claude development template (based on claude-docker)
         let claude_dev = ContainerTemplate::claude_dev_default();
         self.container_templates.insert("claude-dev".to_string(), claude_dev);
-        
+
         // Basic templates
         let node_template = ContainerTemplate::node_default();
         self.container_templates.insert("node".to_string(), node_template);
-        
+
         let python_template = ContainerTemplate::python_default();
         self.container_templates.insert("python".to_string(), python_template);
-        
+
         let rust_template = ContainerTemplate::rust_default();
         self.container_templates.insert("rust".to_string(), rust_template);
     }
-    
+
     /// Get a container template by name
     pub fn get_container_template(&self, name: &str) -> Option<&ContainerTemplate> {
         self.container_templates.get(name)
     }
-    
+
     /// Get the default container template
     pub fn get_default_container_template(&self) -> Option<&ContainerTemplate> {
         self.container_templates.get(&self.default_container_template)
@@ -281,10 +281,10 @@ impl Default for AppConfig {
             ui_preferences: UiPreferences::default(),
             docker: DockerConfig::default(),
         };
-        
+
         // Load built-in templates
         config.load_builtin_templates();
-        
+
         config
     }
 }
@@ -292,7 +292,9 @@ impl Default for AppConfig {
 /// Load configuration from environment
 pub fn load_from_env() -> HashMap<String, String> {
     std::env::vars()
-        .filter(|(k, _)| k.starts_with("CLAUDE_BOX_") || k.starts_with("CLAUDE_") || k.starts_with("ANTHROPIC_"))
+        .filter(|(k, _)| {
+            k.starts_with("CLAUDE_BOX_") || k.starts_with("CLAUDE_") || k.starts_with("ANTHROPIC_")
+        })
         .collect()
 }
 
@@ -301,22 +303,22 @@ pub fn load_from_env() -> HashMap<String, String> {
 pub struct ProjectConfig {
     /// Container template to use for this project
     pub container_template: Option<String>,
-    
+
     /// Custom container configuration
     pub container_config: Option<ContainerTemplateConfig>,
-    
+
     /// Project-specific MCP servers
     #[serde(default)]
     pub mcp_servers: Vec<String>,
-    
+
     /// Project-specific environment variables
     #[serde(default)]
     pub environment: HashMap<String, String>,
-    
+
     /// Whether to mount ~/.claude directory
     #[serde(default = "default_true")]
     pub mount_claude_config: bool,
-    
+
     /// Additional paths to mount from host
     #[serde(default)]
     pub additional_mounts: Vec<MountConfig>,
@@ -337,21 +339,21 @@ impl ProjectConfig {
         if !config_path.exists() {
             return Ok(None);
         }
-        
+
         let content = fs::read_to_string(&config_path)?;
         let config: ProjectConfig = toml::from_str(&content)?;
         Ok(Some(config))
     }
-    
+
     /// Save project configuration to a directory
     pub fn save_to_dir(&self, dir: &Path) -> Result<()> {
         let config_dir = dir.join(".claude-in-a-box");
         fs::create_dir_all(&config_dir)?;
-        
+
         let config_path = config_dir.join("project.toml");
         let content = toml::to_string_pretty(self)?;
         fs::write(&config_path, content)?;
-        
+
         Ok(())
     }
 }
@@ -360,7 +362,7 @@ impl ProjectConfig {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-    
+
     #[test]
     fn test_default_config() {
         let config = AppConfig::default();
@@ -368,7 +370,7 @@ mod tests {
         assert_eq!(config.default_container_template, "claude-dev");
         assert!(!config.container_templates.is_empty());
     }
-    
+
     #[test]
     fn test_project_config_save_load() {
         let temp_dir = TempDir::new().unwrap();
@@ -380,10 +382,10 @@ mod tests {
             mount_claude_config: true,
             additional_mounts: vec![],
         };
-        
+
         project_config.save_to_dir(temp_dir.path()).unwrap();
         let loaded = ProjectConfig::load_from_dir(temp_dir.path()).unwrap().unwrap();
-        
+
         assert_eq!(loaded.container_template, Some("node".to_string()));
         assert_eq!(loaded.mcp_servers, vec!["context7".to_string()]);
     }

@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 use git2::Repository;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
 
 use crate::models::Workspace;
@@ -24,11 +24,11 @@ impl WorkspaceScanner {
     pub fn new() -> Self {
         Self::with_additional_paths(vec![])
     }
-    
+
     pub fn with_additional_paths(additional_paths: Vec<PathBuf>) -> Self {
         let mut search_paths = Self::default_search_paths();
         search_paths.extend(additional_paths);
-        
+
         Self {
             search_paths,
             max_depth: 3,
@@ -53,8 +53,11 @@ impl WorkspaceScanner {
     }
 
     pub fn scan(&self) -> Result<ScanResult> {
-        info!("Starting workspace scan with {} search paths", self.search_paths.len());
-        
+        info!(
+            "Starting workspace scan with {} search paths",
+            self.search_paths.len()
+        );
+
         let mut workspaces = Vec::new();
         let mut errors = Vec::new();
 
@@ -74,8 +77,11 @@ impl WorkspaceScanner {
         // Sort workspaces by name for consistent ordering
         workspaces.sort_by(|a, b| a.name.cmp(&b.name));
 
-        info!("Workspace scan complete: found {} workspaces, {} errors", 
-              workspaces.len(), errors.len());
+        info!(
+            "Workspace scan complete: found {} workspaces, {} errors",
+            workspaces.len(),
+            errors.len()
+        );
 
         Ok(ScanResult { workspaces, errors })
     }
@@ -100,11 +106,7 @@ impl WorkspaceScanner {
         let repo = Repository::open(path)
             .with_context(|| format!("Failed to open git repository at {}", path.display()))?;
 
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
 
         // Validate the repository state
         Self::validate_repository(&repo)?;
@@ -140,7 +142,7 @@ impl WorkspaceScanner {
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
                 let entry_path = entry.path();
-                
+
                 if !entry_path.is_dir() {
                     continue;
                 }
@@ -177,9 +179,10 @@ impl WorkspaceScanner {
             Ok(_) => Ok(()),
             Err(e) => {
                 let error_msg = e.to_string();
-                if error_msg.contains("reference 'refs/heads/master' not found") ||
-                   error_msg.contains("reference 'refs/heads/main' not found") ||
-                   error_msg.contains("unborn branch or empty repository") {
+                if error_msg.contains("reference 'refs/heads/master' not found")
+                    || error_msg.contains("reference 'refs/heads/main' not found")
+                    || error_msg.contains("unborn branch or empty repository")
+                {
                     // Empty repository is okay
                     Ok(())
                 } else {
@@ -238,8 +241,8 @@ impl Default for WorkspaceScanner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn create_test_git_repo(path: &Path) -> Result<()> {
         Repository::init(path)?;
@@ -250,21 +253,21 @@ mod tests {
     fn test_validate_workspace_with_git_repo() {
         let temp_dir = TempDir::new().unwrap();
         create_test_git_repo(temp_dir.path()).unwrap();
-        
+
         assert!(WorkspaceScanner::validate_workspace(temp_dir.path()).unwrap());
     }
 
     #[test]
     fn test_validate_workspace_without_git_repo() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         assert!(!WorkspaceScanner::validate_workspace(temp_dir.path()).unwrap());
     }
 
     #[test]
     fn test_validate_workspace_nonexistent_path() {
         let nonexistent = PathBuf::from("/nonexistent/path");
-        
+
         assert!(!WorkspaceScanner::validate_workspace(&nonexistent).unwrap());
     }
 
@@ -272,7 +275,7 @@ mod tests {
     fn test_create_workspace_from_path() {
         let temp_dir = TempDir::new().unwrap();
         create_test_git_repo(temp_dir.path()).unwrap();
-        
+
         let workspace = WorkspaceScanner::create_workspace_from_path(temp_dir.path()).unwrap();
         assert_eq!(workspace.path, temp_dir.path());
         assert!(!workspace.name.is_empty());
@@ -284,10 +287,10 @@ mod tests {
         let repo_dir = temp_dir.path().join("test-repo");
         fs::create_dir(&repo_dir).unwrap();
         create_test_git_repo(&repo_dir).unwrap();
-        
+
         let scanner = WorkspaceScanner::new();
         let workspaces = scanner.scan_directory(temp_dir.path(), 0).unwrap();
-        
+
         assert_eq!(workspaces.len(), 1);
         assert_eq!(workspaces[0].name, "test-repo");
     }
@@ -295,7 +298,7 @@ mod tests {
     #[test]
     fn test_scan_ignores_patterns() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         // Create separate directories that should be ignored
         // Note: Don't create a git repo in ".git" subdirectory as it confuses the parent detection
         for ignored in &["node_modules", "target", "dist", "build"] {
@@ -303,36 +306,49 @@ mod tests {
             fs::create_dir(&ignored_dir).unwrap();
             create_test_git_repo(&ignored_dir).unwrap();
         }
-        
+
         // Create a directory that should not be ignored
         let valid_dir = temp_dir.path().join("valid-repo");
         fs::create_dir(&valid_dir).unwrap();
         create_test_git_repo(&valid_dir).unwrap();
-        
+
         // Create another valid directory
         let another_valid_dir = temp_dir.path().join("my-project");
         fs::create_dir(&another_valid_dir).unwrap();
         create_test_git_repo(&another_valid_dir).unwrap();
-        
+
         let scanner = WorkspaceScanner::new();
         let workspaces = scanner.scan_directory(temp_dir.path(), 0).unwrap();
-        
+
         // Debug: print what we found
-        println!("Found workspaces: {:?}", workspaces.iter().map(|w| &w.name).collect::<Vec<_>>());
-        
+        println!(
+            "Found workspaces: {:?}",
+            workspaces.iter().map(|w| &w.name).collect::<Vec<_>>()
+        );
+
         // Should find the valid repositories but not the ignored ones
         assert!(workspaces.len() >= 2, "Should find at least 2 workspaces");
-        
+
         let valid_workspace = workspaces.iter().find(|w| w.name == "valid-repo");
-        assert!(valid_workspace.is_some(), "Should find valid-repo workspace");
-        
+        assert!(
+            valid_workspace.is_some(),
+            "Should find valid-repo workspace"
+        );
+
         let project_workspace = workspaces.iter().find(|w| w.name == "my-project");
-        assert!(project_workspace.is_some(), "Should find my-project workspace");
-        
+        assert!(
+            project_workspace.is_some(),
+            "Should find my-project workspace"
+        );
+
         // Check that ignored directories are not included
         for ignored in &["node_modules", "target", "dist", "build"] {
             let ignored_workspace = workspaces.iter().find(|w| w.name == *ignored);
-            assert!(ignored_workspace.is_none(), "Should not find {} workspace", ignored);
+            assert!(
+                ignored_workspace.is_none(),
+                "Should not find {} workspace",
+                ignored
+            );
         }
     }
 }

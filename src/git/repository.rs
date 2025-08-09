@@ -61,13 +61,16 @@ impl RepositoryManager {
             }
         }
 
-        debug!("Repository status: +{} ~{} -{}", changes.added, changes.modified, changes.deleted);
+        debug!(
+            "Repository status: +{} ~{} -{}",
+            changes.added, changes.modified, changes.deleted
+        );
         Ok(changes)
     }
 
     pub fn get_current_branch(&self) -> Result<String, GitError> {
         let head = self.repo.head()?;
-        
+
         if let Some(branch_name) = head.shorthand() {
             Ok(branch_name.to_string())
         } else {
@@ -92,18 +95,16 @@ impl RepositoryManager {
 
     pub fn get_last_commit_message(&self) -> Result<Option<String>, GitError> {
         match self.repo.head() {
-            Ok(head) => {
-                match head.peel_to_commit() {
-                    Ok(commit) => {
-                        if let Some(message) = commit.message() {
-                            Ok(Some(message.to_string()))
-                        } else {
-                            Ok(None)
-                        }
+            Ok(head) => match head.peel_to_commit() {
+                Ok(commit) => {
+                    if let Some(message) = commit.message() {
+                        Ok(Some(message.to_string()))
+                    } else {
+                        Ok(None)
                     }
-                    Err(_) => Ok(None),
                 }
-            }
+                Err(_) => Ok(None),
+            },
             Err(_) => Ok(None), // No commits yet
         }
     }
@@ -126,7 +127,7 @@ impl RepositoryManager {
 
     pub fn get_stash_count(&mut self) -> Result<usize, GitError> {
         let mut count = 0;
-        
+
         self.repo.stash_foreach(|_index, _message, _oid| {
             count += 1;
             true // Continue iteration
@@ -177,12 +178,12 @@ impl RepositoryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     fn create_test_repo_with_content(path: &Path) -> Result<Repository> {
         let repo = Repository::init(path)?;
-        
+
         // Create a test file
         let test_file = path.join("test.txt");
         fs::write(&test_file, "test content")?;
@@ -195,7 +196,7 @@ mod tests {
         let signature = git2::Signature::now("Test User", "test@example.com")?;
         let tree_id = index.write_tree()?;
         let tree = repo.find_tree(tree_id)?;
-        
+
         repo.commit(
             Some("HEAD"),
             &signature,
@@ -214,7 +215,7 @@ mod tests {
     fn test_repository_manager_open() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_content(temp_dir.path()).unwrap();
-        
+
         let manager = RepositoryManager::open(temp_dir.path());
         assert!(manager.is_ok());
     }
@@ -222,7 +223,7 @@ mod tests {
     #[test]
     fn test_repository_manager_open_invalid_path() {
         let temp_dir = TempDir::new().unwrap();
-        
+
         let manager = RepositoryManager::open(temp_dir.path());
         assert!(manager.is_err());
     }
@@ -231,10 +232,10 @@ mod tests {
     fn test_get_status_clean_repo() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_content(temp_dir.path()).unwrap();
-        
+
         let manager = RepositoryManager::open(temp_dir.path()).unwrap();
         let status = manager.get_status().unwrap();
-        
+
         assert_eq!(status.total(), 0);
     }
 
@@ -242,31 +243,31 @@ mod tests {
     fn test_get_status_with_changes() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_content(temp_dir.path()).unwrap();
-        
+
         // Create a new file
         let new_file = temp_dir.path().join("new.txt");
         fs::write(&new_file, "new content").unwrap();
-        
+
         // Modify existing file
         let test_file = temp_dir.path().join("test.txt");
         fs::write(&test_file, "modified content").unwrap();
-        
+
         let manager = RepositoryManager::open(temp_dir.path()).unwrap();
         let status = manager.get_status().unwrap();
-        
+
         assert!(status.total() > 0);
-        assert!(status.added > 0);  // new.txt
-        assert!(status.modified > 0);  // test.txt
+        assert!(status.added > 0); // new.txt
+        assert!(status.modified > 0); // test.txt
     }
 
     #[test]
     fn test_get_current_branch() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_content(temp_dir.path()).unwrap();
-        
+
         let manager = RepositoryManager::open(temp_dir.path()).unwrap();
         let branch = manager.get_current_branch().unwrap();
-        
+
         assert!(!branch.is_empty());
         // Default branch is usually "master" or "main"
         assert!(branch == "master" || branch == "main");
@@ -276,14 +277,14 @@ mod tests {
     fn test_is_clean() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_content(temp_dir.path()).unwrap();
-        
+
         let manager = RepositoryManager::open(temp_dir.path()).unwrap();
         assert!(manager.is_clean().unwrap());
-        
+
         // Add a new file
         let new_file = temp_dir.path().join("dirty.txt");
         fs::write(&new_file, "content").unwrap();
-        
+
         assert!(!manager.is_clean().unwrap());
     }
 
@@ -291,10 +292,10 @@ mod tests {
     fn test_get_commit_count() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_content(temp_dir.path()).unwrap();
-        
+
         let manager = RepositoryManager::open(temp_dir.path()).unwrap();
         let count = manager.get_commit_count().unwrap();
-        
+
         assert_eq!(count, 1); // We created one commit
     }
 
@@ -302,10 +303,10 @@ mod tests {
     fn test_validate_repository_health() {
         let temp_dir = TempDir::new().unwrap();
         create_test_repo_with_content(temp_dir.path()).unwrap();
-        
+
         let manager = RepositoryManager::open(temp_dir.path()).unwrap();
         let issues = manager.validate_repository_health().unwrap();
-        
+
         assert!(issues.is_empty()); // Healthy repository should have no issues
     }
 }

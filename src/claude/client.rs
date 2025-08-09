@@ -1,10 +1,10 @@
 // ABOUTME: Claude API client implementation for direct communication with Anthropic API
 
-use crate::claude::types::{
-    ClaudeAuth, ClaudeRequest, ClaudeResponse, ClaudeMessage, ClaudeChatSession
-};
 use crate::claude::streaming::ClaudeStreamingResponse;
-use anyhow::{anyhow, Context, Result};
+use crate::claude::types::{
+    ClaudeAuth, ClaudeChatSession, ClaudeMessage, ClaudeRequest, ClaudeResponse,
+};
+use anyhow::{Context, Result, anyhow};
 use reqwest::Client;
 use serde_json;
 use std::collections::HashMap;
@@ -62,14 +62,18 @@ impl ClaudeApiClient {
     }
 
     /// Send a single message and get a complete response
-    pub async fn send_message(&self, message: &str, context: Option<&[ClaudeMessage]>) -> Result<String> {
+    pub async fn send_message(
+        &self,
+        message: &str,
+        context: Option<&[ClaudeMessage]>,
+    ) -> Result<String> {
         let mut messages = Vec::new();
-        
+
         // Add context messages if provided
         if let Some(context_msgs) = context {
             messages.extend(context_msgs.iter().cloned());
         }
-        
+
         // Add the user message
         messages.push(ClaudeMessage::user(message.to_string()));
 
@@ -80,7 +84,7 @@ impl ClaudeApiClient {
         };
 
         let response = self.send_request(&request).await?;
-        
+
         // Extract the text content from the response
         if let Some(content) = response.content.first() {
             Ok(content.text.clone())
@@ -91,17 +95,17 @@ impl ClaudeApiClient {
 
     /// Start a streaming conversation
     pub async fn stream_message(
-        &self, 
-        message: &str, 
-        context: Option<&[ClaudeMessage]>
+        &self,
+        message: &str,
+        context: Option<&[ClaudeMessage]>,
     ) -> Result<ClaudeStreamingResponse> {
         let mut messages = Vec::new();
-        
+
         // Add context messages if provided
         if let Some(context_msgs) = context {
             messages.extend(context_msgs.iter().cloned());
         }
-        
+
         // Add the user message
         messages.push(ClaudeMessage::user(message.to_string()));
 
@@ -116,12 +120,18 @@ impl ClaudeApiClient {
 
     /// Send a request and get a complete response
     async fn send_request(&self, request: &ClaudeRequest) -> Result<ClaudeResponse> {
-        let auth_header = self.auth.get_auth_header()
+        let auth_header = self
+            .auth
+            .get_auth_header()
             .ok_or_else(|| anyhow!("No valid authentication configured"))?;
 
-        debug!("Sending Claude API request: {} messages", request.messages.len());
+        debug!(
+            "Sending Claude API request: {} messages",
+            request.messages.len()
+        );
 
-        let response = self.client
+        let response = self
+            .client
             .post(&format!("{}/v1/messages", self.base_url))
             .header("Authorization", auth_header)
             .header("Content-Type", "application/json")
@@ -137,23 +147,30 @@ impl ClaudeApiClient {
             return Err(anyhow!("Claude API error {}: {}", status, error_text));
         }
 
-        let claude_response: ClaudeResponse = response
-            .json()
-            .await
-            .context("Failed to parse Claude API response")?;
+        let claude_response: ClaudeResponse =
+            response.json().await.context("Failed to parse Claude API response")?;
 
-        debug!("Received Claude response: {} content blocks", claude_response.content.len());
+        debug!(
+            "Received Claude response: {} content blocks",
+            claude_response.content.len()
+        );
         Ok(claude_response)
     }
 
     /// Send a streaming request
     async fn stream_request(&self, request: &ClaudeRequest) -> Result<ClaudeStreamingResponse> {
-        let auth_header = self.auth.get_auth_header()
+        let auth_header = self
+            .auth
+            .get_auth_header()
             .ok_or_else(|| anyhow!("No valid authentication configured"))?;
 
-        debug!("Starting Claude API streaming request: {} messages", request.messages.len());
+        debug!(
+            "Starting Claude API streaming request: {} messages",
+            request.messages.len()
+        );
 
-        let response = self.client
+        let response = self
+            .client
             .post(&format!("{}/v1/messages", self.base_url))
             .header("Authorization", auth_header)
             .header("Content-Type", "application/json")
@@ -167,7 +184,11 @@ impl ClaudeApiClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(anyhow!("Claude API streaming error {}: {}", status, error_text));
+            return Err(anyhow!(
+                "Claude API streaming error {}: {}",
+                status,
+                error_text
+            ));
         }
 
         ClaudeStreamingResponse::from_response(response).await
@@ -176,10 +197,13 @@ impl ClaudeApiClient {
     /// Test the API connection
     pub async fn test_connection(&self) -> Result<()> {
         info!("Testing Claude API connection");
-        
+
         match self.send_message("Hello", None).await {
             Ok(response) => {
-                info!("Claude API connection successful, response length: {} chars", response.len());
+                info!(
+                    "Claude API connection successful, response length: {} chars",
+                    response.len()
+                );
                 Ok(())
             }
             Err(e) => {
@@ -202,8 +226,8 @@ impl ClaudeApiClient {
 
     /// Load authentication from claude-in-a-box config files
     pub fn load_auth_from_config() -> Result<ClaudeAuth> {
-        let home_dir = dirs::home_dir()
-            .ok_or_else(|| anyhow!("Could not determine home directory"))?;
+        let home_dir =
+            dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
 
         // Try API key from .env file first
         let env_file = home_dir.join(".claude-in-a-box/.env");
@@ -241,7 +265,9 @@ impl ClaudeApiClient {
             return Ok(ClaudeAuth::from_api_key(api_key));
         }
 
-        Err(anyhow!("No Claude authentication found. Set up API key or OAuth authentication."))
+        Err(anyhow!(
+            "No Claude authentication found. Set up API key or OAuth authentication."
+        ))
     }
 }
 
@@ -296,11 +322,12 @@ impl ClaudeChatManager {
 
     /// Send a message in the active session
     pub async fn send_message(&mut self, message: &str) -> Result<String> {
-        let session_id = self.active_session
-            .ok_or_else(|| anyhow!("No active chat session"))?;
+        let session_id = self.active_session.ok_or_else(|| anyhow!("No active chat session"))?;
 
         let context = {
-            let session = self.sessions.get(&session_id)
+            let session = self
+                .sessions
+                .get(&session_id)
                 .ok_or_else(|| anyhow!("Active session not found"))?;
             session.get_conversation_context(10) // Last 10 messages for context
         };
@@ -318,11 +345,12 @@ impl ClaudeChatManager {
 
     /// Start streaming a message in the active session
     pub async fn stream_message(&mut self, message: &str) -> Result<ClaudeStreamingResponse> {
-        let session_id = self.active_session
-            .ok_or_else(|| anyhow!("No active chat session"))?;
+        let session_id = self.active_session.ok_or_else(|| anyhow!("No active chat session"))?;
 
         let context = {
-            let session = self.sessions.get(&session_id)
+            let session = self
+                .sessions
+                .get(&session_id)
                 .ok_or_else(|| anyhow!("Active session not found"))?;
             session.get_conversation_context(10) // Last 10 messages for context
         };

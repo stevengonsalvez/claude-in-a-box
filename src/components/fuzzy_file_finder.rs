@@ -1,7 +1,7 @@
 // ABOUTME: Fuzzy file finder component for @ symbol trigger in boss mode prompts
 
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 use tracing::debug;
 
 #[derive(Debug, Clone)]
@@ -40,7 +40,7 @@ impl FuzzyFileFinderState {
         self.query.clear();
         self.matches.clear();
         self.selected_index = 0;
-        
+
         // Initial scan with empty query shows all files
         self.update_matches();
     }
@@ -111,7 +111,7 @@ impl Default for FuzzyFileFinderState {
 
 pub fn find_files_fuzzy(root: &Path, query: &str, limit: usize) -> Vec<FileMatch> {
     let mut matches = Vec::new();
-    
+
     if !root.exists() || !root.is_dir() {
         return matches;
     }
@@ -143,7 +143,8 @@ pub fn find_files_fuzzy(root: &Path, query: &str, limit: usize) -> Vec<FileMatch
 
     // Sort by score (higher is better) and then by path length (shorter is better)
     matches.sort_by(|a, b| {
-        b.score.cmp(&a.score)
+        b.score
+            .cmp(&a.score)
             .then_with(|| a.relative_path.len().cmp(&b.relative_path.len()))
             .then_with(|| a.relative_path.cmp(&b.relative_path))
     });
@@ -175,11 +176,11 @@ fn collect_files_recursive(
 
     for entry in entries.flatten() {
         let path = entry.path();
-        
+
         if path.is_file() {
             if let Ok(relative_path) = path.strip_prefix(root) {
                 let relative_str = relative_path.to_string_lossy().to_string();
-                
+
                 // Skip certain file types
                 if should_include_file(&relative_str) {
                     files.push(FileInfo {
@@ -202,7 +203,7 @@ fn collect_files_recursive(
 fn should_include_file(relative_path: &str) -> bool {
     // Skip hidden files and certain extensions
     let path = Path::new(relative_path);
-    
+
     // Skip if any path component starts with .
     for component in path.components() {
         if let Some(name) = component.as_os_str().to_str() {
@@ -253,13 +254,13 @@ fn calculate_fuzzy_score(path: &str, query: &str) -> usize {
     let mut score = 0;
     let path_chars: Vec<char> = path_lower.chars().collect();
     let query_chars: Vec<char> = query_lower.chars().collect();
-    
+
     let mut path_idx = 0;
     let mut consecutive_matches = 0;
 
     for query_char in query_chars {
         let mut found = false;
-        
+
         // Look for the character in the remaining path
         while path_idx < path_chars.len() {
             if path_chars[path_idx] == query_char {
@@ -273,7 +274,7 @@ fn calculate_fuzzy_score(path: &str, query: &str) -> usize {
                 path_idx += 1;
             }
         }
-        
+
         if !found {
             return 0; // All characters must be found
         }
@@ -288,8 +289,8 @@ fn calculate_fuzzy_score(path: &str, query: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_fuzzy_score_exact_match() {
@@ -340,7 +341,7 @@ mod tests {
     fn test_file_finder_state_activation() {
         let mut state = FuzzyFileFinderState::new();
         assert!(!state.is_active);
-        
+
         state.activate(5, Some(PathBuf::from("/test")));
         assert!(state.is_active);
         assert_eq!(state.at_symbol_position, 5);
@@ -351,23 +352,35 @@ mod tests {
     fn test_file_finder_navigation() {
         let mut state = FuzzyFileFinderState::new();
         state.matches = vec![
-            FileMatch { path: PathBuf::from("a"), relative_path: "a".to_string(), score: 10 },
-            FileMatch { path: PathBuf::from("b"), relative_path: "b".to_string(), score: 20 },
-            FileMatch { path: PathBuf::from("c"), relative_path: "c".to_string(), score: 30 },
+            FileMatch {
+                path: PathBuf::from("a"),
+                relative_path: "a".to_string(),
+                score: 10,
+            },
+            FileMatch {
+                path: PathBuf::from("b"),
+                relative_path: "b".to_string(),
+                score: 20,
+            },
+            FileMatch {
+                path: PathBuf::from("c"),
+                relative_path: "c".to_string(),
+                score: 30,
+            },
         ];
         state.is_active = true;
 
         assert_eq!(state.selected_index, 0);
-        
+
         state.move_selection_down();
         assert_eq!(state.selected_index, 1);
-        
+
         state.move_selection_down();
         assert_eq!(state.selected_index, 2);
-        
+
         state.move_selection_down(); // Should wrap to 0
         assert_eq!(state.selected_index, 0);
-        
+
         state.move_selection_up(); // Should wrap to 2
         assert_eq!(state.selected_index, 2);
     }
@@ -376,16 +389,16 @@ mod tests {
     fn test_find_files_with_temp_directory() {
         let temp_dir = TempDir::new().unwrap();
         let root = temp_dir.path();
-        
+
         // Create some test files
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
         fs::write(root.join("src/lib.rs"), "// lib").unwrap();
         fs::write(root.join("README.md"), "# Test").unwrap();
-        
+
         let matches = find_files_fuzzy(root, "main", 10);
         assert!(!matches.is_empty());
-        
+
         let main_match = matches.iter().find(|m| m.relative_path.contains("main.rs"));
         assert!(main_match.is_some());
     }

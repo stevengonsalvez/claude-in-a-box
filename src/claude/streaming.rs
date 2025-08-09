@@ -1,7 +1,7 @@
 // ABOUTME: Claude API streaming response handling for real-time chat interface
 
 use crate::claude::types::ClaudeStreamingEvent;
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures_util::StreamExt;
 use reqwest::Response;
 use serde_json;
@@ -18,19 +18,16 @@ pub struct ClaudeStreamingResponse {
 impl ClaudeStreamingResponse {
     pub async fn from_response(response: Response) -> Result<Self> {
         let stream = response.bytes_stream();
-        
-        let event_stream = stream.map(|chunk| {
-            match chunk {
-                Ok(bytes) => {
-                    Self::parse_streaming_chunk(&bytes)
-                }
+
+        let event_stream = stream
+            .map(|chunk| match chunk {
+                Ok(bytes) => Self::parse_streaming_chunk(&bytes),
                 Err(e) => {
                     error!("Error reading streaming response: {}", e);
                     vec![Err(anyhow!("Stream error: {}", e))]
                 }
-            }
-        })
-        .flat_map(futures_util::stream::iter);
+            })
+            .flat_map(futures_util::stream::iter);
 
         Ok(Self {
             inner: Box::pin(event_stream),
@@ -49,12 +46,12 @@ impl ClaudeStreamingResponse {
         };
 
         let mut events = Vec::new();
-        
+
         // Claude API uses Server-Sent Events format
         for line in text.lines() {
             if line.starts_with("data: ") {
                 let data = &line[6..]; // Remove "data: " prefix
-                
+
                 // Skip empty data or [DONE] marker
                 if data.is_empty() || data == "[DONE]" {
                     continue;
@@ -154,7 +151,10 @@ pub enum StreamingState {
 
 impl StreamingState {
     pub fn is_active(&self) -> bool {
-        matches!(self, StreamingState::Connecting | StreamingState::Streaming { .. })
+        matches!(
+            self,
+            StreamingState::Connecting | StreamingState::Streaming { .. }
+        )
     }
 
     pub fn get_current_text(&self) -> Option<&str> {
@@ -202,25 +202,25 @@ impl StreamingEventHandler {
     pub fn handle_event(&mut self, event: ClaudeStreamingEvent) -> bool {
         match event {
             ClaudeStreamingEvent::MessageStart { .. } => {
-                self.state = StreamingState::Streaming { 
-                    partial_response: self.current_response.clone() 
+                self.state = StreamingState::Streaming {
+                    partial_response: self.current_response.clone(),
                 };
             }
             ClaudeStreamingEvent::ContentBlockDelta { delta, .. } => {
                 self.current_response.push_str(&delta.text);
-                self.state = StreamingState::Streaming { 
-                    partial_response: self.current_response.clone() 
+                self.state = StreamingState::Streaming {
+                    partial_response: self.current_response.clone(),
                 };
             }
             ClaudeStreamingEvent::MessageStop => {
-                self.state = StreamingState::Complete { 
-                    full_response: self.current_response.clone() 
+                self.state = StreamingState::Complete {
+                    full_response: self.current_response.clone(),
                 };
                 return true; // Streaming complete
             }
             ClaudeStreamingEvent::Error { error } => {
-                self.state = StreamingState::Error { 
-                    message: error.message 
+                self.state = StreamingState::Error {
+                    message: error.message,
                 };
                 return true; // Streaming complete (with error)
             }

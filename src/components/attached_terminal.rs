@@ -1,10 +1,10 @@
 // ABOUTME: Attached terminal component for full-screen container interaction
 
 use ratatui::{
+    layout::{Constraint, Direction, Layout},
     prelude::*,
-    widgets::{Block, Borders, Paragraph},
     style::{Color, Modifier, Style},
-    layout::{Layout, Direction, Constraint},
+    widgets::{Block, Borders, Paragraph},
 };
 
 use crate::app::AppState;
@@ -24,22 +24,33 @@ impl AttachedTerminalComponent {
         }
     }
 
-    fn render_attached_terminal(&self, frame: &mut Frame, area: Rect, state: &AppState, session_id: uuid::Uuid) {
+    fn render_attached_terminal(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        session_id: uuid::Uuid,
+    ) {
         // Get session info
-        let session = state.workspaces
-            .iter()
-            .flat_map(|w| &w.sessions)
-            .find(|s| s.id == session_id);
+        let session =
+            state.workspaces.iter().flat_map(|w| &w.sessions).find(|s| s.id == session_id);
 
         let (title, recent_logs) = if let Some(session) = session {
             (
-                format!("Attached to: {} ({})", session.name, session_id.to_string()[..8].to_string()),
-                session.recent_logs.clone()
+                format!(
+                    "Attached to: {} ({})",
+                    session.name,
+                    session_id.to_string()[..8].to_string()
+                ),
+                session.recent_logs.clone(),
             )
         } else {
             (
-                format!("Attached to session: {}", session_id.to_string()[..8].to_string()),
-                None
+                format!(
+                    "Attached to session: {}",
+                    session_id.to_string()[..8].to_string()
+                ),
+                None,
             )
         };
 
@@ -71,7 +82,7 @@ impl AttachedTerminalComponent {
                 Block::default()
                     .title(title.clone())
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
+                    .border_style(Style::default().fg(Color::Green)),
             )
             .style(Style::default().fg(Color::White))
             .wrap(ratatui::widgets::Wrap { trim: true });
@@ -81,12 +92,14 @@ impl AttachedTerminalComponent {
         // Render logs section
         let logs_content = if let Some(logs) = recent_logs {
             if logs.trim().is_empty() {
-                "Claude CLI is starting up...\nLogs will appear here once Claude begins processing.".to_string()
+                "Claude CLI is starting up...\nLogs will appear here once Claude begins processing."
+                    .to_string()
             } else {
                 logs
             }
         } else {
-            "Claude CLI is running but no logs fetched yet.\nLogs will appear here automatically.".to_string()
+            "Claude CLI is running but no logs fetched yet.\nLogs will appear here automatically."
+                .to_string()
         };
 
         let logs_paragraph = Paragraph::new(logs_content)
@@ -94,7 +107,7 @@ impl AttachedTerminalComponent {
                 Block::default()
                     .title("📄 Claude Output (Live)")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Blue))
+                    .border_style(Style::default().fg(Color::Blue)),
             )
             .style(Style::default().fg(Color::Gray))
             .wrap(ratatui::widgets::Wrap { trim: false });
@@ -109,12 +122,13 @@ impl AttachedTerminalComponent {
             height: 3,
         };
 
-        let status_text = "[a] Attach to Shell  |  [k] Kill Container  |  [Esc] Return to Session List";
+        let status_text =
+            "[a] Attach to Shell  |  [k] Kill Container  |  [Esc] Return to Session List";
         let status_paragraph = Paragraph::new(status_text)
             .block(
                 Block::default()
                     .borders(Borders::TOP)
-                    .border_style(Style::default().fg(Color::Yellow))
+                    .border_style(Style::default().fg(Color::Yellow)),
             )
             .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .alignment(Alignment::Center);
@@ -124,13 +138,13 @@ impl AttachedTerminalComponent {
 
     fn render_error_state(&self, frame: &mut Frame, area: Rect) {
         let error_text = "Error: No attached session found";
-        
+
         let paragraph = Paragraph::new(error_text)
             .block(
                 Block::default()
                     .title("Terminal Error")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red))
+                    .border_style(Style::default().fg(Color::Red)),
             )
             .style(Style::default().fg(Color::Red))
             .alignment(Alignment::Center);

@@ -40,10 +40,7 @@ impl Workspace {
     }
 
     pub fn running_sessions(&self) -> Vec<&Session> {
-        self.sessions
-            .iter()
-            .filter(|s| s.status.is_running())
-            .collect()
+        self.sessions.iter().filter(|s| s.status.is_running()).collect()
     }
 
     pub fn session_count(&self) -> usize {

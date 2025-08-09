@@ -6,8 +6,8 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionMode {
-    Interactive,  // Traditional interactive mode with shell access
-    Boss,         // Non-interactive mode with direct prompt execution
+    Interactive, // Traditional interactive mode with shell access
+    Boss,        // Non-interactive mode with direct prompt execution
 }
 
 impl Default for SessionMode {
@@ -49,8 +49,8 @@ pub struct Session {
     pub last_accessed: DateTime<Utc>,
     pub git_changes: GitChanges,
     pub recent_logs: Option<String>,
-    pub skip_permissions: bool,  // Whether to use --dangerously-skip-permissions flag
-    pub mode: SessionMode,       // Interactive or Boss mode
+    pub skip_permissions: bool, // Whether to use --dangerously-skip-permissions flag
+    pub mode: SessionMode,      // Interactive or Boss mode
     pub boss_prompt: Option<String>, // The prompt for boss mode execution
 }
 
@@ -80,10 +80,16 @@ impl Session {
         Self::new_with_options(name, workspace_path, false, SessionMode::Interactive, None)
     }
 
-    pub fn new_with_options(name: String, workspace_path: String, skip_permissions: bool, mode: SessionMode, boss_prompt: Option<String>) -> Self {
+    pub fn new_with_options(
+        name: String,
+        workspace_path: String,
+        skip_permissions: bool,
+        mode: SessionMode,
+        boss_prompt: Option<String>,
+    ) -> Self {
         let now = Utc::now();
         let branch_name = format!("claude/{}", name.replace(' ', "-").to_lowercase());
-        
+
         Self {
             id: Uuid::new_v4(),
             name,

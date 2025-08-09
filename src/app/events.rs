@@ -1,7 +1,10 @@
 // ABOUTME: Event handling system for keyboard input and app actions
 
+use crate::app::{
+    AppState,
+    state::{AsyncAction, AuthMethod, View},
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use crate::app::{AppState, state::{AsyncAction, View, AuthMethod}};
 use tracing::info;
 
 #[derive(Debug, Clone)]
@@ -12,10 +15,10 @@ pub enum AppEvent {
     NextWorkspace,
     PreviousWorkspace,
     ToggleHelp,
-    RefreshWorkspaces,  // Manual refresh of workspace data
-    ToggleClaudeChat,   // Toggle Claude chat visibility
-    NewSession,         // Create session in current directory
-    SearchWorkspace,    // Search all workspaces
+    RefreshWorkspaces, // Manual refresh of workspace data
+    ToggleClaudeChat,  // Toggle Claude chat visibility
+    NewSession,        // Create session in current directory
+    SearchWorkspace,   // Search all workspaces
     AttachSession,
     DetachSession,
     KillContainer,
@@ -45,7 +48,7 @@ pub enum AppEvent {
     NewSessionInputPromptChar(char),
     NewSessionBackspacePrompt,
     NewSessionInsertNewline,
-    NewSessionPasteText(String),  // Paste text into boss mode prompt
+    NewSessionPasteText(String), // Paste text into boss mode prompt
     // Cursor movement events for boss mode prompt
     NewSessionCursorLeft,
     NewSessionCursorRight,
@@ -65,36 +68,36 @@ pub enum AppEvent {
     SearchWorkspaceInputChar(char),
     SearchWorkspaceBackspace,
     // Confirmation dialog events
-    ConfirmationToggle,     // Switch between Yes/No
-    ConfirmationConfirm,    // Confirm action
-    ConfirmationCancel,     // Cancel dialog
+    ConfirmationToggle,  // Switch between Yes/No
+    ConfirmationConfirm, // Confirm action
+    ConfirmationCancel,  // Cancel dialog
     // Auth setup events
-    AuthSetupNext,          // Next auth method
-    AuthSetupPrevious,      // Previous auth method
-    AuthSetupSelect,        // Select current method
-    AuthSetupCancel,        // Cancel auth setup (skip)
+    AuthSetupNext,            // Next auth method
+    AuthSetupPrevious,        // Previous auth method
+    AuthSetupSelect,          // Select current method
+    AuthSetupCancel,          // Cancel auth setup (skip)
     AuthSetupInputChar(char), // Input character for API key
-    AuthSetupBackspace,     // Backspace in API key input
-    AuthSetupCheckStatus,   // Check authentication status
-    AuthSetupRefresh,       // Manual refresh to check auth completion
-    AuthSetupShowCommand,   // Show manual CLI command
+    AuthSetupBackspace,       // Backspace in API key input
+    AuthSetupCheckStatus,     // Check authentication status
+    AuthSetupRefresh,         // Manual refresh to check auth completion
+    AuthSetupShowCommand,     // Show manual CLI command
     // Git view events
-    ShowGitView,            // Show git view for selected session
-    GitViewSwitchTab,       // Switch between Files and Diff tabs
-    GitViewNextFile,        // Navigate to next file
-    GitViewPrevFile,        // Navigate to previous file
-    GitViewScrollUp,        // Scroll diff up
-    GitViewScrollDown,      // Scroll diff down
-    GitViewCommitPush,      // Commit and push changes
-    GitViewBack,            // Return to session list
+    ShowGitView,       // Show git view for selected session
+    GitViewSwitchTab,  // Switch between Files and Diff tabs
+    GitViewNextFile,   // Navigate to next file
+    GitViewPrevFile,   // Navigate to previous file
+    GitViewScrollUp,   // Scroll diff up
+    GitViewScrollDown, // Scroll diff down
+    GitViewCommitPush, // Commit and push changes
+    GitViewBack,       // Return to session list
     // Commit message input events
-    GitViewStartCommit,     // Start commit message input (p key)
+    GitViewStartCommit,           // Start commit message input (p key)
     GitViewCommitInputChar(char), // Character input for commit message
-    GitViewCommitBackspace, // Backspace in commit message
-    GitViewCommitCursorLeft, // Move cursor left in commit message
-    GitViewCommitCursorRight, // Move cursor right in commit message
-    GitViewCommitCancel,    // Cancel commit message input (Esc)
-    GitViewCommitConfirm,   // Confirm and execute commit (Enter)
+    GitViewCommitBackspace,       // Backspace in commit message
+    GitViewCommitCursorLeft,      // Move cursor left in commit message
+    GitViewCommitCursorRight,     // Move cursor right in commit message
+    GitViewCommitCancel,          // Cancel commit message input (Esc)
+    GitViewCommitConfirm,         // Confirm and execute commit (Enter)
 }
 
 pub struct EventHandler;
@@ -110,28 +113,28 @@ impl EventHandler {
 
     pub fn handle_key_event(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
         use crate::app::state::View;
-        
+
         // Handle confirmation dialog first (highest priority)
         if state.confirmation_dialog.is_some() {
             match key_event.code {
                 KeyCode::Left | KeyCode::Right | KeyCode::Tab => {
                     return Some(AppEvent::ConfirmationToggle);
-                },
+                }
                 KeyCode::Enter => {
                     return Some(AppEvent::ConfirmationConfirm);
-                },
+                }
                 KeyCode::Esc => {
                     return Some(AppEvent::ConfirmationCancel);
-                },
+                }
                 _ => return None,
             }
         }
-        
+
         if state.help_visible {
             match key_event.code {
                 KeyCode::Char('?') | KeyCode::Esc => {
                     return Some(AppEvent::ToggleHelp);
-                },
+                }
                 _ => {
                     return None;
                 }
@@ -167,7 +170,7 @@ impl EventHandler {
         if state.current_view == View::AttachedTerminal {
             return Self::handle_attached_terminal_keys(key_event, state);
         }
-        
+
         // Handle auth setup view
         if state.current_view == View::AuthSetup {
             return Self::handle_auth_setup_keys(key_event, state);
@@ -180,23 +183,28 @@ impl EventHandler {
 
         // Handle key events based on focused pane
         use crate::app::state::FocusedPane;
-        
+
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
             KeyCode::Tab => {
-                tracing::debug!("Tab key pressed, current focused_pane: {:?}", state.focused_pane);
+                tracing::debug!(
+                    "Tab key pressed, current focused_pane: {:?}",
+                    state.focused_pane
+                );
                 Some(AppEvent::SwitchPaneFocus)
-            },
-            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => Some(AppEvent::Quit),
+            }
+            KeyCode::Char('c') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                Some(AppEvent::Quit)
+            }
             KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
-            KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces),  // Manual refresh
+            KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces), // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
-            KeyCode::Char('g') => Some(AppEvent::ShowGitView),  // Show git view
-            
+            KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
+
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
                 tracing::debug!("Down key pressed, focused_pane: {:?}", state.focused_pane);
@@ -204,74 +212,70 @@ impl EventHandler {
                     FocusedPane::Sessions => {
                         tracing::debug!("Sessions pane focused, triggering NextSession");
                         Some(AppEvent::NextSession)
-                    },
+                    }
                     FocusedPane::LiveLogs => {
                         tracing::debug!("LiveLogs pane focused, triggering ScrollLogsDown");
                         Some(AppEvent::ScrollLogsDown)
-                    },
+                    }
                 }
-            },
+            }
             KeyCode::Char('k') | KeyCode::Up => {
                 tracing::debug!("Up key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
                     FocusedPane::Sessions => {
                         tracing::debug!("Sessions pane focused, triggering PreviousSession");
                         Some(AppEvent::PreviousSession)
-                    },
+                    }
                     FocusedPane::LiveLogs => {
                         tracing::debug!("LiveLogs pane focused, triggering ScrollLogsUp");
                         Some(AppEvent::ScrollLogsUp)
-                    },
+                    }
                 }
-            },
+            }
             KeyCode::Char('h') | KeyCode::Left => {
                 tracing::debug!("Left key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
                     FocusedPane::Sessions => {
                         tracing::debug!("Sessions pane focused, triggering PreviousWorkspace");
                         Some(AppEvent::PreviousWorkspace)
-                    },
+                    }
                     FocusedPane::LiveLogs => {
                         tracing::debug!("LiveLogs pane focused, no left/right scrolling");
                         None // No left/right scrolling in logs
-                    },
+                    }
                 }
-            },
+            }
             KeyCode::Char('l') | KeyCode::Right => {
                 tracing::debug!("Right key pressed, focused_pane: {:?}", state.focused_pane);
                 match state.focused_pane {
                     FocusedPane::Sessions => {
                         tracing::debug!("Sessions pane focused, triggering NextWorkspace");
                         Some(AppEvent::NextWorkspace)
-                    },
+                    }
                     FocusedPane::LiveLogs => {
                         tracing::debug!("LiveLogs pane focused, no left/right scrolling");
                         None // No left/right scrolling in logs
-                    },
+                    }
                 }
+            }
+            KeyCode::Home => match state.focused_pane {
+                FocusedPane::Sessions => Some(AppEvent::GoToTop),
+                FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToTop),
             },
-            KeyCode::Home => {
-                match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::GoToTop),
-                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToTop),
-                }
-            },
-            KeyCode::End => {
-                match state.focused_pane {
-                    FocusedPane::Sessions => Some(AppEvent::GoToBottom),
-                    FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToBottom),
-                }
+            KeyCode::End => match state.focused_pane {
+                FocusedPane::Sessions => Some(AppEvent::GoToBottom),
+                FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToBottom),
             },
             _ => None,
         }
     }
 
-    fn handle_search_workspace_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
-        
+    fn handle_search_workspace_keys(
+        key_event: KeyEvent,
+        _state: &mut AppState,
+    ) -> Option<AppEvent> {
         match key_event.code {
-            KeyCode::Esc => {
-                Some(AppEvent::NewSessionCancel)
-            },
+            KeyCode::Esc => Some(AppEvent::NewSessionCancel),
             KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
             KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
             KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
@@ -283,77 +287,100 @@ impl EventHandler {
 
     fn handle_new_session_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
         use crate::app::state::NewSessionStep;
-        
+
         if let Some(ref session_state) = state.new_session_state {
             match session_state.step {
-                NewSessionStep::SelectRepo => {
-                    match key_event.code {
-                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
-                        KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
-                        KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
-                        _ => None,
-                    }
-                }
+                NewSessionStep::SelectRepo => match key_event.code {
+                    KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                    KeyCode::Down => Some(AppEvent::NewSessionNextRepo),
+                    KeyCode::Up => Some(AppEvent::NewSessionPrevRepo),
+                    KeyCode::Enter => Some(AppEvent::NewSessionConfirmRepo),
+                    _ => None,
+                },
                 NewSessionStep::InputBranch => {
                     match key_event.code {
                         KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Enter => Some(AppEvent::NewSessionProceedToModeSelection),
+                        KeyCode::Enter => {
+                            // Check if we're in current directory mode
+                            if let Some(ref session_state) = state.new_session_state {
+                                if session_state.is_current_dir_mode {
+                                    // Skip mode selection and permissions for current directory mode
+                                    Some(AppEvent::NewSessionCreate)
+                                } else {
+                                    Some(AppEvent::NewSessionProceedToModeSelection)
+                                }
+                            } else {
+                                Some(AppEvent::NewSessionProceedToModeSelection)
+                            }
+                        }
                         KeyCode::Backspace => Some(AppEvent::NewSessionBackspace),
                         KeyCode::Char(ch) => Some(AppEvent::NewSessionInputChar(ch)),
                         _ => None,
                     }
                 }
-                NewSessionStep::SelectMode => {
-                    match key_event.code {
-                        KeyCode::Esc => Some(AppEvent::NewSessionCancel),
-                        KeyCode::Enter => Some(AppEvent::NewSessionProceedFromMode),
-                        KeyCode::Down | KeyCode::Up => Some(AppEvent::NewSessionToggleMode),
-                        _ => None,
-                    }
-                }
+                NewSessionStep::SelectMode => match key_event.code {
+                    KeyCode::Esc => Some(AppEvent::NewSessionCancel),
+                    KeyCode::Enter => Some(AppEvent::NewSessionProceedFromMode),
+                    KeyCode::Down | KeyCode::Up => Some(AppEvent::NewSessionToggleMode),
+                    _ => None,
+                },
                 NewSessionStep::InputPrompt => {
                     // Debug logging to understand what key events we're receiving
-                    tracing::debug!("InputPrompt: Received key event: {:?} with modifiers: {:?}", key_event.code, key_event.modifiers);
-                    
+                    tracing::debug!(
+                        "InputPrompt: Received key event: {:?} with modifiers: {:?}",
+                        key_event.code,
+                        key_event.modifiers
+                    );
+
                     // Check if file finder is active first
-                    let file_finder_active = if let Some(ref session_state) = state.new_session_state {
-                        session_state.file_finder.is_active
-                    } else {
-                        false
-                    };
-                    
+                    let file_finder_active =
+                        if let Some(ref session_state) = state.new_session_state {
+                            session_state.file_finder.is_active
+                        } else {
+                            false
+                        };
+
                     if file_finder_active {
                         // File finder navigation takes precedence
                         match key_event.code {
                             KeyCode::Esc => {
-                                tracing::debug!("InputPrompt: Escape pressed while file finder active, cancelling file finder");
+                                tracing::debug!(
+                                    "InputPrompt: Escape pressed while file finder active, cancelling file finder"
+                                );
                                 Some(AppEvent::FileFinderCancel)
-                            },
+                            }
                             KeyCode::Up => {
                                 tracing::debug!("InputPrompt: Up navigation in file finder");
                                 Some(AppEvent::FileFinderNavigateUp)
-                            },
+                            }
                             KeyCode::Down => {
                                 tracing::debug!("InputPrompt: Down navigation in file finder");
                                 Some(AppEvent::FileFinderNavigateDown)
-                            },
+                            }
                             KeyCode::Enter => {
-                                tracing::debug!("InputPrompt: Enter pressed in file finder, selecting file");
+                                tracing::debug!(
+                                    "InputPrompt: Enter pressed in file finder, selecting file"
+                                );
                                 Some(AppEvent::FileFinderSelectFile)
-                            },
+                            }
                             KeyCode::Backspace => {
                                 tracing::debug!("InputPrompt: Backspace pressed in file finder");
                                 Some(AppEvent::NewSessionBackspacePrompt)
-                            },
+                            }
                             KeyCode::Char(ch) => {
-                                tracing::debug!("InputPrompt: Character '{}' typed in file finder", ch);
+                                tracing::debug!(
+                                    "InputPrompt: Character '{}' typed in file finder",
+                                    ch
+                                );
                                 Some(AppEvent::NewSessionInputPromptChar(ch))
-                            },
+                            }
                             _ => {
-                                tracing::debug!("InputPrompt: Unhandled key in file finder: {:?}", key_event.code);
+                                tracing::debug!(
+                                    "InputPrompt: Unhandled key in file finder: {:?}",
+                                    key_event.code
+                                );
                                 None
-                            },
+                            }
                         }
                     } else {
                         // Normal prompt input handling
@@ -361,95 +388,132 @@ impl EventHandler {
                             KeyCode::Esc => {
                                 tracing::debug!("InputPrompt: Escape pressed, cancelling session");
                                 Some(AppEvent::NewSessionCancel)
-                            },
+                            }
                             KeyCode::Enter => {
-                                tracing::debug!("InputPrompt: Enter detected, checking prompt validity");
+                                tracing::debug!(
+                                    "InputPrompt: Enter detected, checking prompt validity"
+                                );
                                 // Check if prompt is not empty before proceeding
                                 if let Some(ref session_state) = state.new_session_state {
                                     let prompt_string = session_state.boss_prompt.to_string();
                                     let prompt_content = prompt_string.trim();
-                                    tracing::debug!("InputPrompt: Current prompt content: '{}' (length: {})", prompt_content, prompt_content.len());
+                                    tracing::debug!(
+                                        "InputPrompt: Current prompt content: '{}' (length: {})",
+                                        prompt_content,
+                                        prompt_content.len()
+                                    );
                                     if prompt_content.is_empty() {
-                                        tracing::warn!("InputPrompt: Prompt is empty, not proceeding");
+                                        tracing::warn!(
+                                            "InputPrompt: Prompt is empty, not proceeding"
+                                        );
                                         None // Don't proceed if prompt is empty
                                     } else {
-                                        tracing::info!("InputPrompt: Prompt is valid ({}), proceeding to permissions", prompt_content.len());
+                                        tracing::info!(
+                                            "InputPrompt: Prompt is valid ({}), proceeding to permissions",
+                                            prompt_content.len()
+                                        );
                                         Some(AppEvent::NewSessionProceedToPermissions)
                                     }
                                 } else {
-                                    tracing::error!("InputPrompt: No session state found, cannot proceed");
+                                    tracing::error!(
+                                        "InputPrompt: No session state found, cannot proceed"
+                                    );
                                     None
                                 }
-                            },
-                            KeyCode::Char('j') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                            }
+                            KeyCode::Char('j')
+                                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+                            {
                                 tracing::debug!("InputPrompt: Ctrl+J pressed, inserting newline");
                                 Some(AppEvent::NewSessionInsertNewline)
-                            },
-                            KeyCode::Char('v') if key_event.modifiers.contains(KeyModifiers::CONTROL) => {
-                                tracing::debug!("InputPrompt: Ctrl+V pressed, attempting to paste from clipboard");
+                            }
+                            KeyCode::Char('v')
+                                if key_event.modifiers.contains(KeyModifiers::CONTROL) =>
+                            {
+                                tracing::debug!(
+                                    "InputPrompt: Ctrl+V pressed, attempting to paste from clipboard"
+                                );
                                 // Try to get clipboard content
                                 match Self::get_clipboard_text() {
                                     Ok(text) => {
-                                        tracing::debug!("InputPrompt: Successfully got clipboard text: {} chars", text.len());
+                                        tracing::debug!(
+                                            "InputPrompt: Successfully got clipboard text: {} chars",
+                                            text.len()
+                                        );
                                         Some(AppEvent::NewSessionPasteText(text))
-                                    },
+                                    }
                                     Err(e) => {
-                                        tracing::warn!("InputPrompt: Failed to get clipboard content: {}", e);
+                                        tracing::warn!(
+                                            "InputPrompt: Failed to get clipboard content: {}",
+                                            e
+                                        );
                                         None
                                     }
                                 }
-                            },
+                            }
                             KeyCode::Backspace => {
                                 tracing::debug!("InputPrompt: Backspace pressed");
                                 Some(AppEvent::NewSessionBackspacePrompt)
-                            },
+                            }
                             // Arrow keys only for cursor movement (removed hjkl to allow typing those letters)
                             KeyCode::Left => {
                                 tracing::debug!("InputPrompt: Cursor left");
                                 Some(AppEvent::NewSessionCursorLeft)
-                            },
+                            }
                             KeyCode::Right => {
                                 tracing::debug!("InputPrompt: Cursor right");
                                 Some(AppEvent::NewSessionCursorRight)
-                            },
+                            }
                             KeyCode::Up => {
                                 tracing::debug!("InputPrompt: Cursor up");
                                 Some(AppEvent::NewSessionCursorUp)
-                            },
+                            }
                             KeyCode::Down => {
                                 tracing::debug!("InputPrompt: Cursor down");
                                 Some(AppEvent::NewSessionCursorDown)
-                            },
+                            }
                             KeyCode::Char(ch) => {
                                 tracing::debug!("InputPrompt: Character '{}' typed", ch);
                                 Some(AppEvent::NewSessionInputPromptChar(ch))
-                            },
+                            }
                             _ => {
                                 tracing::debug!("InputPrompt: Unhandled key: {:?}", key_event.code);
                                 None
-                            },
+                            }
                         }
                     }
                 }
                 NewSessionStep::ConfigurePermissions => {
-                    tracing::debug!("ConfigurePermissions: Received key event: {:?}", key_event.code);
+                    tracing::debug!(
+                        "ConfigurePermissions: Received key event: {:?}",
+                        key_event.code
+                    );
                     match key_event.code {
                         KeyCode::Esc => {
-                            tracing::debug!("ConfigurePermissions: Escape pressed, cancelling session");
+                            tracing::debug!(
+                                "ConfigurePermissions: Escape pressed, cancelling session"
+                            );
                             Some(AppEvent::NewSessionCancel)
-                        },
+                        }
                         KeyCode::Enter => {
-                            tracing::info!("ConfigurePermissions: Enter pressed, creating new session");
+                            tracing::info!(
+                                "ConfigurePermissions: Enter pressed, creating new session"
+                            );
                             Some(AppEvent::NewSessionCreate)
-                        },
+                        }
                         KeyCode::Char(' ') => {
-                            tracing::debug!("ConfigurePermissions: Space pressed, toggling permissions");
+                            tracing::debug!(
+                                "ConfigurePermissions: Space pressed, toggling permissions"
+                            );
                             Some(AppEvent::NewSessionTogglePermissions)
-                        },
+                        }
                         _ => {
-                            tracing::debug!("ConfigurePermissions: Unhandled key: {:?}", key_event.code);
+                            tracing::debug!(
+                                "ConfigurePermissions: Unhandled key: {:?}",
+                                key_event.code
+                            );
                             None
-                        },
+                        }
                     }
                 }
                 NewSessionStep::Creating => {
@@ -465,7 +529,10 @@ impl EventHandler {
         }
     }
 
-    fn handle_non_git_notification_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
+    fn handle_non_git_notification_keys(
+        key_event: KeyEvent,
+        _state: &mut AppState,
+    ) -> Option<AppEvent> {
         match key_event.code {
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::Quit),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
@@ -473,7 +540,10 @@ impl EventHandler {
         }
     }
 
-    fn handle_attached_terminal_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
+    fn handle_attached_terminal_keys(
+        key_event: KeyEvent,
+        _state: &mut AppState,
+    ) -> Option<AppEvent> {
         match key_event.code {
             KeyCode::Char('d') => Some(AppEvent::DetachSession),
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::DetachSession),
@@ -481,7 +551,7 @@ impl EventHandler {
             _ => None, // All other keys are passed through to the terminal
         }
     }
-    
+
     fn handle_claude_chat_keys(key_event: KeyEvent, _state: &mut AppState) -> Option<AppEvent> {
         match key_event.code {
             // Escape closes the Claude chat popup
@@ -490,17 +560,17 @@ impl EventHandler {
             KeyCode::Enter => {
                 // TODO: Add send message event
                 None
-            },
+            }
             // Backspace for editing input
             KeyCode::Backspace => {
                 // TODO: Add backspace handling
                 None
-            },
+            }
             // All other characters are input to the chat
             KeyCode::Char(_ch) => {
                 // TODO: Add character input handling
                 None
-            },
+            }
             _ => None,
         }
     }
@@ -508,7 +578,9 @@ impl EventHandler {
     fn handle_auth_setup_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
         if let Some(ref auth_state) = state.auth_setup_state {
             // If we're inputting API key, handle text input
-            if auth_state.selected_method == AuthMethod::ApiKey && !auth_state.api_key_input.is_empty() {
+            if auth_state.selected_method == AuthMethod::ApiKey
+                && !auth_state.api_key_input.is_empty()
+            {
                 match key_event.code {
                     KeyCode::Enter => Some(AppEvent::AuthSetupSelect),
                     KeyCode::Backspace => Some(AppEvent::AuthSetupBackspace),
@@ -540,7 +612,7 @@ impl EventHandler {
         } else {
             false
         };
-        
+
         if in_commit_mode {
             // Handle commit message input
             match key_event.code {
@@ -560,23 +632,31 @@ impl EventHandler {
                 KeyCode::Char('j') | KeyCode::Down => {
                     if let Some(ref git_state) = state.git_view_state {
                         match git_state.active_tab {
-                            crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewNextFile),
-                            crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollDown),
+                            crate::components::git_view::GitTab::Files => {
+                                Some(AppEvent::GitViewNextFile)
+                            }
+                            crate::components::git_view::GitTab::Diff => {
+                                Some(AppEvent::GitViewScrollDown)
+                            }
                         }
                     } else {
                         None
                     }
-                },
+                }
                 KeyCode::Char('k') | KeyCode::Up => {
                     if let Some(ref git_state) = state.git_view_state {
                         match git_state.active_tab {
-                            crate::components::git_view::GitTab::Files => Some(AppEvent::GitViewPrevFile),
-                            crate::components::git_view::GitTab::Diff => Some(AppEvent::GitViewScrollUp),
+                            crate::components::git_view::GitTab::Files => {
+                                Some(AppEvent::GitViewPrevFile)
+                            }
+                            crate::components::git_view::GitTab::Diff => {
+                                Some(AppEvent::GitViewScrollUp)
+                            }
                         }
                     } else {
                         None
                     }
-                },
+                }
                 KeyCode::Char('p') => Some(AppEvent::GitViewStartCommit),
                 _ => None,
             }
@@ -591,7 +671,7 @@ impl EventHandler {
             AppEvent::RefreshWorkspaces => {
                 // Mark for async processing to reload workspace data
                 state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
-            },
+            }
             AppEvent::NextSession => state.next_session(),
             AppEvent::PreviousSession => state.previous_session(),
             AppEvent::NextWorkspace => state.next_workspace(),
@@ -600,7 +680,7 @@ impl EventHandler {
                 if state.selected_workspace_index.is_some() {
                     state.selected_session_index = Some(0);
                 }
-            },
+            }
             AppEvent::GoToBottom => {
                 if let Some(workspace_idx) = state.selected_workspace_index {
                     if let Some(workspace) = state.workspaces.get(workspace_idx) {
@@ -609,46 +689,46 @@ impl EventHandler {
                         }
                     }
                 }
-            },
+            }
             AppEvent::NewSession => {
                 // Mark for async processing - create session in current directory
                 state.pending_async_action = Some(AsyncAction::NewSessionInCurrentDir);
-            },
+            }
             AppEvent::SearchWorkspace => {
                 // Mark for async processing - search all workspaces
                 state.pending_async_action = Some(AsyncAction::StartWorkspaceSearch);
                 // Clear any previous cancellation flag
                 state.async_operation_cancelled = false;
-            },
+            }
             AppEvent::NewSessionCancel => {
                 state.cancel_new_session();
-            },
+            }
             AppEvent::NewSessionNextRepo => state.new_session_next_repo(),
             AppEvent::NewSessionPrevRepo => state.new_session_prev_repo(),
             AppEvent::NewSessionConfirmRepo => {
                 tracing::info!("Event: NewSessionConfirmRepo");
                 state.new_session_confirm_repo();
-            },
+            }
             AppEvent::NewSessionInputChar(ch) => {
                 tracing::debug!("Event: NewSessionInputChar({})", ch);
                 state.new_session_update_branch(ch);
-            },
+            }
             AppEvent::NewSessionBackspace => {
                 tracing::debug!("Event: NewSessionBackspace");
                 state.new_session_backspace();
-            },
+            }
             AppEvent::NewSessionProceedToModeSelection => {
                 tracing::info!("Event: NewSessionProceedToModeSelection");
                 state.new_session_proceed_to_mode_selection();
-            },
+            }
             AppEvent::NewSessionToggleMode => {
                 tracing::info!("Event: NewSessionToggleMode");
                 state.new_session_toggle_mode();
-            },
+            }
             AppEvent::NewSessionProceedFromMode => {
                 tracing::info!("Event: NewSessionProceedFromMode");
                 state.new_session_proceed_from_mode();
-            },
+            }
             AppEvent::NewSessionInputPromptChar(ch) => state.new_session_add_char_to_prompt(ch),
             AppEvent::NewSessionBackspacePrompt => state.new_session_backspace_prompt(),
             AppEvent::NewSessionInsertNewline => state.new_session_insert_newline(),
@@ -662,57 +742,57 @@ impl EventHandler {
             AppEvent::NewSessionProceedToPermissions => {
                 tracing::info!("Processing NewSessionProceedToPermissions event");
                 state.new_session_proceed_to_permissions();
-            },
+            }
             AppEvent::NewSessionTogglePermissions => state.new_session_toggle_permissions(),
             AppEvent::NewSessionCreate => {
                 tracing::info!("Processing NewSessionCreate event - queueing async action");
                 // Mark for async processing
                 state.pending_async_action = Some(AsyncAction::CreateNewSession);
-            },
+            }
             AppEvent::SearchWorkspaceInputChar(ch) => {
                 if let Some(ref mut session_state) = state.new_session_state {
                     session_state.filter_text.push(ch);
                     session_state.apply_filter();
                 }
-            },
+            }
             AppEvent::SearchWorkspaceBackspace => {
                 if let Some(ref mut session_state) = state.new_session_state {
                     session_state.filter_text.pop();
                     session_state.apply_filter();
                 }
-            },
+            }
             AppEvent::AttachSession => {
                 if let Some(session_id) = state.get_selected_session_id() {
                     state.pending_async_action = Some(AsyncAction::AttachToContainer(session_id));
                 }
-            },
+            }
             AppEvent::DetachSession => {
                 // Clear attached session and return to session list
                 state.attached_session_id = None;
                 state.current_view = View::SessionList;
                 state.ui_needs_refresh = true;
-            },
+            }
             AppEvent::KillContainer => {
                 if let Some(session_id) = state.attached_session_id {
                     state.pending_async_action = Some(AsyncAction::KillContainer(session_id));
                 }
-            },
+            }
             AppEvent::ReauthenticateCredentials => {
                 info!("Queueing re-authentication request");
                 state.pending_async_action = Some(AsyncAction::ReauthenticateCredentials);
-            },
+            }
             AppEvent::DeleteSession => {
                 // Show confirmation dialog
                 if let Some(session) = state.selected_session() {
                     state.show_delete_confirmation(session.id);
                 }
-            },
+            }
             AppEvent::SwitchToLogs => {
                 // TODO: Implement view switching
-            },
+            }
             AppEvent::SwitchToTerminal => {
                 // TODO: Implement terminal view
-            },
+            }
             AppEvent::SwitchPaneFocus => {
                 use crate::app::state::FocusedPane;
                 let old_pane = state.focused_pane.clone();
@@ -720,41 +800,46 @@ impl EventHandler {
                     FocusedPane::Sessions => FocusedPane::LiveLogs,
                     FocusedPane::LiveLogs => FocusedPane::Sessions,
                 };
-                tracing::debug!("Switched focus from {:?} to {:?}", old_pane, state.focused_pane);
-            },
+                tracing::debug!(
+                    "Switched focus from {:?} to {:?}",
+                    old_pane,
+                    state.focused_pane
+                );
+            }
             AppEvent::ScrollLogsUp => {
                 // This will be handled by the LiveLogsStreamComponent
-            },
+            }
             AppEvent::ScrollLogsDown => {
                 // This will be handled by the LiveLogsStreamComponent
-            },
+            }
             AppEvent::ScrollLogsToTop => {
                 // This will be handled by the LiveLogsStreamComponent
-            },
+            }
             AppEvent::ScrollLogsToBottom => {
                 // This will be handled by the LiveLogsStreamComponent
-            },
+            }
             AppEvent::ConfirmationToggle => {
                 if let Some(ref mut dialog) = state.confirmation_dialog {
                     dialog.selected_option = !dialog.selected_option;
                 }
-            },
+            }
             AppEvent::ConfirmationConfirm => {
                 if let Some(dialog) = state.confirmation_dialog.take() {
                     if dialog.selected_option {
                         // User confirmed, execute the action
                         match dialog.confirm_action {
                             crate::app::state::ConfirmAction::DeleteSession(session_id) => {
-                                state.pending_async_action = Some(AsyncAction::DeleteSession(session_id));
+                                state.pending_async_action =
+                                    Some(AsyncAction::DeleteSession(session_id));
                             }
                         }
                     }
                     // If not confirmed, just close the dialog
                 }
-            },
+            }
             AppEvent::ConfirmationCancel => {
                 state.confirmation_dialog = None;
-            },
+            }
             AppEvent::AuthSetupNext => {
                 if let Some(ref mut auth_state) = state.auth_setup_state {
                     auth_state.selected_method = match auth_state.selected_method {
@@ -763,7 +848,7 @@ impl EventHandler {
                         AuthMethod::Skip => AuthMethod::OAuth,
                     };
                 }
-            },
+            }
             AppEvent::AuthSetupPrevious => {
                 if let Some(ref mut auth_state) = state.auth_setup_state {
                     auth_state.selected_method = match auth_state.selected_method {
@@ -772,14 +857,14 @@ impl EventHandler {
                         AuthMethod::Skip => AuthMethod::ApiKey,
                     };
                 }
-            },
+            }
             AppEvent::AuthSetupSelect => {
                 if let Some(ref auth_state) = state.auth_setup_state {
                     match auth_state.selected_method {
                         AuthMethod::OAuth => {
                             // Mark for async OAuth processing
                             state.pending_async_action = Some(AsyncAction::AuthSetupOAuth);
-                        },
+                        }
                         AuthMethod::ApiKey => {
                             if auth_state.api_key_input.is_empty() {
                                 // Enter API key input mode
@@ -791,29 +876,29 @@ impl EventHandler {
                                 // Save the API key
                                 state.pending_async_action = Some(AsyncAction::AuthSetupApiKey);
                             }
-                        },
+                        }
                         AuthMethod::Skip => {
                             // Skip auth setup and go to main screen
                             state.auth_setup_state = None;
                             state.current_view = View::SessionList;
                             state.check_current_directory_status();
                             state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
-                        },
+                        }
                     }
                 }
-            },
+            }
             AppEvent::AuthSetupCancel => {
                 // Same as skip - go to main screen without auth
                 state.auth_setup_state = None;
                 state.current_view = View::SessionList;
                 state.check_current_directory_status();
                 state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
-            },
+            }
             AppEvent::AuthSetupInputChar(ch) => {
                 if let Some(ref mut auth_state) = state.auth_setup_state {
                     auth_state.api_key_input.push(ch);
                 }
-            },
+            }
             AppEvent::AuthSetupBackspace => {
                 if let Some(ref mut auth_state) = state.auth_setup_state {
                     if auth_state.api_key_input.is_empty() {
@@ -823,7 +908,7 @@ impl EventHandler {
                         auth_state.api_key_input.pop();
                     }
                 }
-            },
+            }
             AppEvent::AuthSetupCheckStatus => {
                 // Check if authentication was completed and transition if so
                 if state.auth_setup_state.is_some() && !AppState::is_first_time_setup() {
@@ -833,7 +918,7 @@ impl EventHandler {
                     state.check_current_directory_status();
                     state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);
                 }
-            },
+            }
             AppEvent::AuthSetupRefresh => {
                 // Manual refresh - check authentication status immediately
                 if let Some(ref mut auth_state) = state.auth_setup_state {
@@ -848,7 +933,7 @@ impl EventHandler {
                         auth_state.error_message = Some("Still waiting for authentication. Complete the process in the terminal window.\n\nPress 'r' to refresh or 'Esc' to cancel.".to_string());
                     }
                 }
-            },
+            }
             AppEvent::AuthSetupShowCommand => {
                 // Show alternative authentication methods
                 if let Some(ref mut auth_state) = state.auth_setup_state {
@@ -859,21 +944,22 @@ impl EventHandler {
                          3. Run authentication manually in a terminal:\n\
                             docker exec -it claude-box-auth /bin/bash\n\
                             claude auth login\n\n\
-                         Press 'Esc' to go back.".to_string()
+                         Press 'Esc' to go back."
+                            .to_string(),
                     );
                 }
-            },
+            }
             // File finder events
             AppEvent::FileFinderNavigateUp => {
                 if let Some(ref mut session_state) = state.new_session_state {
                     session_state.file_finder.move_selection_up();
                 }
-            },
+            }
             AppEvent::FileFinderNavigateDown => {
                 if let Some(ref mut session_state) = state.new_session_state {
                     session_state.file_finder.move_selection_down();
                 }
-            },
+            }
             AppEvent::FileFinderSelectFile => {
                 if let Some(ref mut session_state) = state.new_session_state {
                     if let Some(selected_file) = session_state.file_finder.get_selected_file() {
@@ -881,98 +967,98 @@ impl EventHandler {
                         let file_path = &selected_file.relative_path;
                         let at_pos = session_state.file_finder.at_symbol_position;
                         let query_end_pos = at_pos + 1 + session_state.file_finder.query.len();
-                        
+
                         // Construct new prompt by replacing @query with file path
                         let current_text = session_state.boss_prompt.to_string();
-                        let mut new_prompt = String::with_capacity(
-                            current_text.len() + file_path.len()
-                        );
+                        let mut new_prompt =
+                            String::with_capacity(current_text.len() + file_path.len());
                         new_prompt.push_str(&current_text[..at_pos]);
                         new_prompt.push_str(file_path);
                         if query_end_pos < current_text.len() {
                             new_prompt.push_str(&current_text[query_end_pos..]);
                         }
-                        
-                        session_state.boss_prompt = crate::app::state::TextEditor::from_string(&new_prompt);
+
+                        session_state.boss_prompt =
+                            crate::app::state::TextEditor::from_string(&new_prompt);
                         session_state.file_finder.deactivate();
                     }
                 }
-            },
+            }
             AppEvent::FileFinderCancel => {
                 if let Some(ref mut session_state) = state.new_session_state {
                     session_state.file_finder.deactivate();
                 }
-            },
+            }
             // Git view events
             AppEvent::ShowGitView => {
                 state.show_git_view();
-            },
+            }
             AppEvent::GitViewSwitchTab => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.switch_tab();
                 }
-            },
+            }
             AppEvent::GitViewNextFile => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.next_file();
                 }
-            },
+            }
             AppEvent::GitViewPrevFile => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.previous_file();
                 }
-            },
+            }
             AppEvent::GitViewScrollUp => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.scroll_diff_up();
                 }
-            },
+            }
             AppEvent::GitViewScrollDown => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.scroll_diff_down();
                 }
-            },
+            }
             AppEvent::GitViewCommitPush => {
                 state.git_commit_and_push();
-            },
+            }
             AppEvent::GitViewBack => {
                 state.current_view = crate::app::state::View::SessionList;
                 state.git_view_state = None;
-            },
+            }
             // Commit message input events
             AppEvent::GitViewStartCommit => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.start_commit_message_input();
                 }
-            },
+            }
             AppEvent::GitViewCommitInputChar(ch) => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.add_char_to_commit_message(ch);
                 }
-            },
+            }
             AppEvent::GitViewCommitBackspace => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.backspace_commit_message();
                 }
-            },
+            }
             AppEvent::GitViewCommitCursorLeft => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.move_commit_cursor_left();
                 }
-            },
+            }
             AppEvent::GitViewCommitCursorRight => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.move_commit_cursor_right();
                 }
-            },
+            }
             AppEvent::GitViewCommitCancel => {
                 if let Some(ref mut git_state) = state.git_view_state {
                     git_state.cancel_commit_message_input();
                 }
-            },
+            }
             AppEvent::GitViewCommitConfirm => {
                 state.git_commit_and_push();
-            },
+            }
         }
     }
 }

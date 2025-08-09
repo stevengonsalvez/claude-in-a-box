@@ -1,15 +1,15 @@
 // ABOUTME: Git view component for displaying git status, changed files, and diffs with commit/push functionality
 
+use anyhow::Result;
+use git2::{DiffFormat, DiffOptions, Repository};
 use ratatui::{
+    Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap},
-    Frame,
 };
 use std::path::PathBuf;
-use anyhow::Result;
-use git2::{Repository, DiffOptions, DiffFormat};
 use tracing::{debug, error};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub struct GitViewState {
     pub is_dirty: bool,
     pub can_push: bool,
     pub commit_message_input: Option<String>, // None = not in commit mode, Some = commit message being entered
-    pub commit_message_cursor: usize, // Cursor position in commit message
+    pub commit_message_cursor: usize,         // Cursor position in commit message
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -88,18 +88,21 @@ impl GitViewState {
     }
 
     pub fn refresh_git_status(&mut self) -> Result<()> {
-        debug!("Refreshing git status for worktree: {:?}", self.worktree_path);
-        
+        debug!(
+            "Refreshing git status for worktree: {:?}",
+            self.worktree_path
+        );
+
         let repo = Repository::open(&self.worktree_path)?;
         let mut changed_files = Vec::new();
-        
+
         // Get working directory changes
         let mut opts = DiffOptions::new();
         opts.include_untracked(true);
         opts.include_ignored(false);
-        
+
         let diff = repo.diff_index_to_workdir(None, Some(&mut opts))?;
-        
+
         diff.foreach(
             &mut |delta, _progress| {
                 if let Some(new_file) = delta.new_file().path() {
@@ -112,7 +115,7 @@ impl GitViewState {
                         git2::Delta::Untracked => GitFileStatus::Untracked,
                         _ => GitFileStatus::Modified,
                     };
-                    
+
                     changed_files.push(ChangedFile {
                         path,
                         status,
@@ -126,33 +129,33 @@ impl GitViewState {
             None,
             None,
         )?;
-        
+
         // Check if there are staged changes
         let head_tree = repo.head()?.peel_to_tree()?;
         let staged_diff = repo.diff_tree_to_index(Some(&head_tree), None, None)?;
         let has_staged_changes = staged_diff.deltas().len() > 0;
-        
+
         self.changed_files = changed_files;
         self.is_dirty = !self.changed_files.is_empty() || has_staged_changes;
-        
+
         // Check if we can push (has commits ahead of remote)
         self.can_push = self.check_can_push(&repo)?;
-        
+
         // Reset selection if needed
         if self.selected_file_index >= self.changed_files.len() && !self.changed_files.is_empty() {
             self.selected_file_index = 0;
         }
-        
+
         // Refresh diff for selected file
         if !self.changed_files.is_empty() {
             self.refresh_diff_for_selected_file()?;
         } else {
             self.diff_content.clear();
         }
-        
+
         Ok(())
     }
-    
+
     fn check_can_push(&self, repo: &Repository) -> Result<bool> {
         // Check if there are commits ahead of the remote
         match repo.head() {
@@ -161,15 +164,15 @@ impl GitViewState {
                     Some(oid) => oid,
                     None => return Ok(false), // Symbolic ref pointing to nothing
                 };
-                
+
                 // Try to find the upstream branch
                 let branch_name = head_ref.shorthand().unwrap_or("HEAD");
                 let upstream_name = format!("origin/{}", branch_name);
-                
+
                 match repo.revparse_single(&upstream_name) {
                     Ok(upstream_commit) => {
                         let upstream_oid = upstream_commit.id();
-                        
+
                         // Check if head is ahead of upstream
                         let (ahead, _behind) = repo.graph_ahead_behind(head_oid, upstream_oid)?;
                         Ok(ahead > 0)
@@ -189,17 +192,17 @@ impl GitViewState {
             self.diff_content.clear();
             return Ok(());
         }
-        
+
         let selected_file = &self.changed_files[self.selected_file_index];
         debug!("Refreshing diff for file: {}", selected_file.path);
-        
+
         let repo = Repository::open(&self.worktree_path)?;
         let mut diff_content = Vec::new();
-        
+
         // Create diff options
         let mut opts = DiffOptions::new();
         opts.pathspec(&selected_file.path);
-        
+
         let diff = match selected_file.status {
             GitFileStatus::Untracked => {
                 // For untracked files, show the entire file content as additions
@@ -222,7 +225,7 @@ impl GitViewState {
             }
             _ => repo.diff_index_to_workdir(None, Some(&mut opts))?,
         };
-        
+
         // Format the diff
         diff.print(DiffFormat::Patch, |_delta, _hunk, line| {
             let content = std::str::from_utf8(line.content()).unwrap_or("<binary>");
@@ -240,10 +243,10 @@ impl GitViewState {
             diff_content.push(line_str);
             true
         })?;
-        
+
         self.diff_content = diff_content;
         self.diff_scroll_offset = 0; // Reset scroll when changing files
-        
+
         Ok(())
     }
 
@@ -292,23 +295,23 @@ impl GitViewState {
         self.commit_message_input = Some(String::new());
         self.commit_message_cursor = 0;
     }
-    
+
     pub fn cancel_commit_message_input(&mut self) {
         self.commit_message_input = None;
         self.commit_message_cursor = 0;
     }
-    
+
     pub fn is_in_commit_mode(&self) -> bool {
         self.commit_message_input.is_some()
     }
-    
+
     pub fn add_char_to_commit_message(&mut self, ch: char) {
         if let Some(ref mut message) = self.commit_message_input {
             message.insert(self.commit_message_cursor, ch);
             self.commit_message_cursor += 1;
         }
     }
-    
+
     pub fn backspace_commit_message(&mut self) {
         if let Some(ref mut message) = self.commit_message_input {
             if self.commit_message_cursor > 0 {
@@ -317,13 +320,13 @@ impl GitViewState {
             }
         }
     }
-    
+
     pub fn move_commit_cursor_left(&mut self) {
         if self.commit_message_cursor > 0 {
             self.commit_message_cursor -= 1;
         }
     }
-    
+
     pub fn move_commit_cursor_right(&mut self) {
         if let Some(ref message) = self.commit_message_input {
             if self.commit_message_cursor < message.len() {
@@ -333,20 +336,27 @@ impl GitViewState {
     }
 
     pub fn commit_and_push(&mut self) -> Result<String> {
-        debug!("Committing and pushing changes for worktree: {:?}", self.worktree_path);
-        
+        debug!(
+            "Committing and pushing changes for worktree: {:?}",
+            self.worktree_path
+        );
+
         // Get the commit message, or return error if not in commit mode
         let commit_message = match &self.commit_message_input {
             Some(message) if !message.trim().is_empty() => message.trim().to_string(),
             Some(_) => return Err(anyhow::anyhow!("Commit message cannot be empty")),
-            None => return Err(anyhow::anyhow!("Not in commit mode - press 'p' to start commit process")),
+            None => {
+                return Err(anyhow::anyhow!(
+                    "Not in commit mode - press 'p' to start commit process"
+                ));
+            }
         };
-        
+
         let repo = Repository::open(&self.worktree_path)?;
-        
+
         // Stage all changes
         let mut index = repo.index()?;
-        
+
         // Add all changed files to the index
         for file in &self.changed_files {
             match file.status {
@@ -358,21 +368,21 @@ impl GitViewState {
                 }
             }
         }
-        
+
         index.write()?;
-        
+
         // Create commit
         let signature = repo.signature()?;
         let tree_id = index.write_tree()?;
         let tree = repo.find_tree(tree_id)?;
-        
+
         let parent_commit = match repo.head() {
             Ok(head) => Some(head.peel_to_commit()?),
             Err(_) => None,
         };
-        
+
         let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
-        
+
         let commit_id = repo.commit(
             Some("HEAD"),
             &signature,
@@ -381,21 +391,21 @@ impl GitViewState {
             &tree,
             &parents,
         )?;
-        
+
         debug!("Created commit: {}", commit_id);
-        
+
         // Push to remote
         let mut remote = repo.find_remote("origin")?;
         let head_ref = repo.head()?;
         let branch_name = head_ref.shorthand().unwrap_or("HEAD");
         let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
-        
+
         remote.push(&[&refspec], None)?;
-        
+
         // Clear commit message input after successful commit
         self.commit_message_input = None;
         self.commit_message_cursor = 0;
-        
+
         Ok(format!("Committed and pushed: {}", commit_message))
     }
 }
@@ -403,11 +413,7 @@ impl GitViewState {
 pub struct GitViewComponent;
 
 impl GitViewComponent {
-    pub fn render(
-        frame: &mut Frame,
-        area: Rect,
-        git_state: &GitViewState,
-    ) {
+    pub fn render(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
         // Create main layout
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -424,13 +430,13 @@ impl GitViewComponent {
             GitTab::Files => 0,
             GitTab::Diff => 1,
         };
-        
+
         let tabs = Tabs::new(tab_titles)
             .block(Block::default().borders(Borders::ALL).title("Git Status"))
             .style(Style::default().fg(Color::White))
             .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             .select(selected_tab);
-        
+
         frame.render_widget(tabs, chunks[0]);
 
         // Render content based on active tab
@@ -443,11 +449,7 @@ impl GitViewComponent {
         Self::render_status_bar(frame, chunks[2], git_state);
     }
 
-    fn render_files_tab(
-        frame: &mut Frame,
-        area: Rect,
-        git_state: &GitViewState,
-    ) {
+    fn render_files_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
         if git_state.changed_files.is_empty() {
             let no_changes = Paragraph::new("No changes detected")
                 .block(Block::default().borders(Borders::ALL).title("Changed Files"))
@@ -472,9 +474,9 @@ impl GitViewComponent {
                     format!("[{}]", file.status.symbol()),
                     Style::default().fg(file.status.color()).add_modifier(Modifier::BOLD),
                 );
-                
+
                 let path_span = Span::styled(&file.path, style);
-                
+
                 let changes_span = if file.insertions > 0 || file.deletions > 0 {
                     Span::styled(
                         format!(" (+{} -{}) ", file.insertions, file.deletions),
@@ -484,8 +486,13 @@ impl GitViewComponent {
                     Span::raw("")
                 };
 
-                ListItem::new(Line::from(vec![status_span, Span::raw(" "), path_span, changes_span]))
-                    .style(style)
+                ListItem::new(Line::from(vec![
+                    status_span,
+                    Span::raw(" "),
+                    path_span,
+                    changes_span,
+                ]))
+                .style(style)
             })
             .collect();
 
@@ -499,16 +506,14 @@ impl GitViewComponent {
         frame.render_stateful_widget(files_list, area, &mut list_state);
     }
 
-    fn render_diff_tab(
-        frame: &mut Frame,
-        area: Rect,
-        git_state: &GitViewState,
-    ) {
+    fn render_diff_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
         if git_state.diff_content.is_empty() {
-            let no_diff = Paragraph::new("No diff available\nSelect a file in the Files tab to view its diff")
-                .block(Block::default().borders(Borders::ALL).title("Diff"))
-                .style(Style::default().fg(Color::Gray))
-                .wrap(Wrap { trim: true });
+            let no_diff = Paragraph::new(
+                "No diff available\nSelect a file in the Files tab to view its diff",
+            )
+            .block(Block::default().borders(Borders::ALL).title("Diff"))
+            .style(Style::default().fg(Color::Gray))
+            .wrap(Wrap { trim: true });
             frame.render_widget(no_diff, area);
             return;
         }
@@ -517,7 +522,7 @@ impl GitViewComponent {
         let content_height = area.height.saturating_sub(2) as usize; // Account for borders
         let start_line = git_state.diff_scroll_offset;
         let end_line = (start_line + content_height).min(git_state.diff_content.len());
-        
+
         let visible_lines: Vec<Line> = git_state.diff_content[start_line..end_line]
             .iter()
             .map(|line| {
@@ -532,28 +537,29 @@ impl GitViewComponent {
                 } else {
                     Style::default().fg(Color::White)
                 };
-                
+
                 Line::from(Span::styled(line.clone(), style))
             })
             .collect();
 
-        let selected_file_name = git_state.changed_files
+        let selected_file_name = git_state
+            .changed_files
             .get(git_state.selected_file_index)
             .map(|f| f.path.as_str())
             .unwrap_or("No file selected");
 
         let diff_paragraph = Paragraph::new(visible_lines)
-            .block(Block::default().borders(Borders::ALL).title(format!("Diff: {}", selected_file_name)))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("Diff: {}", selected_file_name)),
+            )
             .wrap(Wrap { trim: false });
 
         frame.render_widget(diff_paragraph, area);
     }
 
-    fn render_status_bar(
-        frame: &mut Frame,
-        area: Rect,
-        git_state: &GitViewState,
-    ) {
+    fn render_status_bar(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
         let status_text = if git_state.is_dirty {
             format!("{} files changed", git_state.changed_files.len())
         } else {

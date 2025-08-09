@@ -2,8 +2,8 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Clear, List, ListItem},
     style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Clear, List, ListItem},
 };
 
 pub struct HelpComponent;
@@ -15,11 +15,12 @@ impl HelpComponent {
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         let popup_area = self.centered_rect(60, 80, area);
-        
+
         frame.render_widget(Clear, popup_area);
-        
+
         let help_items = vec![
-            ListItem::new("Navigation:").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ListItem::new("Navigation:")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ListItem::new("  j/↓        Move down"),
             ListItem::new("  k/↑        Move up"),
             ListItem::new("  h/←        Previous workspace"),
@@ -27,7 +28,8 @@ impl HelpComponent {
             ListItem::new("  g          Go to top"),
             ListItem::new("  G          Go to bottom"),
             ListItem::new(""),
-            ListItem::new("Session Actions:").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ListItem::new("Session Actions:")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ListItem::new("  n          New session (current directory)"),
             ListItem::new("  s          Search & select workspace"),
             ListItem::new("  a          Attach to session"),
@@ -35,22 +37,23 @@ impl HelpComponent {
             ListItem::new("  d          Delete session"),
             ListItem::new("  f          Refresh workspaces"),
             ListItem::new(""),
-            ListItem::new("Views:").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ListItem::new("Views:")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ListItem::new("  Tab        Switch between views"),
             ListItem::new(""),
-            ListItem::new("General:").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ListItem::new("General:")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ListItem::new("  ?          Toggle this help"),
             ListItem::new("  q/Esc      Quit application"),
             ListItem::new("  Ctrl+C     Force quit"),
         ];
 
-        let help_list = List::new(help_items)
-            .block(
-                Block::default()
-                    .title("Help - Press ? or Esc to close")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-            );
+        let help_list = List::new(help_items).block(
+            Block::default()
+                .title("Help - Press ? or Esc to close")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
 
         frame.render_widget(help_list, popup_area);
     }

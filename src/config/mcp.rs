@@ -8,20 +8,20 @@ use std::collections::HashMap;
 pub struct McpServerConfig {
     /// Server name
     pub name: String,
-    
+
     /// Server description
     pub description: String,
-    
+
     /// Installation method
     pub installation: McpInstallation,
-    
+
     /// Server definition for claude/gemini
     pub definition: McpServerDefinition,
-    
+
     /// Required environment variables
     #[serde(default)]
     pub required_env: Vec<String>,
-    
+
     /// Whether this server is enabled by default
     #[serde(default = "default_true")]
     pub enabled_by_default: bool,
@@ -31,31 +31,29 @@ pub struct McpServerConfig {
 #[serde(tag = "type")]
 pub enum McpInstallation {
     /// NPM package
-    Npm { 
+    Npm {
         package: String,
         version: Option<String>,
     },
-    
+
     /// Python package
     Python {
         package: String,
         version: Option<String>,
     },
-    
+
     /// Git repository
     Git {
         url: String,
         branch: Option<String>,
         install_command: Option<String>,
     },
-    
+
     /// Pre-installed (no action needed)
     PreInstalled,
-    
+
     /// Custom installation script
-    Custom {
-        script: String,
-    },
+    Custom { script: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,11 +66,9 @@ pub enum McpServerDefinition {
         #[serde(default)]
         env: HashMap<String, String>,
     },
-    
+
     /// JSON-based configuration (for complex servers)
-    Json {
-        config: serde_json::Value,
-    },
+    Json { config: serde_json::Value },
 }
 
 fn default_true() -> bool {
@@ -100,7 +96,7 @@ impl McpServerConfig {
             enabled_by_default: true,
         }
     }
-    
+
     /// Create Context7 MCP server config
     pub fn context7() -> Self {
         Self {
@@ -121,7 +117,7 @@ impl McpServerConfig {
             enabled_by_default: true,
         }
     }
-    
+
     /// Create Twilio MCP server config
     pub fn twilio() -> Self {
         Self {
@@ -150,37 +146,39 @@ impl McpServerConfig {
             enabled_by_default: false,
         }
     }
-    
+
     /// Get default MCP server configurations
     pub fn defaults() -> HashMap<String, Self> {
         let mut servers = HashMap::new();
-        
+
         let serena = Self::serena();
         servers.insert(serena.name.clone(), serena);
-        
+
         let context7 = Self::context7();
         servers.insert(context7.name.clone(), context7);
-        
+
         let twilio = Self::twilio();
         servers.insert(twilio.name.clone(), twilio);
-        
+
         servers
     }
-    
+
     /// Check if required environment variables are set
     pub fn check_env(&self) -> Result<(), Vec<String>> {
-        let missing: Vec<String> = self.required_env.iter()
+        let missing: Vec<String> = self
+            .required_env
+            .iter()
             .filter(|var| std::env::var(var).is_err())
             .cloned()
             .collect();
-        
+
         if missing.is_empty() {
             Ok(())
         } else {
             Err(missing)
         }
     }
-    
+
     /// Generate installation script for this server
     pub fn installation_script(&self) -> String {
         match &self.installation {
@@ -190,15 +188,19 @@ impl McpServerConfig {
                 } else {
                     format!("npm install -g {}", package)
                 }
-            },
+            }
             McpInstallation::Python { package, version } => {
                 if let Some(v) = version {
                     format!("pip install {}=={}", package, v)
                 } else {
                     format!("pip install {}", package)
                 }
-            },
-            McpInstallation::Git { url, branch, install_command } => {
+            }
+            McpInstallation::Git {
+                url,
+                branch,
+                install_command,
+            } => {
                 let mut script = format!("git clone {}", url);
                 if let Some(b) = branch {
                     script.push_str(&format!(" -b {}", b));
@@ -207,12 +209,12 @@ impl McpServerConfig {
                     script.push_str(&format!(" && {}", cmd));
                 }
                 script
-            },
+            }
             McpInstallation::PreInstalled => "# Pre-installed".to_string(),
             McpInstallation::Custom { script } => script.clone(),
         }
     }
-    
+
     /// Convert to MCP configuration format for Claude/Gemini
     pub fn to_mcp_config(&self) -> serde_json::Value {
         match &self.definition {
@@ -221,13 +223,13 @@ impl McpServerConfig {
                     "command": command,
                     "args": args,
                 });
-                
+
                 if !env.is_empty() {
                     config["env"] = serde_json::json!(env);
                 }
-                
+
                 config
-            },
+            }
             McpServerDefinition::Json { config } => config.clone(),
         }
     }
@@ -236,13 +238,13 @@ impl McpServerConfig {
 /// Generate MCP servers configuration file content
 pub fn generate_mcp_config_json(servers: &[McpServerConfig]) -> serde_json::Value {
     let mut mcp_servers = serde_json::Map::new();
-    
+
     for server in servers {
         if server.enabled_by_default {
             mcp_servers.insert(server.name.clone(), server.to_mcp_config());
         }
     }
-    
+
     serde_json::json!({
         "mcpServers": mcp_servers
     })
@@ -253,13 +255,13 @@ pub fn generate_mcp_config_json(servers: &[McpServerConfig]) -> serde_json::Valu
 pub enum McpInitStrategy {
     /// Initialize MCP servers inside each container
     PerContainer,
-    
+
     /// Mount central MCP configuration from host
     CentralMount {
         /// Path to mount from (e.g., ~/.claude)
         host_path: String,
     },
-    
+
     /// Hybrid: install servers in container but use central config
     Hybrid {
         /// Config path to mount
@@ -282,7 +284,7 @@ impl Default for McpInitStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_serena_config() {
         let serena = McpServerConfig::serena();
@@ -290,7 +292,7 @@ mod tests {
         assert!(serena.enabled_by_default);
         assert!(serena.required_env.is_empty());
     }
-    
+
     #[test]
     fn test_twilio_config() {
         let twilio = McpServerConfig::twilio();
@@ -298,24 +300,21 @@ mod tests {
         assert!(!twilio.enabled_by_default);
         assert_eq!(twilio.required_env.len(), 3);
     }
-    
+
     #[test]
     fn test_installation_script() {
         let context7 = McpServerConfig::context7();
         let script = context7.installation_script();
         assert_eq!(script, "npm install -g context7");
     }
-    
+
     #[test]
     fn test_mcp_config_generation() {
-        let servers = vec![
-            McpServerConfig::serena(),
-            McpServerConfig::context7(),
-        ];
-        
+        let servers = vec![McpServerConfig::serena(), McpServerConfig::context7()];
+
         let config = generate_mcp_config_json(&servers);
         let mcp_servers = config["mcpServers"].as_object().unwrap();
-        
+
         assert!(mcp_servers.contains_key("serena"));
         assert!(mcp_servers.contains_key("context7"));
     }

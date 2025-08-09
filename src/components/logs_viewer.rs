@@ -2,8 +2,8 @@
 
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     style::{Color, Modifier, Style},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
 use crate::app::AppState;
@@ -23,12 +23,18 @@ impl LogsViewerComponent {
         }
     }
 
-    fn render_session_info(&self, frame: &mut Frame, area: Rect, state: &AppState, session: &crate::models::Session) {
+    fn render_session_info(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        session: &crate::models::Session,
+    ) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(6),  // Session info
-                Constraint::Min(0),     // Logs
+                Constraint::Length(6), // Session info
+                Constraint::Min(0),    // Logs
             ])
             .split(area);
 
@@ -39,7 +45,7 @@ impl LogsViewerComponent {
             session.status.indicator(),
             match &session.status {
                 crate::models::SessionStatus::Running => "Running",
-                crate::models::SessionStatus::Stopped => "Stopped", 
+                crate::models::SessionStatus::Stopped => "Stopped",
                 crate::models::SessionStatus::Error(err) => err,
             },
             session.branch_name,
@@ -52,7 +58,7 @@ impl LogsViewerComponent {
                 Block::default()
                     .title("Session Info")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
+                    .border_style(Style::default().fg(Color::Cyan)),
             )
             .wrap(Wrap { trim: true });
 
@@ -60,13 +66,12 @@ impl LogsViewerComponent {
 
         // Logs panel
         let logs_items = self.get_session_logs(state, session);
-        let logs_list = List::new(logs_items)
-            .block(
-                Block::default()
-                    .title("Logs")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-            );
+        let logs_list = List::new(logs_items).block(
+            Block::default()
+                .title("Logs")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        );
 
         frame.render_widget(logs_list, chunks[1]);
     }
@@ -77,7 +82,7 @@ impl LogsViewerComponent {
                 Block::default()
                     .title("Session Details")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray))
+                    .border_style(Style::default().fg(Color::Gray)),
             )
             .style(Style::default().fg(Color::Gray))
             .alignment(Alignment::Center)
@@ -86,16 +91,18 @@ impl LogsViewerComponent {
         frame.render_widget(paragraph, area);
     }
 
-    fn get_session_logs(&self, state: &AppState, session: &crate::models::Session) -> Vec<ListItem> {
+    fn get_session_logs(
+        &self,
+        state: &AppState,
+        session: &crate::models::Session,
+    ) -> Vec<ListItem> {
         // First check if we have real logs for this session
         if let Some(logs) = state.logs.get(&session.id) {
             if !logs.is_empty() {
-                return logs.iter()
-                    .map(|log| ListItem::new(log.clone()))
-                    .collect();
+                return logs.iter().map(|log| ListItem::new(log.clone())).collect();
             }
         }
-        
+
         // Fallback to status-based mock logs
         self.get_mock_logs(session)
     }
@@ -103,12 +110,16 @@ impl LogsViewerComponent {
     fn get_mock_logs(&self, session: &crate::models::Session) -> Vec<ListItem> {
         match session.status {
             crate::models::SessionStatus::Running => vec![
-                ListItem::new("Starting Claude Code environment...").style(Style::default().fg(Color::Blue)),
+                ListItem::new("Starting Claude Code environment...")
+                    .style(Style::default().fg(Color::Blue)),
                 ListItem::new("Loading MCP servers...").style(Style::default().fg(Color::Blue)),
-                ListItem::new("✓ Connected to container claude-abc123").style(Style::default().fg(Color::Green)),
-                ListItem::new("✓ Workspace mounted: /workspace").style(Style::default().fg(Color::Green)),
+                ListItem::new("✓ Connected to container claude-abc123")
+                    .style(Style::default().fg(Color::Green)),
+                ListItem::new("✓ Workspace mounted: /workspace")
+                    .style(Style::default().fg(Color::Green)),
                 ListItem::new("✓ Git worktree ready").style(Style::default().fg(Color::Green)),
-                ListItem::new("Ready! Attached to container.").style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                ListItem::new("Ready! Attached to container.")
+                    .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 ListItem::new("").style(Style::default()),
                 ListItem::new("> claude help").style(Style::default().fg(Color::Yellow)),
                 ListItem::new("Available commands:").style(Style::default()),
@@ -121,9 +132,11 @@ impl LogsViewerComponent {
                 ListItem::new("Last active: 2 minutes ago").style(Style::default().fg(Color::Gray)),
             ],
             crate::models::SessionStatus::Error(ref err) => vec![
-                ListItem::new("Starting Claude Code environment...").style(Style::default().fg(Color::Blue)),
+                ListItem::new("Starting Claude Code environment...")
+                    .style(Style::default().fg(Color::Blue)),
                 ListItem::new("Loading MCP servers...").style(Style::default().fg(Color::Blue)),
-                ListItem::new(format!("✗ Error: {}", err)).style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                ListItem::new(format!("✗ Error: {}", err))
+                    .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
                 ListItem::new("Container failed to start").style(Style::default().fg(Color::Red)),
             ],
         }

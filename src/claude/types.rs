@@ -93,14 +93,14 @@ pub enum ClaudeStreamingEvent {
     #[serde(rename = "message_start")]
     MessageStart { message: ClaudeStreamingMessage },
     #[serde(rename = "content_block_start")]
-    ContentBlockStart { 
+    ContentBlockStart {
         index: u32,
-        content_block: ClaudeStreamingContentBlock 
+        content_block: ClaudeStreamingContentBlock,
     },
     #[serde(rename = "content_block_delta")]
-    ContentBlockDelta { 
+    ContentBlockDelta {
         index: u32,
-        delta: ClaudeStreamingDelta 
+        delta: ClaudeStreamingDelta,
     },
     #[serde(rename = "content_block_stop")]
     ContentBlockStop { index: u32 },
@@ -198,13 +198,7 @@ impl ClaudeChatSession {
 
     pub fn get_conversation_context(&self, max_messages: usize) -> Vec<ClaudeMessage> {
         // Return the last N messages for context, excluding system messages
-        self.messages
-            .iter()
-            .rev()
-            .take(max_messages)
-            .rev()
-            .cloned()
-            .collect()
+        self.messages.iter().rev().take(max_messages).rev().cloned().collect()
     }
 }
 

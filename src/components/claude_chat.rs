@@ -3,10 +3,10 @@
 use crate::app::AppState;
 use crate::claude::types::{ClaudeMessage, ClaudeRole};
 use ratatui::{
-    prelude::*,
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
-    style::{Color, Style, Modifier},
     layout::{Constraint, Direction, Layout},
+    prelude::*,
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
 
 pub struct ClaudeChatComponent {
@@ -36,18 +36,21 @@ impl ClaudeChatComponent {
         frame.render_widget(popup_block, area);
 
         // Split the chat area into messages and input (with margin for border)
-        let inner_area = area.inner(&ratatui::layout::Margin { horizontal: 1, vertical: 1 });
+        let inner_area = area.inner(&ratatui::layout::Margin {
+            horizontal: 1,
+            vertical: 1,
+        });
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(3),     // Message area
-                Constraint::Length(4),  // Input area
+                Constraint::Min(3),    // Message area
+                Constraint::Length(4), // Input area
             ])
             .split(inner_area);
 
         // Render messages area
         self.render_messages(frame, chunks[0], state);
-        
+
         // Render input area
         self.render_input(frame, chunks[1], state);
     }
@@ -80,7 +83,7 @@ impl ClaudeChatComponent {
                     .block(block)
                     .wrap(Wrap { trim: true })
                     .style(Style::default().fg(Color::Gray)),
-                area
+                area,
             );
             return;
         }
@@ -91,22 +94,23 @@ impl ClaudeChatComponent {
             .enumerate()
             .skip(self.scroll_offset)
             .take(self.max_visible_messages)
-            .map(|(index, message)| {
-                self.format_message(message, index)
-            })
+            .map(|(index, message)| self.format_message(message, index))
             .collect();
 
         // Show streaming indicator if currently streaming
         let mut items = message_items;
         if let Some(chat_state) = &state.claude_chat_state {
             if chat_state.is_streaming {
-                let streaming_text = chat_state.current_streaming_response
+                let streaming_text = chat_state
+                    .current_streaming_response
                     .as_ref()
                     .map(|s| format!("🤖 {}", s))
                     .unwrap_or_else(|| "🤖 Claude is thinking...".to_string());
-                
-                items.push(ListItem::new(streaming_text)
-                    .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC)));
+
+                items.push(
+                    ListItem::new(streaming_text)
+                        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC)),
+                );
             }
         }
 
@@ -118,23 +122,24 @@ impl ClaudeChatComponent {
 
         // Render scroll indicator if there are more messages
         if messages.len() > self.max_visible_messages {
-            let scroll_info = format!(" {}-{}/{} ", 
+            let scroll_info = format!(
+                " {}-{}/{} ",
                 self.scroll_offset + 1,
                 (self.scroll_offset + self.max_visible_messages).min(messages.len()),
                 messages.len()
             );
-            
+
             let scroll_area = Rect {
                 x: area.x + area.width - scroll_info.len() as u16 - 1,
                 y: area.y,
                 width: scroll_info.len() as u16,
                 height: 1,
             };
-            
+
             frame.render_widget(
                 Paragraph::new(scroll_info)
                     .style(Style::default().fg(Color::DarkGray).bg(Color::Black)),
-                scroll_area
+                scroll_area,
             );
         }
     }
@@ -146,7 +151,8 @@ impl ClaudeChatComponent {
         };
 
         // Format timestamp if available
-        let timestamp = message.timestamp
+        let timestamp = message
+            .timestamp
             .map(|ts| format!("[{}] ", ts.format("%H:%M:%S")))
             .unwrap_or_default();
 
@@ -169,10 +175,8 @@ impl ClaudeChatComponent {
             ""
         };
 
-        let is_streaming = state.claude_chat_state
-            .as_ref()
-            .map(|s| s.is_streaming)
-            .unwrap_or(false);
+        let is_streaming =
+            state.claude_chat_state.as_ref().map(|s| s.is_streaming).unwrap_or(false);
 
         let (title, border_color) = if is_streaming {
             (" Input (Claude is responding...) ", Color::Yellow)
@@ -187,11 +191,7 @@ impl ClaudeChatComponent {
             .border_style(Style::default().fg(border_color));
 
         // Show cursor position
-        let cursor_indicator = if is_streaming {
-            ""
-        } else {
-            "█"
-        };
+        let cursor_indicator = if is_streaming { "" } else { "█" };
 
         let display_text = if input_text.is_empty() && !is_streaming {
             format!("{}Type your message here...", cursor_indicator)
@@ -222,7 +222,7 @@ impl ClaudeChatComponent {
             frame.render_widget(
                 Paragraph::new(" [Enter] Send ")
                     .style(Style::default().fg(Color::Green).bg(Color::DarkGray)),
-                hint_area
+                hint_area,
             );
         }
     }
@@ -308,16 +308,12 @@ impl ClaudeConnectionStatus {
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         let status_widget = match &self.connection_status {
-            ConnectionStatus::Unknown => {
-                Paragraph::new("Claude: Unknown")
-                    .style(Style::default().fg(Color::Gray))
-                    .alignment(ratatui::layout::Alignment::Right)
-            },
-            ConnectionStatus::Connected => {
-                Paragraph::new("Claude: Connected ✓")
-                    .style(Style::default().fg(Color::Green))
-                    .alignment(ratatui::layout::Alignment::Right)
-            },
+            ConnectionStatus::Unknown => Paragraph::new("Claude: Unknown")
+                .style(Style::default().fg(Color::Gray))
+                .alignment(ratatui::layout::Alignment::Right),
+            ConnectionStatus::Connected => Paragraph::new("Claude: Connected ✓")
+                .style(Style::default().fg(Color::Green))
+                .alignment(ratatui::layout::Alignment::Right),
             ConnectionStatus::Disconnected(reason) => {
                 let text = if reason.len() > 30 {
                     format!("Claude: Error ({}...)", &reason[..27])
@@ -327,12 +323,10 @@ impl ClaudeConnectionStatus {
                 Paragraph::new(text)
                     .style(Style::default().fg(Color::Red))
                     .alignment(ratatui::layout::Alignment::Right)
-            },
-            ConnectionStatus::Testing => {
-                Paragraph::new("Claude: Testing...")
-                    .style(Style::default().fg(Color::Yellow))
-                    .alignment(ratatui::layout::Alignment::Right)
-            },
+            }
+            ConnectionStatus::Testing => Paragraph::new("Claude: Testing...")
+                .style(Style::default().fg(Color::Yellow))
+                .alignment(ratatui::layout::Alignment::Right),
         };
 
         frame.render_widget(status_widget, area);
@@ -340,7 +334,10 @@ impl ClaudeConnectionStatus {
 
     pub fn update_status(&mut self, status: ConnectionStatus) {
         self.connection_status = status;
-        if matches!(self.connection_status, ConnectionStatus::Connected | ConnectionStatus::Disconnected(_)) {
+        if matches!(
+            self.connection_status,
+            ConnectionStatus::Connected | ConnectionStatus::Disconnected(_)
+        ) {
             self.last_test_time = Some(std::time::Instant::now());
         }
     }
@@ -351,9 +348,7 @@ impl ClaudeConnectionStatus {
 
     pub fn should_retest(&self) -> bool {
         // Re-test connection every 5 minutes
-        self.last_test_time
-            .map(|last| last.elapsed().as_secs() > 300)
-            .unwrap_or(true)
+        self.last_test_time.map(|last| last.elapsed().as_secs() > 300).unwrap_or(true)
     }
 }
 

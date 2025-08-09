@@ -3,8 +3,8 @@
 use crate::app::AppState;
 use ratatui::{
     prelude::*,
-    widgets::{Block, Borders, Paragraph, Wrap},
     style::{Color, Style},
+    widgets::{Block, Borders, Paragraph, Wrap},
 };
 
 pub struct LiveLogsStreamComponent {
@@ -28,7 +28,7 @@ impl LogLevel {
         match self {
             LogLevel::All => "ALL",
             LogLevel::Info => "INFO",
-            LogLevel::Warn => "WARN", 
+            LogLevel::Warn => "WARN",
             LogLevel::Error => "ERROR",
         }
     }
@@ -57,19 +57,19 @@ impl LiveLogsStreamComponent {
     pub fn render(&mut self, frame: &mut Frame, area: Rect, state: &AppState) {
         // Get logs from the selected session
         let session_logs = self.get_session_logs(state);
-        
+
         // Filter logs based on level
         let filtered_logs = self.filter_logs(&session_logs);
-        
+
         let title = self.build_title(state, filtered_logs.len(), session_logs.len());
-        
+
         // Show focus indicator
         use crate::app::state::FocusedPane;
         let (border_color, title_color) = match state.focused_pane {
             FocusedPane::LiveLogs => (Color::Cyan, Color::Yellow), // Focused
             FocusedPane::Sessions => (Color::Gray, Color::Blue),   // Not focused
         };
-        
+
         let block = Block::default()
             .borders(Borders::ALL)
             .title(title)
@@ -78,25 +78,30 @@ impl LiveLogsStreamComponent {
 
         if filtered_logs.is_empty() {
             let empty_message = match self.filter_level {
-                LogLevel::All => "No logs available\n\nLogs will appear here when containers are active.",
-                _ => &format!("No {} level logs\n\nAdjust filter level with 'f' key.", self.filter_level.as_str().to_lowercase()),
+                LogLevel::All => {
+                    "No logs available\n\nLogs will appear here when containers are active."
+                }
+                _ => &format!(
+                    "No {} level logs\n\nAdjust filter level with 'f' key.",
+                    self.filter_level.as_str().to_lowercase()
+                ),
             };
-            
+
             frame.render_widget(
                 Paragraph::new(empty_message)
                     .block(block)
                     .style(Style::default().fg(Color::Gray))
                     .alignment(Alignment::Center),
-                area
+                area,
             );
             return;
         }
 
         // Create formatted log text with proper wrapping
         let log_text = self.create_log_text(&filtered_logs, area.width.saturating_sub(2));
-        
+
         let scroll_pos = self.get_scroll_position(&filtered_logs);
-        
+
         let paragraph = Paragraph::new(log_text)
             .block(block)
             .wrap(Wrap { trim: false })
@@ -106,7 +111,7 @@ impl LiveLogsStreamComponent {
 
         // Render controls hint
         self.render_controls_hint(frame, area);
-        
+
         // Update max visible lines based on actual area
         self.max_visible_lines = (area.height.saturating_sub(4)) as usize;
     }
@@ -115,10 +120,7 @@ impl LiveLogsStreamComponent {
         // Get logs from currently selected session or all active sessions
         if let Some(session) = state.selected_session() {
             // Get logs for specific session
-            state.live_logs
-                .get(&session.id)
-                .cloned()
-                .unwrap_or_default()
+            state.live_logs.get(&session.id).cloned().unwrap_or_default()
         } else {
             // Aggregate logs from all active sessions
             let mut all_logs = Vec::new();
@@ -129,7 +131,7 @@ impl LiveLogsStreamComponent {
                     }
                 }
             }
-            
+
             // Sort by timestamp
             all_logs.sort_by_key(|log| log.timestamp);
             all_logs
@@ -137,15 +139,16 @@ impl LiveLogsStreamComponent {
     }
 
     fn filter_logs<'a>(&self, logs: &'a [LogEntry]) -> Vec<&'a LogEntry> {
-        logs.iter()
-            .filter(|log| self.should_include_log(log))
-            .collect()
+        logs.iter().filter(|log| self.should_include_log(log)).collect()
     }
 
     fn should_include_log(&self, log: &LogEntry) -> bool {
         match self.filter_level {
             LogLevel::All => true,
-            LogLevel::Info => matches!(log.level, LogEntryLevel::Info | LogEntryLevel::Warn | LogEntryLevel::Error),
+            LogLevel::Info => matches!(
+                log.level,
+                LogEntryLevel::Info | LogEntryLevel::Warn | LogEntryLevel::Error
+            ),
             LogLevel::Warn => matches!(log.level, LogEntryLevel::Warn | LogEntryLevel::Error),
             LogLevel::Error => matches!(log.level, LogEntryLevel::Error),
         }
@@ -180,18 +183,19 @@ impl LiveLogsStreamComponent {
             .collect::<Vec<_>>()
             .join("\n")
     }
-    
+
     fn get_scroll_position(&self, logs: &[&LogEntry]) -> usize {
         if self.auto_scroll {
             // Calculate total lines needed for all logs (rough estimate assuming wrapping)
-            let total_lines: usize = logs.iter()
+            let total_lines: usize = logs
+                .iter()
                 .map(|log| {
                     // Estimate lines needed based on message length
                     let msg_len = self.format_log_entry_wrapped(log, 80).len();
                     (msg_len / 80).max(1)
                 })
                 .sum();
-            
+
             // Scroll to show the bottom portion of logs
             total_lines.saturating_sub(self.max_visible_lines)
         } else {
@@ -220,17 +224,20 @@ impl LiveLogsStreamComponent {
         };
 
         // Format the complete log entry without truncation
-        format!("{}{} {}{}", timestamp_str, level_icon, source_str, log.message)
+        format!(
+            "{}{} {}{}",
+            timestamp_str, level_icon, source_str, log.message
+        )
     }
-
 
     fn render_controls_hint(&self, frame: &mut Frame, area: Rect) {
         if area.height < 4 {
             return; // Not enough space
         }
 
-        let controls = format!("[f]Filter:{} [t]Time [↑↓]Scroll [Space]AutoScroll:{}", 
-            self.filter_level.as_str(), 
+        let controls = format!(
+            "[f]Filter:{} [t]Time [↑↓]Scroll [Space]AutoScroll:{}",
+            self.filter_level.as_str(),
             if self.auto_scroll { "ON" } else { "OFF" }
         );
 
@@ -242,9 +249,8 @@ impl LiveLogsStreamComponent {
         };
 
         frame.render_widget(
-            Paragraph::new(controls)
-                .style(Style::default().fg(Color::DarkGray)),
-            hint_area
+            Paragraph::new(controls).style(Style::default().fg(Color::DarkGray)),
+            hint_area,
         );
     }
 
@@ -287,7 +293,7 @@ impl LiveLogsStreamComponent {
             0
         };
     }
-    
+
     /// Scroll to top
     pub fn scroll_to_top(&mut self) {
         self.auto_scroll = false; // Disable auto-scroll when going to top
@@ -311,7 +317,7 @@ impl Default for LiveLogsStreamComponent {
 pub struct LogEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
     pub level: LogEntryLevel,
-    pub source: String,  // Container name or source
+    pub source: String, // Container name or source
     pub message: String,
     pub session_id: Option<uuid::Uuid>,
 }
@@ -355,7 +361,11 @@ impl LogEntry {
     }
 
     /// Create from raw Docker log line
-    pub fn from_docker_log(container_name: &str, log_line: &str, session_id: Option<uuid::Uuid>) -> Self {
+    pub fn from_docker_log(
+        container_name: &str,
+        log_line: &str,
+        session_id: Option<uuid::Uuid>,
+    ) -> Self {
         let level = Self::parse_level_from_message(log_line);
         Self {
             timestamp: chrono::Utc::now(),
@@ -365,11 +375,11 @@ impl LogEntry {
             session_id,
         }
     }
-    
+
     /// Create from Docker log line with boss mode JSON parsing
     pub fn from_docker_log_with_mode(
-        container_name: &str, 
-        log_line: &str, 
+        container_name: &str,
+        log_line: &str,
         session_id: Option<uuid::Uuid>,
         is_boss_mode: bool,
     ) -> Self {
@@ -379,9 +389,13 @@ impl LogEntry {
             Self::from_docker_log(container_name, log_line, session_id)
         }
     }
-    
+
     /// Parse Claude CLI stream-json output for boss mode
-    fn parse_boss_mode_json(container_name: &str, log_line: &str, session_id: Option<uuid::Uuid>) -> Self {
+    fn parse_boss_mode_json(
+        container_name: &str,
+        log_line: &str,
+        session_id: Option<uuid::Uuid>,
+    ) -> Self {
         // Try to parse as JSON first
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(log_line) {
             let message = match json.get("type").and_then(|t| t.as_str()) {
@@ -393,42 +407,47 @@ impl LogEntry {
                     }
                 }
                 Some("tool_use") => {
-                    let tool_name = json.get("tool_name")
-                        .and_then(|t| t.as_str())
-                        .unwrap_or("unknown");
-                    
-                    let parameters = json.get("parameters")
-                        .map(|p| serde_json::to_string_pretty(p).unwrap_or_else(|_| "{}".to_string()))
+                    let tool_name =
+                        json.get("tool_name").and_then(|t| t.as_str()).unwrap_or("unknown");
+
+                    let parameters = json
+                        .get("parameters")
+                        .map(|p| {
+                            serde_json::to_string_pretty(p).unwrap_or_else(|_| "{}".to_string())
+                        })
                         .unwrap_or_else(|| "{}".to_string());
-                    
-                    format!("🔧 Tool Use: {} with parameters:\n{}", tool_name, parameters)
+
+                    format!(
+                        "🔧 Tool Use: {} with parameters:\n{}",
+                        tool_name, parameters
+                    )
                 }
                 Some("tool_result") => {
-                    let content = json.get("content")
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("No content");
-                    
+                    let content =
+                        json.get("content").and_then(|c| c.as_str()).unwrap_or("No content");
+
                     // Truncate very long tool results for readability
                     let truncated_content = if content.len() > 500 {
-                        format!("{}...\n[Output truncated - {} characters total]", 
-                               &content[..500], content.len())
+                        format!(
+                            "{}...\n[Output truncated - {} characters total]",
+                            &content[..500],
+                            content.len()
+                        )
                     } else {
                         content.to_string()
                     };
-                    
+
                     format!("📤 Tool Result:\n{}", truncated_content)
                 }
                 Some("error") => {
-                    let error_msg = json.get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("Unknown error");
+                    let error_msg =
+                        json.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
                     format!("❌ Error: {}", error_msg)
                 }
                 Some("thinking") => {
                     // Claude's thinking process - might want to show or hide these
-                    let thinking = json.get("content")
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("Thinking...");
+                    let thinking =
+                        json.get("content").and_then(|c| c.as_str()).unwrap_or("Thinking...");
                     format!("💭 Claude thinking: {}", thinking)
                 }
                 _ => {
@@ -436,7 +455,7 @@ impl LogEntry {
                     format!("📋 Claude output: {}", log_line)
                 }
             };
-            
+
             // Determine log level based on JSON type
             let level = match json.get("type").and_then(|t| t.as_str()) {
                 Some("error") => LogEntryLevel::Error,
@@ -445,7 +464,7 @@ impl LogEntry {
                 Some("thinking") => LogEntryLevel::Debug,
                 _ => LogEntryLevel::Info,
             };
-            
+
             Self {
                 timestamp: chrono::Utc::now(),
                 level,

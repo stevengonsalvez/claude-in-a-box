@@ -1,7 +1,7 @@
 // ABOUTME: Git worktree management for creating isolated working directories for sessions
 
 use anyhow::{Context, Result};
-use git2::{Repository, BranchType};
+use git2::{BranchType, Repository};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -28,7 +28,7 @@ pub enum WorktreeError {
 pub struct WorktreeInfo {
     pub id: Uuid,
     pub path: PathBuf,
-    pub session_path: PathBuf,  // New: symlink path for session-based lookup
+    pub session_path: PathBuf, // New: symlink path for session-based lookup
     pub branch_name: String,
     pub source_repository: PathBuf,
     pub commit_hash: Option<String>,
@@ -40,12 +40,15 @@ pub struct WorktreeManager {
 
 impl WorktreeManager {
     pub fn new() -> Result<Self> {
-        let home_dir = dirs::home_dir()
-            .context("Failed to get home directory")?;
+        let home_dir = dirs::home_dir().context("Failed to get home directory")?;
         let base_dir = home_dir.join(".claude-in-a-box").join("worktrees");
 
-        std::fs::create_dir_all(&base_dir)
-            .with_context(|| format!("Failed to create worktree directory: {}", base_dir.display()))?;
+        std::fs::create_dir_all(&base_dir).with_context(|| {
+            format!(
+                "Failed to create worktree directory: {}",
+                base_dir.display()
+            )
+        })?;
 
         // Create subdirectories for organized storage
         std::fs::create_dir_all(&base_dir.join("by-session"))?;
@@ -57,8 +60,12 @@ impl WorktreeManager {
     }
 
     pub fn with_base_dir(base_dir: PathBuf) -> Result<Self> {
-        std::fs::create_dir_all(&base_dir)
-            .with_context(|| format!("Failed to create worktree directory: {}", base_dir.display()))?;
+        std::fs::create_dir_all(&base_dir).with_context(|| {
+            format!(
+                "Failed to create worktree directory: {}",
+                base_dir.display()
+            )
+        })?;
 
         Ok(Self {
             base_worktree_dir: base_dir,
@@ -72,20 +79,28 @@ impl WorktreeManager {
         branch_name: &str,
         base_branch: Option<&str>,
     ) -> Result<WorktreeInfo, WorktreeError> {
-        info!("Creating worktree for session {} with branch {}", session_id, branch_name);
+        info!(
+            "Creating worktree for session {} with branch {}",
+            session_id, branch_name
+        );
 
         self.validate_branch_name(branch_name)?;
 
         let repo = Repository::open(repository_path)?;
-        let worktree_path = self.generate_worktree_path(session_id, repository_path, branch_name)?;
+        let worktree_path =
+            self.generate_worktree_path(session_id, repository_path, branch_name)?;
 
         // Check if worktree already exists
         if worktree_path.exists() {
-            return Err(WorktreeError::AlreadyExists(worktree_path.display().to_string()));
+            return Err(WorktreeError::AlreadyExists(
+                worktree_path.display().to_string(),
+            ));
         }
 
         // Determine the base branch
-        let base_branch = base_branch.map(|s| s.to_string()).unwrap_or_else(|| self.get_default_branch(&repo));
+        let base_branch = base_branch
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| self.get_default_branch(&repo));
 
         // Create the branch if it doesn't exist
         self.ensure_branch_exists(&repo, branch_name, &base_branch)?;
@@ -108,7 +123,10 @@ impl WorktreeManager {
             commit_hash,
         };
 
-        info!("Successfully created worktree at: {}", worktree_info.path.display());
+        info!(
+            "Successfully created worktree at: {}",
+            worktree_info.path.display()
+        );
         Ok(worktree_info)
     }
 
@@ -210,8 +228,12 @@ impl WorktreeManager {
         // Find the actual worktree path (might be in by-name directory)
         let session_path = self.base_worktree_dir.join("by-session").join(session_id.to_string());
         tracing::debug!("Looking for session path: {:?}", session_path);
-        tracing::debug!("Session path exists: {}, is_symlink: {}", session_path.exists(), session_path.is_symlink());
-        
+        tracing::debug!(
+            "Session path exists: {}, is_symlink: {}",
+            session_path.exists(),
+            session_path.is_symlink()
+        );
+
         let worktree_path = if session_path.exists() && session_path.is_symlink() {
             let resolved_path = std::fs::read_link(&session_path)?;
             tracing::debug!("Resolved symlink to: {:?}", resolved_path);
@@ -223,12 +245,15 @@ impl WorktreeManager {
             if old_path.exists() {
                 old_path
             } else {
-                return Err(WorktreeError::NotFound(format!("Session {} worktree not found", session_id)));
+                return Err(WorktreeError::NotFound(format!(
+                    "Session {} worktree not found",
+                    session_id
+                )));
             }
         };
 
         tracing::debug!("Final worktree path: {:?}", worktree_path);
-        
+
         if !worktree_path.exists() {
             return Err(WorktreeError::NotFound(worktree_path.display().to_string()));
         }
@@ -253,21 +278,25 @@ impl WorktreeManager {
 
     fn validate_branch_name(&self, name: &str) -> Result<(), WorktreeError> {
         if name.is_empty() {
-            return Err(WorktreeError::InvalidBranchName("Branch name cannot be empty".to_string()));
+            return Err(WorktreeError::InvalidBranchName(
+                "Branch name cannot be empty".to_string(),
+            ));
         }
 
         // Git branch name validation rules
         let invalid_chars = [' ', '~', '^', ':', '?', '*', '[', '\\'];
         if name.chars().any(|c| invalid_chars.contains(&c)) {
-            return Err(WorktreeError::InvalidBranchName(
-                format!("Branch name contains invalid characters: {}", name)
-            ));
+            return Err(WorktreeError::InvalidBranchName(format!(
+                "Branch name contains invalid characters: {}",
+                name
+            )));
         }
 
         if name.starts_with('-') || name.ends_with('/') || name.contains("//") {
-            return Err(WorktreeError::InvalidBranchName(
-                format!("Invalid branch name format: {}", name)
-            ));
+            return Err(WorktreeError::InvalidBranchName(format!(
+                "Invalid branch name format: {}",
+                name
+            )));
         }
 
         Ok(())
@@ -290,7 +319,12 @@ impl WorktreeManager {
         }
     }
 
-    fn ensure_branch_exists(&self, repo: &Repository, branch_name: &str, base_branch: &str) -> Result<(), WorktreeError> {
+    fn ensure_branch_exists(
+        &self,
+        repo: &Repository,
+        branch_name: &str,
+        base_branch: &str,
+    ) -> Result<(), WorktreeError> {
         // Check if branch already exists
         if repo.find_branch(branch_name, BranchType::Local).is_ok() {
             debug!("Branch {} already exists", branch_name);
@@ -308,23 +342,38 @@ impl WorktreeManager {
         Ok(())
     }
 
-    fn create_worktree_command(&self, repo_path: &Path, worktree_path: &Path, branch_name: &str) -> Result<(), WorktreeError> {
+    fn create_worktree_command(
+        &self,
+        repo_path: &Path,
+        worktree_path: &Path,
+        branch_name: &str,
+    ) -> Result<(), WorktreeError> {
         let output = Command::new("git")
             .current_dir(repo_path)
-            .args(["worktree", "add", worktree_path.to_str().unwrap(), branch_name])
+            .args([
+                "worktree",
+                "add",
+                worktree_path.to_str().unwrap(),
+                branch_name,
+            ])
             .output()?;
 
         if !output.status.success() {
             let error = String::from_utf8_lossy(&output.stderr);
-            return Err(WorktreeError::CommandFailed(
-                format!("Failed to create worktree: {}", error)
-            ));
+            return Err(WorktreeError::CommandFailed(format!(
+                "Failed to create worktree: {}",
+                error
+            )));
         }
 
         Ok(())
     }
 
-    fn remove_worktree_command(&self, repo_path: &Path, worktree_path: &Path) -> Result<(), WorktreeError> {
+    fn remove_worktree_command(
+        &self,
+        repo_path: &Path,
+        worktree_path: &Path,
+    ) -> Result<(), WorktreeError> {
         let output = Command::new("git")
             .current_dir(repo_path)
             .args(["worktree", "remove", worktree_path.to_str().unwrap()])
@@ -337,22 +386,31 @@ impl WorktreeManager {
             // Try force remove
             let force_output = Command::new("git")
                 .current_dir(repo_path)
-                .args(["worktree", "remove", "--force", worktree_path.to_str().unwrap()])
+                .args([
+                    "worktree",
+                    "remove",
+                    "--force",
+                    worktree_path.to_str().unwrap(),
+                ])
                 .output()?;
 
             if !force_output.status.success() {
-                return Err(WorktreeError::CommandFailed(
-                    format!("Failed to remove worktree: {}", String::from_utf8_lossy(&force_output.stderr))
-                ));
+                return Err(WorktreeError::CommandFailed(format!(
+                    "Failed to remove worktree: {}",
+                    String::from_utf8_lossy(&force_output.stderr)
+                )));
             }
         }
 
         Ok(())
     }
 
-    fn get_current_commit_hash(&self, worktree_path: &Path) -> Result<Option<String>, WorktreeError> {
+    fn get_current_commit_hash(
+        &self,
+        worktree_path: &Path,
+    ) -> Result<Option<String>, WorktreeError> {
         let repo = Repository::open(worktree_path)?;
-        
+
         let head_result = repo.head();
         match head_result {
             Ok(head) => {
@@ -370,7 +428,7 @@ impl WorktreeManager {
         // For worktrees, the .git file contains a path to the main repository
         tracing::debug!("Repository path: {:?}", worktree_repo.path());
         tracing::debug!("Repository workdir: {:?}", worktree_repo.workdir());
-        
+
         // Use the working directory instead of the git directory for worktrees
         let git_dir = worktree_repo.workdir().ok_or_else(|| {
             WorktreeError::CommandFailed(format!(
@@ -381,7 +439,7 @@ impl WorktreeManager {
 
         let git_file = git_dir.join(".git");
         tracing::debug!("Looking for .git file at: {:?}", git_file);
-        
+
         if !git_file.is_file() {
             return Err(WorktreeError::CommandFailed(format!(
                 "No .git file found at: {:?}",
@@ -399,17 +457,18 @@ impl WorktreeManager {
         tracing::debug!("Content of .git file: {}", content);
 
         // Parse "gitdir: /path/to/main/repo/.git/worktrees/name"
-        let gitdir_line = content.lines().find(|line| line.starts_with("gitdir:"))
-            .ok_or_else(|| WorktreeError::CommandFailed(format!(
-                "No 'gitdir:' line found in .git file at {:?}. Content: {}",
-                git_file, content
-            )))?;
+        let gitdir_line =
+            content.lines().find(|line| line.starts_with("gitdir:")).ok_or_else(|| {
+                WorktreeError::CommandFailed(format!(
+                    "No 'gitdir:' line found in .git file at {:?}. Content: {}",
+                    git_file, content
+                ))
+            })?;
 
-        let gitdir_path = gitdir_line.strip_prefix("gitdir:").map(|s| s.trim())
-            .ok_or_else(|| WorktreeError::CommandFailed(format!(
-                "Invalid gitdir line format: {}",
-                gitdir_line
-            )))?;
+        let gitdir_path =
+            gitdir_line.strip_prefix("gitdir:").map(|s| s.trim()).ok_or_else(|| {
+                WorktreeError::CommandFailed(format!("Invalid gitdir line format: {}", gitdir_line))
+            })?;
 
         tracing::debug!("Parsed gitdir path: {}", gitdir_path);
 
@@ -453,7 +512,8 @@ impl WorktreeManager {
         }
 
         // Return the repository directory (not the .git directory)
-        let final_repo_path = if main_repo_path.file_name().and_then(|n| n.to_str()) == Some(".git") {
+        let final_repo_path = if main_repo_path.file_name().and_then(|n| n.to_str()) == Some(".git")
+        {
             main_repo_path.parent().unwrap().to_path_buf()
         } else {
             main_repo_path.to_path_buf()
@@ -463,27 +523,30 @@ impl WorktreeManager {
         Ok(final_repo_path)
     }
 
-    fn generate_worktree_path(&self, session_id: Uuid, repository_path: &Path, branch_name: &str) -> Result<PathBuf, WorktreeError> {
+    fn generate_worktree_path(
+        &self,
+        session_id: Uuid,
+        repository_path: &Path,
+        branch_name: &str,
+    ) -> Result<PathBuf, WorktreeError> {
         // Extract repository name from path
-        let repo_name = repository_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown-repo");
+        let repo_name =
+            repository_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown-repo");
 
         // Sanitize names for filesystem safety
         let safe_repo_name = self.sanitize_name(repo_name);
         let safe_branch_name = self.sanitize_name(branch_name);
-        
+
         // Generate short UUID for uniqueness (first 8 chars)
         let short_uuid = session_id.to_string()[..8].to_string();
-        
+
         // Create human-readable directory name
         let dir_name = format!("{}--{}--{}", safe_repo_name, safe_branch_name, short_uuid);
         let named_path = self.base_worktree_dir.join("by-name").join(&dir_name);
-        
+
         // Create session symlink path
         let _session_path = self.base_worktree_dir.join("by-session").join(session_id.to_string());
-        
+
         // Store both paths in the WorktreeInfo for later cleanup
         // For now, return the named path as the primary path
         Ok(named_path)
@@ -500,7 +563,11 @@ impl WorktreeManager {
             .to_string()
     }
 
-    fn create_session_symlink(&self, worktree_path: &Path, session_path: &Path) -> Result<(), WorktreeError> {
+    fn create_session_symlink(
+        &self,
+        worktree_path: &Path,
+        session_path: &Path,
+    ) -> Result<(), WorktreeError> {
         // Ensure the by-session directory exists
         if let Some(parent) = session_path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -522,7 +589,7 @@ impl WorktreeManager {
             std::os::windows::fs::symlink_dir(worktree_path, session_path)
                 .map_err(|e| WorktreeError::Io(e))?;
         }
-        
+
         Ok(())
     }
 }
@@ -540,7 +607,7 @@ mod tests {
 
     fn create_test_repo(path: &Path) -> Result<Repository> {
         let repo = Repository::init(path)?;
-        
+
         // Create initial commit
         let signature = git2::Signature::now("Test User", "test@example.com")?;
         let tree_id = {
@@ -548,7 +615,7 @@ mod tests {
             index.write_tree()?
         };
         let tree = repo.find_tree(tree_id)?;
-        
+
         repo.commit(
             Some("HEAD"),
             &signature,
@@ -589,7 +656,7 @@ mod tests {
     fn test_worktree_manager_creation() {
         let temp_dir = TempDir::new().unwrap();
         let manager = WorktreeManager::with_base_dir(temp_dir.path().to_path_buf());
-        
+
         assert!(manager.is_ok());
         assert!(temp_dir.path().exists());
     }
@@ -598,7 +665,7 @@ mod tests {
     fn test_list_empty_worktrees() {
         let temp_dir = TempDir::new().unwrap();
         let manager = WorktreeManager::with_base_dir(temp_dir.path().to_path_buf()).unwrap();
-        
+
         let worktrees = manager.list_worktrees().unwrap();
         assert!(worktrees.is_empty());
     }
@@ -607,26 +674,27 @@ mod tests {
     fn test_generate_worktree_path() {
         let temp_dir = TempDir::new().unwrap();
         let manager = WorktreeManager::with_base_dir(temp_dir.path().to_path_buf()).unwrap();
-        
+
         let session_id = uuid::Uuid::new_v4();
         let repo_path = std::path::Path::new("/home/user/projects/my-awesome-project");
         let branch_name = "feature/user-auth";
-        
-        let worktree_path = manager.generate_worktree_path(session_id, repo_path, branch_name).unwrap();
-        
+
+        let worktree_path =
+            manager.generate_worktree_path(session_id, repo_path, branch_name).unwrap();
+
         // Should be in by-name directory
         assert!(worktree_path.to_string_lossy().contains("by-name"));
-        
+
         // Should contain sanitized repo name
         assert!(worktree_path.to_string_lossy().contains("my-awesome-project"));
-        
+
         // Should contain sanitized branch name (/ becomes -)
         assert!(worktree_path.to_string_lossy().contains("feature-user-auth"));
-        
+
         // Should contain short UUID
         let short_uuid = &session_id.to_string()[..8];
         assert!(worktree_path.to_string_lossy().contains(short_uuid));
-        
+
         println!("Generated worktree path: {}", worktree_path.display());
     }
 
@@ -634,24 +702,26 @@ mod tests {
     fn test_hybrid_path_structure() {
         let temp_dir = TempDir::new().unwrap();
         let manager = WorktreeManager::with_base_dir(temp_dir.path().to_path_buf()).unwrap();
-        
+
         let session_id = uuid::Uuid::new_v4();
         let repo_path = std::path::Path::new("/home/user/projects/test-repo");
         let branch_name = "main";
-        
+
         // Test path generation
-        let worktree_path = manager.generate_worktree_path(session_id, repo_path, branch_name).unwrap();
-        
+        let worktree_path =
+            manager.generate_worktree_path(session_id, repo_path, branch_name).unwrap();
+
         // Verify by-name path structure
         assert!(worktree_path.to_string_lossy().contains("by-name"));
         assert!(worktree_path.to_string_lossy().contains("test-repo"));
         assert!(worktree_path.to_string_lossy().contains("main"));
-        
+
         // Verify session path would be created
-        let session_path = manager.base_worktree_dir.join("by-session").join(session_id.to_string());
+        let session_path =
+            manager.base_worktree_dir.join("by-session").join(session_id.to_string());
         assert!(session_path.to_string_lossy().contains("by-session"));
         assert!(session_path.to_string_lossy().contains(&session_id.to_string()));
-        
+
         println!("Named path: {}", worktree_path.display());
         println!("Session path: {}", session_path.display());
     }
