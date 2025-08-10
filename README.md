@@ -88,6 +88,9 @@ docker run --rm hello-world
 ```bash
 # Run claude-in-a-box
 cargo run
+
+# Optional: Run without warnings
+RUSTFLAGS="-A warnings" cargo run
 ```
 
 **First-time authentication flow:**
