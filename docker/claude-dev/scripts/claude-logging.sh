@@ -1,6 +1,6 @@
 #!/bin/bash
 # ABOUTME: Claude CLI wrapper that logs interactions to stdout for container log capture
-# This enables Docker log streaming to show Claude conversations
+# This enables Docker log streaming to show Claude conversations with boss mode prompt injection
 
 set -e
 
@@ -9,6 +9,20 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
+
+# Boss mode prompt injection
+BOSS_MODE_PROMPT="Ultrathink and understand our project rules, particularly around testing. You must go test first, and you must work in a way that allows for small known-good increments. You must commit when the code is in a working state, and commit early and often. When committing: - Use conventional commit format (feat:, fix:, refactor:, test:, docs:) - Commit after each logical increment (test passes, feature complete, refactor done) - Ensure pre-commit hooks pass before committing - Generate descriptive commit messages that explain the 'what' and 'why' - Never leave code in a broken state between commits"
+
+# Function to inject boss mode prompt if enabled
+inject_boss_mode_prompt() {
+    local user_prompt="$1"
+
+    if [ "$CLAUDE_BOSS_MODE" = "true" ]; then
+        echo "$user_prompt $BOSS_MODE_PROMPT"
+    else
+        echo "$user_prompt"
+    fi
+}
 
 # Log function that outputs to stdout for Docker logs
 log_to_docker() {
@@ -78,17 +92,22 @@ run_claude_with_logging() {
                 return 1
             fi
 
-            local query="$*"
-            log_to_docker "${BLUE}👤 User: ${query}${NC}"
+            local user_query="$*"
+            local enhanced_query=$(inject_boss_mode_prompt "$user_query")
+
+            log_to_docker "${BLUE}👤 User: ${user_query}${NC}"
+            if [ "$CLAUDE_BOSS_MODE" = "true" ]; then
+                log_to_docker "${YELLOW}🎯 Boss mode: Enhanced with project rules${NC}"
+            fi
 
             # Use claude with --print flag to get output we can capture
             local response
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
                 # Split CLAUDE_CONTINUE_FLAG into array elements safely
                 IFS=' ' read -ra CLAUDE_FLAGS <<< "$CLAUDE_CONTINUE_FLAG"
-                response=$(claude "${CLAUDE_FLAGS[@]}" --print --output-format text "$query" 2>&1)
+                response=$(claude "${CLAUDE_FLAGS[@]}" --print --output-format text "$enhanced_query" 2>&1)
             else
-                response=$(claude --print --output-format text "$query" 2>&1)
+                response=$(claude --print --output-format text "$enhanced_query" 2>&1)
             fi
             if [ $? -eq 0 ]; then
                 log_to_docker "${GREEN}🤖 Claude: ${response}${NC}"
@@ -101,13 +120,22 @@ run_claude_with_logging() {
             # For script mode - pipe input and capture output
             log_to_docker "${BLUE}📄 Running Claude script mode (reading from stdin)${NC}"
 
+            # Read from stdin
+            local user_input
+            user_input=$(cat)
+            local enhanced_input=$(inject_boss_mode_prompt "$user_input")
+
+            if [ "$CLAUDE_BOSS_MODE" = "true" ]; then
+                log_to_docker "${YELLOW}🎯 Boss mode: Enhanced with project rules${NC}"
+            fi
+
             local response
             if [ -n "$CLAUDE_CONTINUE_FLAG" ]; then
                 # Split CLAUDE_CONTINUE_FLAG into array elements safely
                 IFS=' ' read -ra CLAUDE_FLAGS <<< "$CLAUDE_CONTINUE_FLAG"
-                response=$(claude "${CLAUDE_FLAGS[@]}" --print --output-format text 2>&1)
+                response=$(echo "$enhanced_input" | claude "${CLAUDE_FLAGS[@]}" --print --output-format text 2>&1)
             else
-                response=$(claude --print --output-format text 2>&1)
+                response=$(echo "$enhanced_input" | claude --print --output-format text 2>&1)
             fi
             if [ $? -eq 0 ]; then
                 log_to_docker "${GREEN}🤖 Claude: ${response}${NC}"
