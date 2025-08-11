@@ -162,8 +162,8 @@ if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
         ENHANCED_PROMPT="${CLAUDE_BOX_PROMPT} ${BOSS_MODE_PROMPT}"
 
         # Execute Claude with the enhanced prompt and text output
-        log "Running: claude -p \"${ENHANCED_PROMPT}\" --output-format text --verbose"
-        exec claude -p "${ENHANCED_PROMPT}" --output-format text --verbose $CLI_ARGS
+        log "Running: claude --print --output-format text --verbose \"${ENHANCED_PROMPT}\""
+        exec claude --print --output-format text --verbose "${ENHANCED_PROMPT}" $CLI_ARGS
     else
         error "❌ Boss mode requires authentication!"
         error "Please ensure one of:"

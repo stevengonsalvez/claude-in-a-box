@@ -30,11 +30,11 @@ test_boss_mode_prompt_appending() {
         return 1
     fi
 
-    # Check that startup.sh uses ENHANCED_PROMPT with claude -p
-    if grep -q 'claude -p "${ENHANCED_PROMPT}"' "$STARTUP_SCRIPT"; then
-        echo "✅ Test 3 passed: startup.sh uses ENHANCED_PROMPT with claude -p"
+    # Check that startup.sh uses ENHANCED_PROMPT with correct claude syntax
+    if grep -q 'claude --print --output-format text --verbose "${ENHANCED_PROMPT}"' "$STARTUP_SCRIPT"; then
+        echo "✅ Test 3 passed: startup.sh uses ENHANCED_PROMPT with correct claude syntax"
     else
-        echo "❌ Test 3 failed: startup.sh doesn't use ENHANCED_PROMPT with claude -p"
+        echo "❌ Test 3 failed: startup.sh doesn't use ENHANCED_PROMPT with correct claude syntax"
         return 1
     fi
 

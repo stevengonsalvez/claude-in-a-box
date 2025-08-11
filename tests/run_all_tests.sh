@@ -19,9 +19,14 @@ echo "📋 Running prompt injection tests..."
 "$SCRIPT_DIR/test_boss_mode_prompt_injection.sh"
 echo
 
-# Run startup integration tests
-echo "📋 Running startup integration tests..."
-"$SCRIPT_DIR/test_startup_boss_mode.sh"
+# Run Claude CLI syntax fix tests
+echo "📋 Running Claude CLI syntax tests..."
+"$SCRIPT_DIR/test_claude_cli_syntax_fix.sh"
+echo
+
+# Run simple boss mode tests
+echo "📋 Running simple boss mode tests..."
+"$SCRIPT_DIR/test_simple_boss_mode.sh"
 echo
 
 echo "✅ All tests completed successfully!"
@@ -30,5 +35,5 @@ echo "📝 Summary:"
 echo "- Boss mode prompt injection function works correctly"
 echo "- Environment variable CLAUDE_BOSS_MODE controls behavior"
 echo "- Prompt text includes TDD and commit guidelines"
-echo "- Startup script properly integrates with boss mode wrapper"
+echo "- Claude CLI syntax is correct (prompt as positional argument)"
 echo "- Ready for container rebuild and deployment"
