@@ -56,6 +56,11 @@ pub enum AppEvent {
     NewSessionCursorDown,
     NewSessionCursorLineStart,
     NewSessionCursorLineEnd,
+    // Word-wise movement and deletion events
+    NewSessionCursorWordLeft,
+    NewSessionCursorWordRight,
+    NewSessionDeleteWordForward,
+    NewSessionDeleteWordBackward,
     NewSessionProceedToPermissions,
     NewSessionTogglePermissions,
     NewSessionCreate,
@@ -454,6 +459,23 @@ impl EventHandler {
                                     }
                                 }
                             }
+                            // Option key combinations for word movement and deletion (must come first)
+                            KeyCode::Left if key_event.modifiers.contains(KeyModifiers::ALT) => {
+                                tracing::debug!("InputPrompt: Option+Left - word left");
+                                Some(AppEvent::NewSessionCursorWordLeft)
+                            }
+                            KeyCode::Right if key_event.modifiers.contains(KeyModifiers::ALT) => {
+                                tracing::debug!("InputPrompt: Option+Right - word right");
+                                Some(AppEvent::NewSessionCursorWordRight)
+                            }
+                            KeyCode::Delete if key_event.modifiers.contains(KeyModifiers::ALT) => {
+                                tracing::debug!("InputPrompt: Option+Delete - delete word forward");
+                                Some(AppEvent::NewSessionDeleteWordForward)
+                            }
+                            KeyCode::Backspace if key_event.modifiers.contains(KeyModifiers::ALT) => {
+                                tracing::debug!("InputPrompt: Option+Backspace - delete word backward");
+                                Some(AppEvent::NewSessionDeleteWordBackward)
+                            }
                             KeyCode::Backspace => {
                                 tracing::debug!("InputPrompt: Backspace pressed");
                                 Some(AppEvent::NewSessionBackspacePrompt)
@@ -748,6 +770,11 @@ impl EventHandler {
             AppEvent::NewSessionCursorDown => state.new_session_move_cursor_down(),
             AppEvent::NewSessionCursorLineStart => state.new_session_move_to_line_start(),
             AppEvent::NewSessionCursorLineEnd => state.new_session_move_to_line_end(),
+            // Word movement and deletion events
+            AppEvent::NewSessionCursorWordLeft => state.new_session_move_cursor_word_left(),
+            AppEvent::NewSessionCursorWordRight => state.new_session_move_cursor_word_right(),
+            AppEvent::NewSessionDeleteWordForward => state.new_session_delete_word_forward(),
+            AppEvent::NewSessionDeleteWordBackward => state.new_session_delete_word_backward(),
             AppEvent::NewSessionProceedToPermissions => {
                 tracing::info!("Processing NewSessionProceedToPermissions event");
                 state.new_session_proceed_to_permissions();

@@ -124,7 +124,7 @@ impl NewSessionComponent {
         frame.render_widget(repo_list, chunks[1]);
 
         // Instructions
-        let instructions = Paragraph::new("↑/↓ or j/k: Navigate • Enter: Select • Esc: Cancel")
+        let instructions = Paragraph::new("↑/↓: Navigate • Enter: Select • Esc: Cancel")
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -214,7 +214,7 @@ impl NewSessionComponent {
 
         // Instructions - Use solid background to prevent text bleeding
         let instructions =
-            Paragraph::new("Type to filter • ↑/↓ or j/k: Navigate • Enter: Select • Esc: Cancel")
+            Paragraph::new("Type to filter • ↑/↓: Navigate • Enter: Select • Esc: Cancel")
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
@@ -528,7 +528,7 @@ impl NewSessionComponent {
 
         // Instructions
         let instructions =
-            Paragraph::new("↑/↓ or j/k: Switch Mode • Enter: Continue • Esc: Cancel")
+            Paragraph::new("↑/↓: Switch Mode • Enter: Continue • Esc: Cancel")
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
@@ -566,7 +566,7 @@ impl NewSessionComponent {
         let instructions_text = if session_state.file_finder.is_active {
             vec![
                 Line::from("🔍 File Finder Active - Type to filter files:"),
-                Line::from("• ↑/↓ or j/k: Navigate files"),
+                Line::from("• ↑/↓: Navigate files"),
                 Line::from("• Enter: Select file • Esc: Cancel file finder"),
                 Line::from("• Type characters to filter by filename"),
             ]
@@ -619,9 +619,9 @@ impl NewSessionComponent {
 
         // Controls - update based on file finder state
         let controls_text = if session_state.file_finder.is_active {
-            "File Finder: ↑/↓ or j/k Navigate • Enter: Select • Esc: Cancel • Type: Filter"
+            "File Finder: ↑/↓ Navigate • Enter: Select • Esc: Cancel • Type: Filter"
         } else {
-            "Type to enter prompt • Ctrl+J: New line • hjkl/arrows: Move cursor • @ for file finder • Enter: Continue • Esc: Cancel"
+            "Type to enter prompt • Ctrl+J: New line • arrows: Move cursor • @ for file finder • Enter: Continue • Esc: Cancel"
         };
 
         let controls = Paragraph::new(controls_text)
