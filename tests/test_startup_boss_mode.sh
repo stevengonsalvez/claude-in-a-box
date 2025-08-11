@@ -1,0 +1,63 @@
+#!/bin/bash
+# ABOUTME: Tests for startup.sh boss mode integration with claude-logging.sh
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+STARTUP_SCRIPT="$PROJECT_ROOT/docker/claude-dev/scripts/startup.sh"
+
+# Test that startup.sh uses claude-logging.sh for boss mode
+test_startup_uses_boss_mode_wrapper() {
+    if [ ! -f "$STARTUP_SCRIPT" ]; then
+        echo "❌ Test failed: startup.sh not found at $STARTUP_SCRIPT"
+        return 1
+    fi
+
+    # Check that startup.sh sets CLAUDE_BOSS_MODE=true
+    if grep -q "export CLAUDE_BOSS_MODE=true" "$STARTUP_SCRIPT"; then
+        echo "✅ Test 1 passed: startup.sh sets CLAUDE_BOSS_MODE=true"
+    else
+        echo "❌ Test 1 failed: startup.sh doesn't set CLAUDE_BOSS_MODE=true"
+        return 1
+    fi
+
+    # Check that startup.sh calls claude-logging.sh instead of claude -p directly
+    if grep -q "/app/scripts/claude-logging.sh --print" "$STARTUP_SCRIPT"; then
+        echo "✅ Test 2 passed: startup.sh uses claude-logging.sh wrapper"
+    else
+        echo "❌ Test 2 failed: startup.sh doesn't use claude-logging.sh wrapper"
+        return 1
+    fi
+
+    # Check that direct claude -p call is removed
+    if ! grep -q "exec claude -p" "$STARTUP_SCRIPT"; then
+        echo "✅ Test 3 passed: Direct claude -p call removed"
+    else
+        echo "❌ Test 3 failed: Direct claude -p call still present"
+        return 1
+    fi
+
+    return 0
+}
+
+# Test that the integration preserves the prompt
+test_prompt_preservation() {
+    # Check that the prompt is passed correctly to claude-logging.sh
+    if grep -q 'claude-logging.sh --print "${CLAUDE_BOX_PROMPT}"' "$STARTUP_SCRIPT"; then
+        echo "✅ Test 4 passed: Prompt is passed correctly to wrapper"
+        return 0
+    else
+        echo "❌ Test 4 failed: Prompt not passed correctly to wrapper"
+        return 1
+    fi
+}
+
+echo "Running startup.sh boss mode integration tests..."
+echo
+
+test_startup_uses_boss_mode_wrapper
+test_prompt_preservation
+
+echo
+echo "All startup integration tests completed."

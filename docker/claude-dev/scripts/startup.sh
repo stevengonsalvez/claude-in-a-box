@@ -155,9 +155,12 @@ if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
         log "🤖 Executing boss mode prompt..."
         log "Prompt: ${CLAUDE_BOX_PROMPT}"
 
-        # Execute Claude with the boss prompt and text output
-        log "Running: claude -p \"${CLAUDE_BOX_PROMPT}\" --output-format text --verbose"
-        exec claude -p "${CLAUDE_BOX_PROMPT}" --output-format text --verbose $CLI_ARGS
+        # Set boss mode environment variable for claude-logging.sh
+        export CLAUDE_BOSS_MODE=true
+
+        # Execute Claude using the boss mode wrapper instead of direct claude -p
+        log "Running: claude-print \"${CLAUDE_BOX_PROMPT}\""
+        exec /app/scripts/claude-logging.sh --print "${CLAUDE_BOX_PROMPT}"
     else
         error "❌ Boss mode requires authentication!"
         error "Please ensure one of:"
