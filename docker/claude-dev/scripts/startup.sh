@@ -155,9 +155,9 @@ if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
         log "🤖 Executing boss mode prompt..."
         log "Prompt: ${CLAUDE_BOX_PROMPT}"
 
-        # Execute Claude with the boss prompt and stream JSON output
-        log "Running: claude -p \"${CLAUDE_BOX_PROMPT}\" --output-format stream-json --verbose"
-        exec claude -p "${CLAUDE_BOX_PROMPT}" --output-format stream-json --verbose $CLI_ARGS
+        # Execute Claude with the boss prompt and text output
+        log "Running: claude -p \"${CLAUDE_BOX_PROMPT}\" --output-format text --verbose"
+        exec claude -p "${CLAUDE_BOX_PROMPT}" --output-format text --verbose $CLI_ARGS
     else
         error "❌ Boss mode requires authentication!"
         error "Please ensure one of:"

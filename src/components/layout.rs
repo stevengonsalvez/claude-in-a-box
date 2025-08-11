@@ -122,6 +122,9 @@ impl LayoutComponent {
         if state.confirmation_dialog.is_some() {
             self.confirmation_dialog.render(frame, frame.size(), state);
         }
+
+        // Render notifications (top-right corner)
+        self.render_notifications(frame, frame.size(), state);
     }
 
     /// Get mutable reference to live logs component for scroll handling
@@ -209,6 +212,65 @@ impl LayoutComponent {
             .alignment(Alignment::Left);
 
         frame.render_widget(status, area);
+    }
+
+    fn render_notifications(&self, frame: &mut Frame, area: Rect, state: &AppState) {
+        let notifications = state.get_current_notifications();
+        if notifications.is_empty() {
+            return;
+        }
+
+        // Position notifications in the top-right corner
+        let notification_width = 50;
+        let notification_height = notifications.len() as u16 * 3; // 3 lines per notification
+
+        let notification_area = Rect {
+            x: area.width.saturating_sub(notification_width + 2),
+            y: 1,
+            width: notification_width,
+            height: notification_height.min(area.height.saturating_sub(2)),
+        };
+
+        // Render each notification
+        for (i, notification) in notifications.iter().enumerate() {
+            let y_offset = i as u16 * 3;
+            if y_offset >= notification_area.height {
+                break; // Don't render notifications that won't fit
+            }
+
+            let single_notification_area = Rect {
+                x: notification_area.x,
+                y: notification_area.y + y_offset,
+                width: notification_area.width,
+                height: 3.min(notification_area.height - y_offset),
+            };
+
+            let (style, border_color) = match notification.notification_type {
+                crate::app::state::NotificationType::Success => {
+                    (Style::default().fg(Color::Green), Color::Green)
+                }
+                crate::app::state::NotificationType::Error => {
+                    (Style::default().fg(Color::Red), Color::Red)
+                }
+                crate::app::state::NotificationType::Warning => {
+                    (Style::default().fg(Color::Yellow), Color::Yellow)
+                }
+                crate::app::state::NotificationType::Info => {
+                    (Style::default().fg(Color::Cyan), Color::Cyan)
+                }
+            };
+
+            let notification_widget = Paragraph::new(notification.message.as_str())
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(border_color)),
+                )
+                .style(style)
+                .wrap(ratatui::widgets::Wrap { trim: true });
+
+            frame.render_widget(notification_widget, single_notification_area);
+        }
     }
 }
 

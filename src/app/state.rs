@@ -9,7 +9,7 @@ use crate::components::live_logs_stream::LogEntry;
 use crate::docker::LogStreamingCoordinator;
 use crate::models::{Session, Workspace};
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use chrono;
 use std::sync::{Arc, Mutex};
@@ -158,6 +158,65 @@ impl TextEditor {
 
     pub fn get_lines(&self) -> &Vec<String> {
         &self.lines
+    }
+}
+
+/// Notification system for TUI messages
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotificationType {
+    Success,
+    Error,
+    Info,
+    Warning,
+}
+
+#[derive(Debug, Clone)]
+pub struct Notification {
+    pub message: String,
+    pub notification_type: NotificationType,
+    pub created_at: Instant,
+    pub duration: Duration,
+}
+
+impl Notification {
+    pub fn success(message: String) -> Self {
+        Self {
+            message,
+            notification_type: NotificationType::Success,
+            created_at: Instant::now(),
+            duration: Duration::from_secs(3),
+        }
+    }
+
+    pub fn error(message: String) -> Self {
+        Self {
+            message,
+            notification_type: NotificationType::Error,
+            created_at: Instant::now(),
+            duration: Duration::from_secs(5),
+        }
+    }
+
+    pub fn info(message: String) -> Self {
+        Self {
+            message,
+            notification_type: NotificationType::Info,
+            created_at: Instant::now(),
+            duration: Duration::from_secs(3),
+        }
+    }
+
+    pub fn warning(message: String) -> Self {
+        Self {
+            message,
+            notification_type: NotificationType::Warning,
+            created_at: Instant::now(),
+            duration: Duration::from_secs(4),
+        }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        self.created_at.elapsed() > self.duration
     }
 }
 
@@ -328,6 +387,8 @@ pub struct AppState {
     pub log_sender: Option<mpsc::UnboundedSender<(Uuid, LogEntry)>>,
     // Git view state
     pub git_view_state: Option<crate::components::GitViewState>,
+    // Notification system
+    pub notifications: Vec<Notification>,
 }
 
 #[derive(Debug)]
@@ -385,11 +446,12 @@ pub enum NewSessionStep {
     Creating,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AsyncAction {
     StartNewSession,        // Old - will be removed
     StartWorkspaceSearch,   // New - search all workspaces
     NewSessionInCurrentDir, // New - create session in current directory
+    NewSessionNormal,       // New - create normal new session with mode selection
     CreateNewSession,
     DeleteSession(Uuid),       // New - delete session with container cleanup
     RefreshWorkspaces,         // Manual refresh of workspace data
@@ -430,6 +492,7 @@ impl Default for AppState {
             log_streaming_coordinator: None,
             log_sender: None,
             git_view_state: None,
+            notifications: Vec::new(),
         }
     }
 }
@@ -1173,6 +1236,93 @@ impl AppState {
         } else {
             Ok("No container associated with this session".to_string())
         }
+    }
+
+    pub async fn new_session_normal(&mut self) {
+        use crate::git::WorkspaceScanner;
+        use std::env;
+
+        info!("Starting normal new session with mode selection");
+
+        // Check if authentication is set up first
+        if Self::is_first_time_setup() {
+            info!("Authentication not set up, switching to auth setup view");
+            self.current_view = View::AuthSetup;
+            self.auth_setup_state = Some(AuthSetupState {
+                selected_method: AuthMethod::OAuth,
+                api_key_input: String::new(),
+                is_processing: false,
+                error_message: Some("Authentication required before creating sessions.\n\nPlease set up Claude authentication to continue.".to_string()),
+                show_cursor: false,
+            });
+            return;
+        }
+
+        // Check if current directory is a git repository
+        let current_dir = match env::current_dir() {
+            Ok(dir) => {
+                info!("Current directory: {:?}", dir);
+                dir
+            }
+            Err(e) => {
+                warn!("Failed to get current directory: {}", e);
+                return;
+            }
+        };
+
+        match WorkspaceScanner::validate_workspace(&current_dir) {
+            Ok(true) => {
+                info!(
+                    "Current directory is a valid git repository: {:?}",
+                    current_dir
+                );
+            }
+            Ok(false) => {
+                warn!(
+                    "Current directory is not a git repository: {:?}",
+                    current_dir
+                );
+                info!("Falling back to workspace search");
+                // Fall back to workspace search since current directory is not a git repository
+                self.start_workspace_search().await;
+                return;
+            }
+            Err(e) => {
+                error!("Failed to validate workspace: {}", e);
+                info!("Falling back to workspace search due to validation error");
+                // Fall back to workspace search on validation error
+                self.start_workspace_search().await;
+                return;
+            }
+        }
+
+        // Generate branch name with UUID
+        let branch_base = format!(
+            "claude/{}",
+            uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
+        );
+
+        // Create new session state for normal new session (NOT current directory mode)
+        self.new_session_state = Some(NewSessionState {
+            available_repos: vec![current_dir.clone()],
+            filtered_repos: vec![(0, current_dir.clone())],
+            selected_repo_index: Some(0),
+            branch_name: branch_base.clone(),
+            step: NewSessionStep::InputBranch, // Skip repo selection
+            filter_text: String::new(),
+            is_current_dir_mode: false, // This is the key fix - normal sessions should go through mode selection
+            skip_permissions: false,
+            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+            boss_prompt: TextEditor::new(),                // Empty prompt initially
+            file_finder: FuzzyFileFinderState::new(),
+        });
+
+        self.current_view = View::NewSession;
+
+        info!(
+            "Successfully created normal new session state with branch: {}",
+            branch_base
+        );
     }
 
     pub async fn new_session_in_current_dir(&mut self) {
@@ -1997,6 +2147,9 @@ impl AppState {
                 AsyncAction::NewSessionInCurrentDir => {
                     self.new_session_in_current_dir().await;
                 }
+                AsyncAction::NewSessionNormal => {
+                    self.new_session_normal().await;
+                }
                 AsyncAction::CreateNewSession => {
                     self.new_session_create().await;
                 }
@@ -2381,20 +2534,66 @@ impl AppState {
     }
 
     pub fn git_commit_and_push(&mut self) {
-        if let Some(git_state) = self.git_view_state.as_mut() {
-            match git_state.commit_and_push() {
-                Ok(message) => {
-                    tracing::info!("Git commit and push successful: {}", message);
-                    // Refresh git status after successful push
+        let result = if let Some(git_state) = self.git_view_state.as_mut() {
+            git_state.commit_and_push()
+        } else {
+            return;
+        };
+
+        match result {
+            Ok(message) => {
+                tracing::info!("Git commit and push successful: {}", message);
+                self.add_success_notification(format!("✅ {}", message));
+                // Refresh git status after successful push
+                if let Some(git_state) = self.git_view_state.as_mut() {
                     if let Err(e) = git_state.refresh_git_status() {
                         tracing::error!("Failed to refresh git status after push: {}", e);
+                        self.add_warning_notification(
+                            "⚠️ Push successful but failed to refresh git status".to_string(),
+                        );
                     }
                 }
-                Err(e) => {
-                    tracing::error!("Git commit and push failed: {}", e);
-                }
+            }
+            Err(e) => {
+                tracing::error!("Git commit and push failed: {}", e);
+                self.add_error_notification(format!("❌ Git push failed: {}", e));
             }
         }
+    }
+
+    /// Add a notification to the notification queue
+    pub fn add_notification(&mut self, notification: Notification) {
+        self.notifications.push(notification);
+    }
+
+    /// Add a success notification
+    pub fn add_success_notification(&mut self, message: String) {
+        self.add_notification(Notification::success(message));
+    }
+
+    /// Add an error notification
+    pub fn add_error_notification(&mut self, message: String) {
+        self.add_notification(Notification::error(message));
+    }
+
+    /// Add an info notification
+    pub fn add_info_notification(&mut self, message: String) {
+        self.add_notification(Notification::info(message));
+    }
+
+    /// Add a warning notification
+    pub fn add_warning_notification(&mut self, message: String) {
+        self.add_notification(Notification::warning(message));
+    }
+
+    /// Remove expired notifications
+    pub fn cleanup_expired_notifications(&mut self) {
+        self.notifications.retain(|n| !n.is_expired());
+    }
+
+    /// Get current notifications (non-expired)
+    pub fn get_current_notifications(&self) -> Vec<&Notification> {
+        self.notifications.iter().filter(|n| !n.is_expired()).collect()
     }
 }
 
@@ -2501,6 +2700,9 @@ impl App {
     }
 
     pub async fn tick(&mut self) -> anyhow::Result<()> {
+        // Clean up expired notifications
+        self.state.cleanup_expired_notifications();
+
         // Process incoming log entries (non-blocking)
         let mut log_entries = Vec::new();
         if let Some(coordinator) = &mut self.state.log_streaming_coordinator {
@@ -2582,3 +2784,8 @@ impl Default for App {
         Self::new()
     }
 }
+
+// Include the test module inline
+#[cfg(test)]
+#[path = "state_tests.rs"]
+mod state_tests;

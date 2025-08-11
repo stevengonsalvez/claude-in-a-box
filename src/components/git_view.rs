@@ -394,13 +394,40 @@ impl GitViewState {
 
         debug!("Created commit: {}", commit_id);
 
-        // Push to remote
+        // Push to remote using system's default git authentication
         let mut remote = repo.find_remote("origin")?;
         let head_ref = repo.head()?;
         let branch_name = head_ref.shorthand().unwrap_or("HEAD");
         let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
 
-        remote.push(&[&refspec], None)?;
+        // Use default push options - this will use the system's git configuration
+        // including any existing SSH keys, credential helpers, etc.
+        match remote.push(&[&refspec], None) {
+            Ok(()) => {
+                debug!("Successfully pushed to remote");
+            }
+            Err(e) => {
+                // Provide user-friendly error messages based on the error content
+                let error_msg = e.message();
+                let user_friendly_msg = if error_msg.contains("authentication")
+                    || error_msg.contains("Authentication")
+                {
+                    "Authentication failed. Please check your git credentials (SSH keys, tokens, etc.)"
+                } else if error_msg.contains("network")
+                    || error_msg.contains("Network")
+                    || error_msg.contains("connection")
+                {
+                    "Network error. Please check your internet connection."
+                } else if error_msg.contains("not found") || error_msg.contains("Not found") {
+                    "Remote repository not found. Please check the remote URL."
+                } else if error_msg.contains("permission") || error_msg.contains("Permission") {
+                    "Permission denied. Please check your access rights to the repository."
+                } else {
+                    error_msg
+                };
+                return Err(anyhow::anyhow!("Push failed: {}", user_friendly_msg));
+            }
+        }
 
         // Clear commit message input after successful commit
         self.commit_message_input = None;
@@ -414,14 +441,25 @@ pub struct GitViewComponent;
 
 impl GitViewComponent {
     pub fn render(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
-        // Create main layout
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
+        // Create main layout - adjust constraints based on commit mode
+        let constraints = if git_state.is_in_commit_mode() {
+            vec![
+                Constraint::Length(3), // Tabs
+                Constraint::Min(0),    // Content
+                Constraint::Length(5), // Commit message input
+                Constraint::Length(3), // Status/Actions
+            ]
+        } else {
+            vec![
                 Constraint::Length(3), // Tabs
                 Constraint::Min(0),    // Content
                 Constraint::Length(3), // Status/Actions
-            ])
+            ]
+        };
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
             .split(area);
 
         // Render tabs
@@ -445,8 +483,15 @@ impl GitViewComponent {
             GitTab::Diff => Self::render_diff_tab(frame, chunks[1], git_state),
         }
 
-        // Render status bar
-        Self::render_status_bar(frame, chunks[2], git_state);
+        // Render commit message input if in commit mode
+        if git_state.is_in_commit_mode() {
+            Self::render_commit_input(frame, chunks[2], git_state);
+            // Status bar is at index 3 when commit input is shown
+            Self::render_status_bar(frame, chunks[3], git_state);
+        } else {
+            // Status bar is at index 2 when no commit input
+            Self::render_status_bar(frame, chunks[2], git_state);
+        }
     }
 
     fn render_files_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
@@ -559,6 +604,28 @@ impl GitViewComponent {
         frame.render_widget(diff_paragraph, area);
     }
 
+    fn render_commit_input(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
+        let empty_string = String::new();
+        let commit_message = git_state.commit_message_input.as_ref().unwrap_or(&empty_string);
+
+        // Create the input text with cursor
+        let mut display_text = commit_message.clone();
+        if git_state.commit_message_cursor <= display_text.len() {
+            display_text.insert(git_state.commit_message_cursor, '|');
+        }
+
+        let input_paragraph = Paragraph::new(display_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Commit Message (Enter to commit, Esc to cancel)"),
+            )
+            .style(Style::default().fg(Color::White))
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(input_paragraph, area);
+    }
+
     fn render_status_bar(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
         let status_text = if git_state.is_dirty {
             format!("{} files changed", git_state.changed_files.len())
@@ -572,9 +639,15 @@ impl GitViewComponent {
             " • Up to date"
         };
 
-        let help_text = match git_state.active_tab {
-            GitTab::Files => " [j/k] navigate • [Tab] switch tab • [p] push • [Esc] back",
-            GitTab::Diff => " [j/k] scroll • [Tab] switch tab • [p] push • [Esc] back",
+        let help_text = if git_state.is_in_commit_mode() {
+            " [Enter] commit & push • [Esc] cancel • [←/→] move cursor"
+        } else {
+            match git_state.active_tab {
+                GitTab::Files => {
+                    " [j/k] navigate • [Tab] switch tab • [p] commit & push • [Esc] back"
+                }
+                GitTab::Diff => " [j/k] scroll • [Tab] switch tab • [p] commit & push • [Esc] back",
+            }
         };
 
         let status_line = format!("{}{}{}", status_text, push_status, help_text);

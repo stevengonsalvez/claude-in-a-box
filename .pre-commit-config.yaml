@@ -36,13 +36,12 @@ repos:
         files: \.(rs|toml)$
         pass_filenames: false
 
-      # Cargo fmt - format code (BLOCKS commit, but auto-fixes)
+      # Cargo fmt - format code (auto-formats on commit)
       - id: cargo-fmt
         name: Cargo Format
         entry: cargo fmt --all --
         language: system
         files: \.rs$
-        args: ['--check']
 
       # Cargo clippy - linting (WARNS but doesn't block)
       - id: cargo-clippy

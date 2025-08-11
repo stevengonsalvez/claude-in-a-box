@@ -22,7 +22,7 @@ async fn test_bottom_menu_bar_shows_refresh_key() {
 
     // Get the rendered buffer content
     let buffer = terminal.backend().buffer();
-    let content: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+    let content: String = buffer.content().iter().map(ratatui::buffer::Cell::symbol).collect();
 
     // Check that the bottom bar contains the refresh key
     assert!(
@@ -61,7 +61,7 @@ async fn test_help_screen_shows_refresh_key() {
 
     // Get the rendered buffer content
     let buffer = terminal.backend().buffer();
-    let content: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+    let content: String = buffer.content().iter().map(ratatui::buffer::Cell::symbol).collect();
 
     // Check that help contains the refresh key
     assert!(
@@ -107,7 +107,7 @@ async fn test_refresh_key_in_help_under_session_actions() {
         .unwrap();
 
     let buffer = terminal.backend().buffer();
-    let content: String = buffer.content().iter().map(|cell| cell.symbol()).collect();
+    let content: String = buffer.content().iter().map(ratatui::buffer::Cell::symbol).collect();
 
     // Find the position of "Session Actions:"
     let session_actions_pos = content.find("Session Actions:");
@@ -132,9 +132,6 @@ async fn test_refresh_key_in_help_under_session_actions() {
     assert!(
         ref_pos > session_pos && ref_pos < view_pos,
         "Refresh key should appear between Session Actions and Views sections. \
-        Session Actions at {}, Refresh at {}, Views at {}",
-        session_pos,
-        ref_pos,
-        view_pos
+        Session Actions at {session_pos}, Refresh at {ref_pos}, Views at {view_pos}"
     );
 }

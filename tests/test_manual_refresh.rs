@@ -41,7 +41,7 @@ async fn test_manual_refresh_key() {
     match &app.state.pending_async_action {
         None => {}                                     // No action is fine
         Some(AsyncAction::FetchContainerLogs(_)) => {} // FetchContainerLogs is expected after refresh
-        Some(other) => panic!("Unexpected async action after refresh: {:?}", other),
+        Some(other) => panic!("Unexpected async action after refresh: {other:?}"),
     }
 
     // Should have UI refresh flag set
@@ -88,7 +88,7 @@ async fn test_refresh_from_session_list_view() {
     match &app.state.pending_async_action {
         None => {}                                     // No action is fine
         Some(AsyncAction::FetchContainerLogs(_)) => {} // FetchContainerLogs is expected after refresh
-        Some(other) => panic!("Unexpected async action after refresh: {:?}", other),
+        Some(other) => panic!("Unexpected async action after refresh: {other:?}"),
     }
 }
 
@@ -124,7 +124,7 @@ async fn test_multiple_refreshes() {
         }
 
         // Process the refresh
-        app.tick().await.expect(&format!("Refresh {} should succeed", i + 1));
+        app.tick().await.unwrap_or_else(|_| panic!("Refresh {} should succeed", i + 1));
 
         // Check UI refresh flag
         let needs_refresh = app.needs_ui_refresh();

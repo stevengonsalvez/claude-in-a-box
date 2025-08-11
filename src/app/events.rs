@@ -90,6 +90,7 @@ pub enum AppEvent {
     GitViewScrollDown, // Scroll diff down
     GitViewCommitPush, // Commit and push changes
     GitViewBack,       // Return to session list
+    GitCommitAndPush,  // Direct commit and push from main view (p key)
     // Commit message input events
     GitViewStartCommit,           // Start commit message input (p key)
     GitViewCommitInputChar(char), // Character input for commit message
@@ -178,6 +179,7 @@ impl EventHandler {
 
         // Handle git view
         if state.current_view == View::GitView {
+            tracing::debug!("In git view, handling git view keys");
             return Self::handle_git_view_keys(key_event, state);
         }
 
@@ -204,6 +206,7 @@ impl EventHandler {
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
+            KeyCode::Char('p') => Some(AppEvent::GitCommitAndPush), // Direct push from main view
 
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
@@ -606,10 +609,13 @@ impl EventHandler {
     }
 
     fn handle_git_view_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        tracing::debug!("Git view key pressed: {:?}", key_event);
+
         // Check if we're in commit message input mode
         let in_commit_mode = if let Some(ref git_state) = state.git_view_state {
             git_state.is_in_commit_mode()
         } else {
+            tracing::warn!("No git state available in handle_git_view_keys");
             false
         };
 
@@ -657,7 +663,10 @@ impl EventHandler {
                         None
                     }
                 }
-                KeyCode::Char('p') => Some(AppEvent::GitViewStartCommit),
+                KeyCode::Char('p') => {
+                    tracing::info!("Git view 'p' key pressed - starting commit");
+                    Some(AppEvent::GitViewStartCommit)
+                }
                 _ => None,
             }
         }
@@ -691,8 +700,8 @@ impl EventHandler {
                 }
             }
             AppEvent::NewSession => {
-                // Mark for async processing - create session in current directory
-                state.pending_async_action = Some(AsyncAction::NewSessionInCurrentDir);
+                // Mark for async processing - create normal new session with mode selection
+                state.pending_async_action = Some(AsyncAction::NewSessionNormal);
             }
             AppEvent::SearchWorkspace => {
                 // Mark for async processing - search all workspaces
@@ -991,7 +1000,13 @@ impl EventHandler {
             }
             // Git view events
             AppEvent::ShowGitView => {
+                tracing::info!("Showing git view");
                 state.show_git_view();
+                tracing::info!(
+                    "Git view state after show: current_view = {:?}, git_state = {}",
+                    state.current_view,
+                    state.git_view_state.is_some()
+                );
             }
             AppEvent::GitViewSwitchTab => {
                 if let Some(ref mut git_state) = state.git_view_state {
@@ -1027,8 +1042,15 @@ impl EventHandler {
             }
             // Commit message input events
             AppEvent::GitViewStartCommit => {
+                tracing::info!("Processing GitViewStartCommit event");
                 if let Some(ref mut git_state) = state.git_view_state {
+                    tracing::info!("Git state found, starting commit message input");
                     git_state.start_commit_message_input();
+                    state.add_info_notification(
+                        "📝 Enter commit message and press Enter to commit & push".to_string(),
+                    );
+                } else {
+                    tracing::warn!("No git state available for GitViewStartCommit");
                 }
             }
             AppEvent::GitViewCommitInputChar(ch) => {
@@ -1057,6 +1079,10 @@ impl EventHandler {
                 }
             }
             AppEvent::GitViewCommitConfirm => {
+                state.git_commit_and_push();
+            }
+            AppEvent::GitCommitAndPush => {
+                tracing::info!("Direct git commit and push from main view");
                 state.git_commit_and_push();
             }
         }

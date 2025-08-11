@@ -506,7 +506,7 @@ impl NewSessionComponent {
                 boss_style,
             )]),
             Line::from(vec![Span::styled(
-                "  Direct prompt execution with JSON output",
+                "  Direct prompt execution with text output",
                 boss_style,
             )]),
             Line::from(vec![Span::styled(
