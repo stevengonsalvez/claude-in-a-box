@@ -335,7 +335,10 @@ mod tests {
         ui.press_key(KeyCode::Char('s')).unwrap();
 
         // Process async with very short timeout to test timeout handling
-        if let Ok(()) = ui.process_async_with_timeout(Duration::from_millis(1)).await {
+        if matches!(
+            ui.process_async_with_timeout(Duration::from_millis(1)).await,
+            Ok(())
+        ) {
             // If it completes quickly, that's fine - just test escape works
             if ui.current_view() == &View::SearchWorkspace {
                 ui.press_key(KeyCode::Esc).unwrap();
