@@ -159,6 +159,146 @@ impl TextEditor {
     pub fn get_lines(&self) -> &Vec<String> {
         &self.lines
     }
+
+    pub fn move_cursor_to_end(&mut self) {
+        if !self.lines.is_empty() {
+            self.cursor_line = self.lines.len() - 1;
+            self.cursor_col = self.lines[self.cursor_line].len();
+        }
+    }
+
+    pub fn set_cursor_position(&mut self, line: usize, col: usize) {
+        if line < self.lines.len() {
+            self.cursor_line = line;
+            self.cursor_col = col.min(self.lines[line].len());
+        }
+    }
+
+    // Word movement methods
+    pub fn move_cursor_word_forward(&mut self) {
+        let current_line = &self.lines[self.cursor_line];
+        
+        // If at end of line, move to next line
+        if self.cursor_col >= current_line.len() {
+            if self.cursor_line < self.lines.len() - 1 {
+                self.cursor_line += 1;
+                self.cursor_col = 0;
+                // Find first non-whitespace character
+                let next_line = &self.lines[self.cursor_line];
+                while self.cursor_col < next_line.len() && next_line.chars().nth(self.cursor_col).unwrap().is_whitespace() {
+                    self.cursor_col += 1;
+                }
+            }
+            return;
+        }
+
+        let chars: Vec<char> = current_line.chars().collect();
+        let mut pos = self.cursor_col;
+        
+        // Skip current word
+        while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '.' && chars[pos] != ',' {
+            pos += 1;
+        }
+        
+        // Skip whitespace
+        while pos < chars.len() && chars[pos].is_whitespace() {
+            pos += 1;
+        }
+        
+        self.cursor_col = pos;
+    }
+
+    pub fn move_cursor_word_backward(&mut self) {
+        // If at beginning of line, move to end of previous line
+        if self.cursor_col == 0 {
+            if self.cursor_line > 0 {
+                self.cursor_line -= 1;
+                self.cursor_col = self.lines[self.cursor_line].len();
+            }
+            return;
+        }
+
+        let current_line = &self.lines[self.cursor_line];
+        let chars: Vec<char> = current_line.chars().collect();
+        let mut pos = self.cursor_col.saturating_sub(1);
+        
+        // Skip whitespace backwards
+        while pos > 0 && chars[pos].is_whitespace() {
+            pos = pos.saturating_sub(1);
+        }
+        
+        // Skip word backwards
+        while pos > 0 && !chars[pos].is_whitespace() && chars[pos] != '.' && chars[pos] != ',' {
+            pos = pos.saturating_sub(1);
+        }
+        
+        // If we stopped on whitespace or punctuation, move forward one
+        if pos > 0 && (chars[pos].is_whitespace() || chars[pos] == '.' || chars[pos] == ',') {
+            pos += 1;
+        }
+        
+        self.cursor_col = pos;
+    }
+
+    // Word deletion methods
+    pub fn delete_word_forward(&mut self) {
+        let current_line_text = self.lines[self.cursor_line].clone();
+        let chars: Vec<char> = current_line_text.chars().collect();
+        let start_pos = self.cursor_col;
+        
+        if start_pos >= chars.len() {
+            return;
+        }
+        
+        let mut end_pos = start_pos;
+        
+        // Skip current word
+        while end_pos < chars.len() && !chars[end_pos].is_whitespace() && chars[end_pos] != '.' && chars[end_pos] != ',' {
+            end_pos += 1;
+        }
+        
+        // Skip following whitespace  
+        while end_pos < chars.len() && chars[end_pos].is_whitespace() {
+            end_pos += 1;
+        }
+        
+        // Remove the text
+        let before: String = chars[..start_pos].iter().collect();
+        let after: String = chars[end_pos..].iter().collect();
+        self.lines[self.cursor_line] = format!("{}{}", before, after);
+    }
+
+    pub fn delete_word_backward(&mut self) {
+        if self.cursor_col == 0 {
+            return;
+        }
+
+        let current_line_text = self.lines[self.cursor_line].clone();
+        let chars: Vec<char> = current_line_text.chars().collect();
+        let end_pos = self.cursor_col;
+        let mut start_pos = end_pos.saturating_sub(1);
+        
+        // Skip whitespace backwards
+        while start_pos > 0 && chars[start_pos].is_whitespace() {
+            start_pos = start_pos.saturating_sub(1);
+        }
+        
+        // Skip word backwards
+        while start_pos > 0 && !chars[start_pos].is_whitespace() && chars[start_pos] != '.' && chars[start_pos] != ',' {
+            start_pos = start_pos.saturating_sub(1);
+        }
+        
+        // If we stopped on whitespace or punctuation, move forward one
+        if start_pos > 0 && (chars[start_pos].is_whitespace() || chars[start_pos] == '.' || chars[start_pos] == ',') {
+            start_pos += 1;
+        }
+        
+        // Remove the text
+        let before: String = chars[..start_pos].iter().collect();
+        let after: String = chars[end_pos..].iter().collect();
+        self.lines[self.cursor_line] = format!("{}{}", before, after);
+        self.cursor_col = start_pos;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1658,6 +1798,38 @@ impl AppState {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
                 state.boss_prompt.move_to_line_end();
+            }
+        }
+    }
+
+    pub fn new_session_move_cursor_word_left(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_cursor_word_backward();
+            }
+        }
+    }
+
+    pub fn new_session_move_cursor_word_right(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_cursor_word_forward();
+            }
+        }
+    }
+
+    pub fn new_session_delete_word_forward(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.delete_word_forward();
+            }
+        }
+    }
+
+    pub fn new_session_delete_word_backward(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.delete_word_backward();
             }
         }
     }
