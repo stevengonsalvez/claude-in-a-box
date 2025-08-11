@@ -20,13 +20,13 @@ fn create_new_session_state_in_prompt_step() -> AppState {
     let mut state = AppState::default();
     state.current_view = View::NewSession;
     state.new_session_state = Some(NewSessionState::new_for_boss_mode());
-    
+
     // Set the state to prompt input step
     if let Some(ref mut session_state) = state.new_session_state {
         session_state.step = NewSessionStep::InputPrompt;
         session_state.mode = SessionMode::Boss;
     }
-    
+
     state
 }
 
@@ -73,7 +73,7 @@ fn test_legend_display_shows_only_arrows() {
 #[test]
 fn test_hjkl_letters_are_treated_as_regular_characters() {
     let mut state = create_new_session_state_in_prompt_step();
-    
+
     // Test that h, j, k, l are treated as regular characters in boss mode prompt
     let h_event = EventHandler::handle_key_event(
         create_key_event(KeyCode::Char('h')),
@@ -103,7 +103,7 @@ fn test_hjkl_letters_are_treated_as_regular_characters() {
 #[test]
 fn test_arrow_keys_move_cursor() {
     let mut state = create_new_session_state_in_prompt_step();
-    
+
     // Arrow keys should trigger cursor movement events
     let left_event = EventHandler::handle_key_event(
         create_key_event(KeyCode::Left),
@@ -133,15 +133,15 @@ fn test_arrow_keys_move_cursor() {
 #[test]
 fn test_option_arrow_word_movement() {
     let mut state = create_new_session_state_in_prompt_step();
-    
+
     // Option + left arrow should trigger word movement left
     let option_left_event = EventHandler::handle_key_event(
         create_key_event_with_modifiers(KeyCode::Left, KeyModifiers::ALT),
         &mut state,
     );
     assert_eq!(option_left_event, Some(AppEvent::NewSessionCursorWordLeft));
-    
-    // Option + right arrow should trigger word movement right  
+
+    // Option + right arrow should trigger word movement right
     let option_right_event = EventHandler::handle_key_event(
         create_key_event_with_modifiers(KeyCode::Right, KeyModifiers::ALT),
         &mut state,
@@ -152,14 +152,14 @@ fn test_option_arrow_word_movement() {
 #[test]
 fn test_option_delete_word_deletion() {
     let mut state = create_new_session_state_in_prompt_step();
-    
+
     // Option + delete should trigger word deletion
     let option_delete_event = EventHandler::handle_key_event(
         create_key_event_with_modifiers(KeyCode::Delete, KeyModifiers::ALT),
         &mut state,
     );
     assert_eq!(option_delete_event, Some(AppEvent::NewSessionDeleteWordForward));
-    
+
     // Option + backspace should trigger word deletion backward
     let option_backspace_event = EventHandler::handle_key_event(
         create_key_event_with_modifiers(KeyCode::Backspace, KeyModifiers::ALT),
@@ -174,7 +174,7 @@ fn test_text_editor_word_boundaries() {
     let text = "hello world test_function some-text";
     let words = text.split_whitespace().collect::<Vec<_>>();
     assert_eq!(words, vec!["hello", "world", "test_function", "some-text"]);
-    
+
     // Word boundaries should be whitespace and certain punctuation
     let test_cases = vec![
         ("hello world", vec![(0, 5), (6, 11)]),  // word boundaries
@@ -182,12 +182,12 @@ fn test_text_editor_word_boundaries() {
         ("some-text", vec![(0, 9)]),             // hyphen is part of word
         ("a.b c", vec![(0, 1), (2, 3), (4, 5)]), // dots separate words
     ];
-    
+
     for (input, expected_word_bounds) in test_cases {
         let words: Vec<&str> = input.split_whitespace().collect();
         let mut start = 0;
         let mut actual_bounds = Vec::new();
-        
+
         for word in &words {
             if let Some(pos) = input[start..].find(word) {
                 let word_start = start + pos;
@@ -196,7 +196,7 @@ fn test_text_editor_word_boundaries() {
                 start = word_end;
             }
         }
-        
+
         println!("Input: '{}', Expected: {:?}, Got: {:?}", input, expected_word_bounds, actual_bounds);
     }
 }
@@ -204,66 +204,66 @@ fn test_text_editor_word_boundaries() {
 mod text_editor_word_navigation {
     use super::*;
     use claude_box::app::state::TextEditor;
-    
+
     #[test]
     fn test_word_forward() {
         let mut editor = TextEditor::from_string("hello world test");
         assert_eq!(editor.get_cursor_position(), (0, 0));
-        
+
         // Moving word forward should go to start of next word
         editor.move_cursor_word_forward();
         assert_eq!(editor.get_cursor_position(), (0, 6)); // "world"
-        
-        editor.move_cursor_word_forward();  
+
+        editor.move_cursor_word_forward();
         assert_eq!(editor.get_cursor_position(), (0, 12)); // "test"
-        
+
         editor.move_cursor_word_forward();
         assert_eq!(editor.get_cursor_position(), (0, 16)); // end of line
     }
-    
+
     #[test]
     fn test_word_backward() {
         let mut editor = TextEditor::from_string("hello world test");
         // Start at end
         editor.move_cursor_to_end();
         assert_eq!(editor.get_cursor_position(), (0, 16));
-        
+
         // Moving word backward should go to start of current/previous word
         editor.move_cursor_word_backward();
         assert_eq!(editor.get_cursor_position(), (0, 12)); // "test"
-        
+
         editor.move_cursor_word_backward();
         assert_eq!(editor.get_cursor_position(), (0, 6)); // "world"
-        
+
         editor.move_cursor_word_backward();
         assert_eq!(editor.get_cursor_position(), (0, 0)); // "hello"
     }
-    
+
     #[test]
     fn test_delete_word_forward() {
         let mut editor = TextEditor::from_string("hello world test");
         assert_eq!(editor.get_cursor_position(), (0, 0));
-        
+
         // Delete word forward should delete "hello "
         editor.delete_word_forward();
         assert_eq!(editor.to_string(), "world test");
         assert_eq!(editor.get_cursor_position(), (0, 0));
-        
+
         editor.delete_word_forward();
         assert_eq!(editor.to_string(), "test");
         assert_eq!(editor.get_cursor_position(), (0, 0));
     }
-    
+
     #[test]
     fn test_delete_word_backward() {
         let mut editor = TextEditor::from_string("hello world test");
-        // Move cursor to middle of "world"  
+        // Move cursor to middle of "world"
         editor.set_cursor_position(0, 8);
-        
+
         // Delete word backward should delete "world" up to cursor
         editor.delete_word_backward();
         assert_eq!(editor.to_string(), "hello rld test");
-        
+
         // Move to after "hello"
         editor.set_cursor_position(0, 5);
         editor.delete_word_backward();

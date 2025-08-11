@@ -177,7 +177,7 @@ impl TextEditor {
     // Word movement methods
     pub fn move_cursor_word_forward(&mut self) {
         let current_line = &self.lines[self.cursor_line];
-        
+
         // If at end of line, move to next line
         if self.cursor_col >= current_line.len() {
             if self.cursor_line < self.lines.len() - 1 {
@@ -194,17 +194,17 @@ impl TextEditor {
 
         let chars: Vec<char> = current_line.chars().collect();
         let mut pos = self.cursor_col;
-        
+
         // Skip current word
         while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '.' && chars[pos] != ',' {
             pos += 1;
         }
-        
+
         // Skip whitespace
         while pos < chars.len() && chars[pos].is_whitespace() {
             pos += 1;
         }
-        
+
         self.cursor_col = pos;
     }
 
@@ -221,22 +221,22 @@ impl TextEditor {
         let current_line = &self.lines[self.cursor_line];
         let chars: Vec<char> = current_line.chars().collect();
         let mut pos = self.cursor_col.saturating_sub(1);
-        
+
         // Skip whitespace backwards
         while pos > 0 && chars[pos].is_whitespace() {
             pos = pos.saturating_sub(1);
         }
-        
+
         // Skip word backwards
         while pos > 0 && !chars[pos].is_whitespace() && chars[pos] != '.' && chars[pos] != ',' {
             pos = pos.saturating_sub(1);
         }
-        
+
         // If we stopped on whitespace or punctuation, move forward one
         if pos > 0 && (chars[pos].is_whitespace() || chars[pos] == '.' || chars[pos] == ',') {
             pos += 1;
         }
-        
+
         self.cursor_col = pos;
     }
 
@@ -245,23 +245,23 @@ impl TextEditor {
         let current_line_text = self.lines[self.cursor_line].clone();
         let chars: Vec<char> = current_line_text.chars().collect();
         let start_pos = self.cursor_col;
-        
+
         if start_pos >= chars.len() {
             return;
         }
-        
+
         let mut end_pos = start_pos;
-        
+
         // Skip current word
         while end_pos < chars.len() && !chars[end_pos].is_whitespace() && chars[end_pos] != '.' && chars[end_pos] != ',' {
             end_pos += 1;
         }
-        
-        // Skip following whitespace  
+
+        // Skip following whitespace
         while end_pos < chars.len() && chars[end_pos].is_whitespace() {
             end_pos += 1;
         }
-        
+
         // Remove the text
         let before: String = chars[..start_pos].iter().collect();
         let after: String = chars[end_pos..].iter().collect();
@@ -277,22 +277,22 @@ impl TextEditor {
         let chars: Vec<char> = current_line_text.chars().collect();
         let end_pos = self.cursor_col;
         let mut start_pos = end_pos.saturating_sub(1);
-        
+
         // Skip whitespace backwards
         while start_pos > 0 && chars[start_pos].is_whitespace() {
             start_pos = start_pos.saturating_sub(1);
         }
-        
+
         // Skip word backwards
         while start_pos > 0 && !chars[start_pos].is_whitespace() && chars[start_pos] != '.' && chars[start_pos] != ',' {
             start_pos = start_pos.saturating_sub(1);
         }
-        
+
         // If we stopped on whitespace or punctuation, move forward one
         if start_pos > 0 && (chars[start_pos].is_whitespace() || chars[start_pos] == '.' || chars[start_pos] == ',') {
             start_pos += 1;
         }
-        
+
         // Remove the text
         let before: String = chars[..start_pos].iter().collect();
         let after: String = chars[end_pos..].iter().collect();
