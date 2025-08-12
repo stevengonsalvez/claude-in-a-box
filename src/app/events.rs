@@ -104,6 +104,7 @@ pub enum AppEvent {
     GitViewCommitCursorRight,     // Move cursor right in commit message
     GitViewCommitCancel,          // Cancel commit message input (Esc)
     GitViewCommitConfirm,         // Confirm and execute commit (Enter)
+    GitCommitSuccess(String),     // Commit was successful with message
 }
 
 pub struct EventHandler;
@@ -472,8 +473,12 @@ impl EventHandler {
                                 tracing::debug!("InputPrompt: Option+Delete - delete word forward");
                                 Some(AppEvent::NewSessionDeleteWordForward)
                             }
-                            KeyCode::Backspace if key_event.modifiers.contains(KeyModifiers::ALT) => {
-                                tracing::debug!("InputPrompt: Option+Backspace - delete word backward");
+                            KeyCode::Backspace
+                                if key_event.modifiers.contains(KeyModifiers::ALT) =>
+                            {
+                                tracing::debug!(
+                                    "InputPrompt: Option+Backspace - delete word backward"
+                                );
                                 Some(AppEvent::NewSessionDeleteWordBackward)
                             }
                             KeyCode::Backspace => {
@@ -1111,6 +1116,15 @@ impl EventHandler {
             AppEvent::GitCommitAndPush => {
                 tracing::info!("Direct git commit and push from main view");
                 state.git_commit_and_push();
+            }
+            AppEvent::GitCommitSuccess(message) => {
+                tracing::info!("Git commit successful: {}", message);
+                // Add success notification
+                state.add_success_notification(format!("✅ {}", message));
+                // Exit git view and return to main session list
+                state.current_view = crate::app::state::View::SessionList;
+                state.git_view_state = None;
+                tracing::info!("Returned to session list after successful commit");
             }
         }
     }

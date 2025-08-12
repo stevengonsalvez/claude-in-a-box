@@ -527,15 +527,14 @@ impl NewSessionComponent {
         frame.render_widget(boss_para, mode_chunks[1]);
 
         // Instructions
-        let instructions =
-            Paragraph::new("↑/↓: Switch Mode • Enter: Continue • Esc: Cancel")
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Gray)),
-                )
-                .style(Style::default().fg(Color::Gray))
-                .alignment(Alignment::Center);
+        let instructions = Paragraph::new("↑/↓: Switch Mode • Enter: Continue • Esc: Cancel")
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Gray)),
+            )
+            .style(Style::default().fg(Color::Gray))
+            .alignment(Alignment::Center);
         frame.render_widget(instructions, chunks[2]);
     }
 

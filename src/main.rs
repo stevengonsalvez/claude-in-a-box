@@ -285,6 +285,11 @@ async fn run_tui_loop(
             }
         }
 
+        // Process any pending events
+        if let Some(pending_event) = app.state.pending_event.take() {
+            EventHandler::process_event(pending_event, &mut app.state);
+        }
+
         if last_tick.elapsed() >= tick_rate {
             match app.tick().await {
                 Ok(()) => {

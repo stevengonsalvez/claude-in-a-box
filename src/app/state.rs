@@ -185,7 +185,9 @@ impl TextEditor {
                 self.cursor_col = 0;
                 // Find first non-whitespace character
                 let next_line = &self.lines[self.cursor_line];
-                while self.cursor_col < next_line.len() && next_line.chars().nth(self.cursor_col).unwrap().is_whitespace() {
+                while self.cursor_col < next_line.len()
+                    && next_line.chars().nth(self.cursor_col).unwrap().is_whitespace()
+                {
                     self.cursor_col += 1;
                 }
             }
@@ -196,7 +198,11 @@ impl TextEditor {
         let mut pos = self.cursor_col;
 
         // Skip current word
-        while pos < chars.len() && !chars[pos].is_whitespace() && chars[pos] != '.' && chars[pos] != ',' {
+        while pos < chars.len()
+            && !chars[pos].is_whitespace()
+            && chars[pos] != '.'
+            && chars[pos] != ','
+        {
             pos += 1;
         }
 
@@ -253,7 +259,11 @@ impl TextEditor {
         let mut end_pos = start_pos;
 
         // Skip current word
-        while end_pos < chars.len() && !chars[end_pos].is_whitespace() && chars[end_pos] != '.' && chars[end_pos] != ',' {
+        while end_pos < chars.len()
+            && !chars[end_pos].is_whitespace()
+            && chars[end_pos] != '.'
+            && chars[end_pos] != ','
+        {
             end_pos += 1;
         }
 
@@ -284,12 +294,20 @@ impl TextEditor {
         }
 
         // Skip word backwards
-        while start_pos > 0 && !chars[start_pos].is_whitespace() && chars[start_pos] != '.' && chars[start_pos] != ',' {
+        while start_pos > 0
+            && !chars[start_pos].is_whitespace()
+            && chars[start_pos] != '.'
+            && chars[start_pos] != ','
+        {
             start_pos = start_pos.saturating_sub(1);
         }
 
         // If we stopped on whitespace or punctuation, move forward one
-        if start_pos > 0 && (chars[start_pos].is_whitespace() || chars[start_pos] == '.' || chars[start_pos] == ',') {
+        if start_pos > 0
+            && (chars[start_pos].is_whitespace()
+                || chars[start_pos] == '.'
+                || chars[start_pos] == ',')
+        {
             start_pos += 1;
         }
 
@@ -529,6 +547,8 @@ pub struct AppState {
     pub git_view_state: Option<crate::components::GitViewState>,
     // Notification system
     pub notifications: Vec<Notification>,
+    // Pending event to be processed in next loop iteration
+    pub pending_event: Option<crate::app::events::AppEvent>,
 }
 
 #[derive(Debug)]
@@ -633,6 +653,7 @@ impl Default for AppState {
             log_sender: None,
             git_view_state: None,
             notifications: Vec::new(),
+            pending_event: None,
         }
     }
 }
@@ -2715,7 +2736,8 @@ impl AppState {
         match result {
             Ok(message) => {
                 tracing::info!("Git commit and push successful: {}", message);
-                self.add_success_notification(format!("✅ {}", message));
+                // Set pending event to be processed in next loop iteration
+                self.pending_event = Some(crate::app::events::AppEvent::GitCommitSuccess(message));
                 // Refresh git status after successful push
                 if let Some(git_state) = self.git_view_state.as_mut() {
                     if let Err(e) = git_state.refresh_git_status() {
