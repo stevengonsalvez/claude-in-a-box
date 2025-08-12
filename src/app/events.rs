@@ -96,6 +96,14 @@ pub enum AppEvent {
     GitViewCommitPush, // Commit and push changes
     GitViewBack,       // Return to session list
     GitCommitAndPush,  // Direct commit and push from main view (p key)
+    // Quick commit dialog events (for home screen [p] key)
+    QuickCommitStart,           // Start quick commit dialog
+    QuickCommitInputChar(char), // Character input for quick commit
+    QuickCommitBackspace,       // Backspace in quick commit
+    QuickCommitCursorLeft,      // Move cursor left
+    QuickCommitCursorRight,     // Move cursor right
+    QuickCommitConfirm,         // Confirm quick commit (Enter)
+    QuickCommitCancel,          // Cancel quick commit (Escape)
     // Commit message input events
     GitViewStartCommit,           // Start commit message input (p key)
     GitViewCommitInputChar(char), // Character input for commit message
@@ -183,6 +191,19 @@ impl EventHandler {
             return Self::handle_auth_setup_keys(key_event, state);
         }
 
+        // Handle quick commit dialog input
+        if state.is_in_quick_commit_mode() {
+            return match key_event.code {
+                KeyCode::Enter => Some(AppEvent::QuickCommitConfirm),
+                KeyCode::Esc => Some(AppEvent::QuickCommitCancel),
+                KeyCode::Backspace => Some(AppEvent::QuickCommitBackspace),
+                KeyCode::Left => Some(AppEvent::QuickCommitCursorLeft),
+                KeyCode::Right => Some(AppEvent::QuickCommitCursorRight),
+                KeyCode::Char(ch) => Some(AppEvent::QuickCommitInputChar(ch)),
+                _ => None,
+            };
+        }
+
         // Handle git view
         if state.current_view == View::GitView {
             tracing::debug!("In git view, handling git view keys");
@@ -212,7 +233,7 @@ impl EventHandler {
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
-            KeyCode::Char('p') => Some(AppEvent::GitCommitAndPush), // Direct push from main view
+            KeyCode::Char('p') => Some(AppEvent::QuickCommitStart), // Start quick commit dialog
 
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
@@ -1116,6 +1137,28 @@ impl EventHandler {
             AppEvent::GitCommitAndPush => {
                 tracing::info!("Direct git commit and push from main view");
                 state.git_commit_and_push();
+            }
+            AppEvent::QuickCommitStart => {
+                tracing::info!("Starting quick commit dialog");
+                state.start_quick_commit();
+            }
+            AppEvent::QuickCommitInputChar(ch) => {
+                state.add_char_to_quick_commit(ch);
+            }
+            AppEvent::QuickCommitBackspace => {
+                state.backspace_quick_commit();
+            }
+            AppEvent::QuickCommitCursorLeft => {
+                state.move_quick_commit_cursor_left();
+            }
+            AppEvent::QuickCommitCursorRight => {
+                state.move_quick_commit_cursor_right();
+            }
+            AppEvent::QuickCommitConfirm => {
+                state.confirm_quick_commit();
+            }
+            AppEvent::QuickCommitCancel => {
+                state.cancel_quick_commit();
             }
             AppEvent::GitCommitSuccess(message) => {
                 tracing::info!("Git commit successful: {}", message);

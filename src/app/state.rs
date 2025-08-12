@@ -549,6 +549,10 @@ pub struct AppState {
     pub notifications: Vec<Notification>,
     // Pending event to be processed in next loop iteration
     pub pending_event: Option<crate::app::events::AppEvent>,
+
+    // Quick commit dialog state
+    pub quick_commit_message: Option<String>, // None = not in quick commit mode, Some = message being entered
+    pub quick_commit_cursor: usize,           // Cursor position in quick commit message
 }
 
 #[derive(Debug)]
@@ -654,6 +658,10 @@ impl Default for AppState {
             git_view_state: None,
             notifications: Vec::new(),
             pending_event: None,
+
+            // Initialize quick commit state
+            quick_commit_message: None,
+            quick_commit_cursor: 0,
         }
     }
 }
@@ -2751,6 +2759,109 @@ impl AppState {
             Err(e) => {
                 tracing::error!("Git commit and push failed: {}", e);
                 self.add_error_notification(format!("❌ Git push failed: {}", e));
+            }
+        }
+    }
+
+    // Quick commit dialog methods
+    pub fn is_in_quick_commit_mode(&self) -> bool {
+        self.quick_commit_message.is_some()
+    }
+
+    pub fn start_quick_commit(&mut self) {
+        // Only start quick commit if we have a selected session and it's in a git repository
+        if let Some(session) = self.get_selected_session() {
+            // Check if the workspace path is a git repository
+            let workspace_path = std::path::Path::new(&session.workspace_path);
+            let git_dir = workspace_path.join(".git");
+
+            if git_dir.exists() {
+                self.quick_commit_message = Some(String::new());
+                self.quick_commit_cursor = 0;
+                self.add_info_notification(
+                    "📝 Enter commit message and press Enter to commit & push".to_string(),
+                );
+            } else {
+                self.add_warning_notification(
+                    "⚠️ Selected workspace is not a git repository".to_string(),
+                );
+            }
+        } else {
+            self.add_warning_notification("⚠️ No session selected".to_string());
+        }
+    }
+
+    pub fn cancel_quick_commit(&mut self) {
+        self.quick_commit_message = None;
+        self.quick_commit_cursor = 0;
+        self.add_info_notification("❌ Quick commit cancelled".to_string());
+    }
+
+    pub fn add_char_to_quick_commit(&mut self, ch: char) {
+        if let Some(ref mut message) = self.quick_commit_message {
+            message.insert(self.quick_commit_cursor, ch);
+            self.quick_commit_cursor += 1;
+        }
+    }
+
+    pub fn backspace_quick_commit(&mut self) {
+        if let Some(ref mut message) = self.quick_commit_message {
+            if self.quick_commit_cursor > 0 {
+                self.quick_commit_cursor -= 1;
+                message.remove(self.quick_commit_cursor);
+            }
+        }
+    }
+
+    pub fn move_quick_commit_cursor_left(&mut self) {
+        if self.quick_commit_cursor > 0 {
+            self.quick_commit_cursor -= 1;
+        }
+    }
+
+    pub fn move_quick_commit_cursor_right(&mut self) {
+        if let Some(ref message) = self.quick_commit_message {
+            if self.quick_commit_cursor < message.len() {
+                self.quick_commit_cursor += 1;
+            }
+        }
+    }
+
+    pub fn confirm_quick_commit(&mut self) {
+        if let Some(ref message) = self.quick_commit_message {
+            if message.trim().is_empty() {
+                self.add_warning_notification("⚠️ Commit message cannot be empty".to_string());
+                return;
+            }
+
+            // Perform the quick commit
+            self.perform_quick_commit(message.trim().to_string());
+        }
+    }
+
+    fn perform_quick_commit(&mut self, commit_message: String) {
+        let worktree_path = if let Some(session) = self.get_selected_session() {
+            std::path::PathBuf::from(&session.workspace_path)
+        } else {
+            return;
+        };
+
+        // Use the shared git operations function - DRY compliance!
+        match crate::git::operations::commit_and_push_changes(&worktree_path, &commit_message) {
+            Ok(success_message) => {
+                tracing::info!("Quick commit successful: {}", success_message);
+                // Set pending event to be processed in next loop iteration
+                self.pending_event = Some(crate::app::events::AppEvent::GitCommitSuccess(
+                    success_message,
+                ));
+                // Clear quick commit state
+                self.quick_commit_message = None;
+                self.quick_commit_cursor = 0;
+            }
+            Err(e) => {
+                tracing::error!("Quick commit failed: {}", e);
+                self.add_error_notification(format!("❌ Quick commit failed: {}", e));
+                // Keep quick commit dialog open so user can try again
             }
         }
     }
