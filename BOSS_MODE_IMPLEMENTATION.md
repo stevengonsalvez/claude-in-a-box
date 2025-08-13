@@ -16,7 +16,7 @@ Boss mode is now **fully implemented, tested, and deployed**. The container has 
 - **CLAUDE_BOSS_MODE**: Set to `"true"` by startup.sh to enable prompt injection
 
 ### Modified Files
-- ✅ `docker/claude-dev/scripts/claude-logging.sh` - Boss mode prompt injection function
+- ✅ `docker/claude-dev/scripts/startup.sh` - Boss mode execution and prompt enhancement
 - ✅ `docker/claude-dev/scripts/startup.sh` - Integration with boss mode wrapper
 - ✅ Enhanced both `--print` and `--script` modes with prompt injection
 

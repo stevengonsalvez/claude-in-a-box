@@ -156,7 +156,7 @@ if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
         log "Prompt: ${CLAUDE_BOX_PROMPT}"
 
         # Boss mode prompt text to append
-        BOSS_MODE_PROMPT="Ultrathink and understand our project rules, particularly around testing. You must go test first, and you must work in a way that allows for small known-good increments. You must commit when the code is in a working state, and commit early and often. When committing: - Use conventional commit format (feat:, fix:, refactor:, test:, docs:) - Commit after each logical increment (test passes, feature complete, refactor done) - Ensure pre-commit hooks pass before committing - Generate descriptive commit messages that explain the 'what' and 'why' - Never leave code in a broken state between commits"
+        BOSS_MODE_PROMPT="Ultrathink and understand our project rules, particularly around testing. You must go test first, and you must work in a way that allows for small known-good increments. You must commit when the code is in a working state, and commit early and often. When committing: - Use conventional commit format (feat:, fix:, refactor:, test:, docs:) - Commit after each logical increment (test passes, feature complete, refactor done) - Generate descriptive commit messages that explain the 'what' and 'why' - Never leave code in a broken state between commits"
 
         # Append boss mode prompt to user prompt
         ENHANCED_PROMPT="${CLAUDE_BOX_PROMPT} ${BOSS_MODE_PROMPT}"

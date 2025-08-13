@@ -56,16 +56,9 @@ fn commit_and_push_cli(worktree_path: &Path, commit_message: &str) -> Result<Str
         }
 
         // Commit with --no-gpg-sign to avoid hanging on GPG passphrase
-        // and --no-verify to skip pre-commit hooks that might hang
         debug!("Committing with message: {}", commit_message);
         let commit_output = Command::new("git")
-            .args(&[
-                "commit",
-                "--no-gpg-sign",
-                "--no-verify",
-                "-m",
-                commit_message,
-            ])
+            .args(&["commit", "--no-gpg-sign", "-m", commit_message])
             .env("GIT_TERMINAL_PROMPT", "0") // Disable interactive prompts
             .env("GIT_ASKPASS", "echo") // Provide dummy askpass to avoid hanging
             .output()?;
