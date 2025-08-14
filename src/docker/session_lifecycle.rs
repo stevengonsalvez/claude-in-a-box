@@ -6,6 +6,7 @@ use super::{
 };
 use crate::config::{
     AppConfig, ContainerTemplate, McpInitializer, ProjectConfig, apply_mcp_init_result,
+    container::ImageSource,
 };
 use crate::git::{WorktreeInfo, WorktreeManager};
 use crate::models::{Session, SessionStatus};
@@ -1006,6 +1007,154 @@ impl SessionLifecycleManager {
         // Register the session
         self.active_sessions.insert(request.session_id, session_state.clone());
 
+        Ok(session_state)
+    }
+
+    /// Create a new session using an existing worktree instead of creating a new one
+    /// This is useful for reusing worktrees from previous sessions
+    pub async fn create_session_with_existing_worktree(
+        &mut self,
+        request: SessionRequest,
+        existing_worktree: WorktreeInfo,
+    ) -> Result<SessionState, SessionLifecycleError> {
+        info!(
+            "Creating new session {} with existing worktree at {}",
+            request.session_id, existing_worktree.path.display()
+        );
+
+        // Check if session already exists
+        if self.active_sessions.contains_key(&request.session_id) {
+            return Err(SessionLifecycleError::SessionAlreadyExists(
+                request.session_id,
+            ));
+        }
+
+        // Verify the existing worktree still exists and is valid
+        if !existing_worktree.path.exists() {
+            return Err(SessionLifecycleError::InvalidState(format!(
+                "Existing worktree path does not exist: {}",
+                existing_worktree.path.display()
+            )));
+        }
+
+        // Load project configuration
+        let project_config = ProjectConfig::load_from_dir(&request.workspace_path)
+            .map_err(|e| {
+                SessionLifecycleError::ConfigError(format!("Failed to load project config: {}", e))
+            })?;
+
+        // Create session model using the existing worktree path
+        let mut session = Session::new_with_options(
+            format!("{}-{}", request.workspace_name, request.branch_name),
+            existing_worktree.path.to_string_lossy().to_string(),
+            request.skip_permissions,
+            request.mode.clone(),
+            request.boss_prompt.clone(),
+        );
+        session.id = request.session_id;
+        session.branch_name = request.branch_name.clone();
+
+        // Get the container template (default to claude-dev if not specified)
+        let default_template = "claude-dev".to_string();
+        let template_name = project_config
+            .as_ref()
+            .and_then(|pc| pc.container_template.as_ref())
+            .unwrap_or(&default_template);
+
+        let template = self
+            .app_config
+            .container_templates
+            .get(template_name)
+            .ok_or_else(|| {
+                SessionLifecycleError::ConfigError(format!(
+                    "Container template '{}' not found",
+                    template_name
+                ))
+            })?;
+
+        // Create container configuration based on template image source
+        let image_name = match &template.config.image_source {
+            ImageSource::Image { name } => name.clone(),
+            ImageSource::ClaudeDocker { base_image: _, .. } => "claude-box:claude-dev".to_string(),
+            ImageSource::Dockerfile { path: _, .. } => {
+                // For Dockerfile builds, we'd need to build the image first
+                // For now, default to claude-dev
+                "claude-box:claude-dev".to_string()
+            }
+        };
+
+        let mut container_config = ContainerConfig::new(image_name)
+            .with_working_dir(template.config.working_dir.clone())
+            .with_volume(
+                existing_worktree.path.clone(),
+                "/workspace".to_string(),
+                false,
+            );
+
+        // Apply memory and CPU limits
+        if let Some(memory) = template.config.memory_limit {
+            container_config.memory_limit = Some(memory * 1024 * 1024); // MB to bytes
+        }
+        if let Some(cpu) = template.config.cpu_limit {
+            container_config.cpu_limit = Some(cpu);
+        }
+
+        // Apply project-specific overrides if available
+        if let Some(ref project_config) = project_config {
+            // Apply environment variables
+            for (key, value) in &project_config.environment {
+                container_config.environment_vars.insert(key.clone(), value.clone());
+            }
+
+            // Apply additional mounts
+            for mount in &project_config.additional_mounts {
+                container_config = container_config.with_volume(
+                    PathBuf::from(&mount.host_path),
+                    mount.container_path.clone(),
+                    mount.read_only,
+                );
+            }
+
+            // Apply container config overrides
+            if let Some(template_config) = &project_config.container_config {
+                if let Some(memory) = template_config.memory_limit {
+                    container_config.memory_limit = Some(memory * 1024 * 1024);
+                }
+                if let Some(cpu) = template_config.cpu_limit {
+                    container_config.cpu_limit = Some(cpu);
+                }
+                for (key, value) in &template_config.environment {
+                    container_config.environment_vars.insert(key.clone(), value.clone());
+                }
+            }
+        }
+
+        // Create and start the container using the correct API
+        let mut container = self
+            .container_manager
+            .create_session_container(request.session_id, container_config)
+            .await?;
+
+        let container_id = container.container_id.clone().unwrap_or_default();
+        session.container_id = Some(container_id.clone());
+
+        // Start the container
+        self.container_manager.start_container(&mut container).await?;
+        session.set_status(SessionStatus::Running);
+
+        info!("Created container {} for session with existing worktree", container_id);
+
+        // Create session state
+        let session_state = SessionState {
+            session,
+            worktree_info: Some(existing_worktree),
+            container: Some(container),
+        };
+
+        // Store the session
+        self.active_sessions.insert(request.session_id, session_state.clone());
+
+        info!("Successfully created session {} with existing worktree", request.session_id);
         Ok(session_state)
     }
 }
