@@ -336,11 +336,6 @@ impl GitViewState {
     }
 
     pub fn commit_and_push(&mut self) -> Result<String> {
-        debug!(
-            "Committing and pushing changes for worktree: {:?}",
-            self.worktree_path
-        );
-
         // Get the commit message, or return error if not in commit mode
         let commit_message = match &self.commit_message_input {
             Some(message) if !message.trim().is_empty() => message.trim().to_string(),
@@ -352,61 +347,17 @@ impl GitViewState {
             }
         };
 
-        let repo = Repository::open(&self.worktree_path)?;
-
-        // Stage all changes
-        let mut index = repo.index()?;
-
-        // Add all changed files to the index
-        for file in &self.changed_files {
-            match file.status {
-                GitFileStatus::Deleted => {
-                    index.remove_path(std::path::Path::new(&file.path))?;
-                }
-                _ => {
-                    index.add_path(std::path::Path::new(&file.path))?;
-                }
-            }
-        }
-
-        index.write()?;
-
-        // Create commit
-        let signature = repo.signature()?;
-        let tree_id = index.write_tree()?;
-        let tree = repo.find_tree(tree_id)?;
-
-        let parent_commit = match repo.head() {
-            Ok(head) => Some(head.peel_to_commit()?),
-            Err(_) => None,
-        };
-
-        let parents: Vec<&git2::Commit> = parent_commit.iter().collect();
-
-        let commit_id = repo.commit(
-            Some("HEAD"),
-            &signature,
-            &signature,
-            &commit_message,
-            &tree,
-            &parents,
-        )?;
-
-        debug!("Created commit: {}", commit_id);
-
-        // Push to remote
-        let mut remote = repo.find_remote("origin")?;
-        let head_ref = repo.head()?;
-        let branch_name = head_ref.shorthand().unwrap_or("HEAD");
-        let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
-
-        remote.push(&[&refspec], None)?;
+        // Use the shared git operations function
+        let result =
+            crate::git::operations::commit_and_push_changes(&self.worktree_path, &commit_message);
 
         // Clear commit message input after successful commit
-        self.commit_message_input = None;
-        self.commit_message_cursor = 0;
+        if result.is_ok() {
+            self.commit_message_input = None;
+            self.commit_message_cursor = 0;
+        }
 
-        Ok(format!("Committed and pushed: {}", commit_message))
+        result
     }
 }
 
@@ -414,14 +365,25 @@ pub struct GitViewComponent;
 
 impl GitViewComponent {
     pub fn render(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
-        // Create main layout
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
+        // Create main layout - adjust constraints based on commit mode
+        let constraints = if git_state.is_in_commit_mode() {
+            vec![
+                Constraint::Length(3), // Tabs
+                Constraint::Min(0),    // Content
+                Constraint::Length(5), // Commit message input
+                Constraint::Length(3), // Status/Actions
+            ]
+        } else {
+            vec![
                 Constraint::Length(3), // Tabs
                 Constraint::Min(0),    // Content
                 Constraint::Length(3), // Status/Actions
-            ])
+            ]
+        };
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(constraints)
             .split(area);
 
         // Render tabs
@@ -445,8 +407,15 @@ impl GitViewComponent {
             GitTab::Diff => Self::render_diff_tab(frame, chunks[1], git_state),
         }
 
-        // Render status bar
-        Self::render_status_bar(frame, chunks[2], git_state);
+        // Render commit message input if in commit mode
+        if git_state.is_in_commit_mode() {
+            Self::render_commit_input(frame, chunks[2], git_state);
+            // Status bar is at index 3 when commit input is shown
+            Self::render_status_bar(frame, chunks[3], git_state);
+        } else {
+            // Status bar is at index 2 when no commit input
+            Self::render_status_bar(frame, chunks[2], git_state);
+        }
     }
 
     fn render_files_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
@@ -559,6 +528,28 @@ impl GitViewComponent {
         frame.render_widget(diff_paragraph, area);
     }
 
+    fn render_commit_input(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
+        let empty_string = String::new();
+        let commit_message = git_state.commit_message_input.as_ref().unwrap_or(&empty_string);
+
+        // Create the input text with cursor
+        let mut display_text = commit_message.clone();
+        if git_state.commit_message_cursor <= display_text.len() {
+            display_text.insert(git_state.commit_message_cursor, '|');
+        }
+
+        let input_paragraph = Paragraph::new(display_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Commit Message (Enter to commit, Esc to cancel)"),
+            )
+            .style(Style::default().fg(Color::White))
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(input_paragraph, area);
+    }
+
     fn render_status_bar(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
         let status_text = if git_state.is_dirty {
             format!("{} files changed", git_state.changed_files.len())
@@ -572,9 +563,15 @@ impl GitViewComponent {
             " • Up to date"
         };
 
-        let help_text = match git_state.active_tab {
-            GitTab::Files => " [j/k] navigate • [Tab] switch tab • [p] push • [Esc] back",
-            GitTab::Diff => " [j/k] scroll • [Tab] switch tab • [p] push • [Esc] back",
+        let help_text = if git_state.is_in_commit_mode() {
+            " [Enter] commit & push • [Esc] cancel • [←/→] move cursor"
+        } else {
+            match git_state.active_tab {
+                GitTab::Files => {
+                    " [j/k] navigate • [Tab] switch tab • [p] commit & push • [Esc] back"
+                }
+                GitTab::Diff => " [j/k] scroll • [Tab] switch tab • [p] commit & push • [Esc] back",
+            }
         };
 
         let status_line = format!("{}{}{}", status_text, push_status, help_text);

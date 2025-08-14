@@ -3,11 +3,11 @@
 use claude_box::app::{AppState, EventHandler};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-fn create_key_event(code: KeyCode) -> KeyEvent {
+const fn create_key_event(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
 }
 
-fn create_key_event_with_modifiers(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+const fn create_key_event_with_modifiers(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
     KeyEvent::new(code, modifiers)
 }
 
@@ -72,19 +72,19 @@ async fn test_n_key_triggers_new_session() {
     // Should have set pending async action
     assert!(state.pending_async_action.is_some());
 
-    // Should be NewSessionInCurrentDir
-    if let Some(AsyncAction::NewSessionInCurrentDir) = state.pending_async_action {
+    // Should be NewSessionNormal
+    if state.pending_async_action == Some(AsyncAction::NewSessionNormal) {
         // Test passed
     } else {
         panic!(
-            "Expected AsyncAction::NewSessionInCurrentDir, got: {:?}",
+            "Expected AsyncAction::NewSessionNormal, got: {:?}",
             state.pending_async_action
         );
     }
 
     // Process the async action to complete the flow
     if let Err(e) = state.process_async_action().await {
-        panic!("Failed to process async action: {}", e);
+        panic!("Failed to process async action: {e}");
     }
 
     // After processing, the behavior depends on whether current dir is a git repo

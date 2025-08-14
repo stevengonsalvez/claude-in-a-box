@@ -2,14 +2,13 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
-use std::io;
 use std::time::Duration;
 use tokio::time::timeout;
 
-use claude_box::app::events::{AppEvent, EventHandler};
+use claude_box::app::events::EventHandler;
 use claude_box::app::{
-    App, AppState,
-    state::{NewSessionState, NewSessionStep, View},
+    App,
+    state::{NewSessionStep, View},
 };
 use claude_box::components::LayoutComponent;
 
@@ -111,7 +110,7 @@ impl UITestFramework {
     pub async fn process_async(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Set a timeout to prevent hanging
         match timeout(Duration::from_secs(5), self.app.tick()).await {
-            Ok(result) => result.map_err(|e| e.into()),
+            Ok(result) => result.map_err(std::convert::Into::into),
             Err(_) => Err("Timeout waiting for async operation".into()),
         }
     }
@@ -122,7 +121,7 @@ impl UITestFramework {
         timeout_duration: Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match timeout(timeout_duration, self.app.tick()).await {
-            Ok(result) => result.map_err(|e| e.into()),
+            Ok(result) => result.map_err(std::convert::Into::into),
             Err(_) => Err("Timeout waiting for async operation".into()),
         }
     }
@@ -134,16 +133,16 @@ impl UITestFramework {
         })?;
 
         let buffer = self.terminal.backend().buffer().clone();
-        Ok(buffer.content().iter().map(|cell| cell.symbol()).collect::<String>())
+        Ok(buffer.content().iter().map(ratatui::buffer::Cell::symbol).collect::<String>())
     }
 
     /// Get the current view
-    pub fn current_view(&self) -> &View {
+    pub const fn current_view(&self) -> &View {
         &self.app.state.current_view
     }
 
     /// Check if new session state exists
-    pub fn has_new_session_state(&self) -> bool {
+    pub const fn has_new_session_state(&self) -> bool {
         self.app.state.new_session_state.is_some()
     }
 
@@ -153,25 +152,19 @@ impl UITestFramework {
     }
 
     /// Check if help is visible
-    pub fn is_help_visible(&self) -> bool {
+    pub const fn is_help_visible(&self) -> bool {
         self.app.state.help_visible
     }
 
     /// Get filtered repos count in search mode
     pub fn filtered_repos_count(&self) -> usize {
-        self.app
-            .state
-            .new_session_state
-            .as_ref()
-            .map(|s| s.filtered_repos.len())
-            .unwrap_or(0)
+        self.app.state.new_session_state.as_ref().map_or(0, |s| s.filtered_repos.len())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio;
 
     #[tokio::test]
     async fn test_escape_from_search_workspace_returns_to_main() {
@@ -272,7 +265,7 @@ mod tests {
 
         // This should complete without hanging or crashing
         match ui.process_async().await {
-            Ok(_) => {
+            Ok(()) => {
                 // Should be in SearchWorkspace view
                 assert_eq!(ui.current_view(), &View::SearchWorkspace);
                 assert!(ui.has_new_session_state());
@@ -290,7 +283,7 @@ mod tests {
                 assert!(!ui.has_new_session_state());
             }
             Err(e) => {
-                panic!("Async operation failed or timed out: {}", e);
+                panic!("Async operation failed or timed out: {e}");
             }
         }
     }
@@ -310,8 +303,7 @@ mod tests {
         let repo_count = ui.filtered_repos_count();
         assert!(
             repo_count <= 100,
-            "Should limit to 100 repos, got {}",
-            repo_count
+            "Should limit to 100 repos, got {repo_count}"
         );
 
         // Test navigation with large dataset
@@ -343,22 +335,22 @@ mod tests {
         ui.press_key(KeyCode::Char('s')).unwrap();
 
         // Process async with very short timeout to test timeout handling
-        match ui.process_async_with_timeout(Duration::from_millis(1)).await {
-            Ok(_) => {
-                // If it completes quickly, that's fine - just test escape works
-                if ui.current_view() == &View::SearchWorkspace {
-                    ui.press_key(KeyCode::Esc).unwrap();
-                }
-                assert_eq!(ui.current_view(), &View::SessionList);
-                assert!(!ui.has_new_session_state());
+        if matches!(
+            ui.process_async_with_timeout(Duration::from_millis(1)).await,
+            Ok(())
+        ) {
+            // If it completes quickly, that's fine - just test escape works
+            if ui.current_view() == &View::SearchWorkspace {
+                ui.press_key(KeyCode::Esc).unwrap();
             }
-            Err(_) => {
-                // Timeout is expected, check that state is safe
-                // Note: due to how our test framework works, timeout doesn't change state
-                // This test primarily ensures our timeout logic doesn't crash
-                assert_eq!(ui.current_view(), &View::SessionList);
-                assert!(!ui.has_new_session_state());
-            }
+            assert_eq!(ui.current_view(), &View::SessionList);
+            assert!(!ui.has_new_session_state());
+        } else {
+            // Timeout is expected, check that state is safe
+            // Note: due to how our test framework works, timeout doesn't change state
+            // This test primarily ensures our timeout logic doesn't crash
+            assert_eq!(ui.current_view(), &View::SessionList);
+            assert!(!ui.has_new_session_state());
         }
     }
 
@@ -410,7 +402,7 @@ mod tests {
 
         for key in keys {
             ui.press_key(key).unwrap();
-            if matches!(key, KeyCode::Char('s') | KeyCode::Char('n')) {
+            if matches!(key, KeyCode::Char('s' | 'n')) {
                 ui.process_async().await.unwrap();
             }
         }
@@ -491,7 +483,7 @@ mod tests {
 
         // Test multiple escape scenarios rapidly
         for iteration in 0..5 {
-            println!("Stress test iteration {}", iteration);
+            println!("Stress test iteration {iteration}");
 
             // Enter search workspace
             ui.press_key(KeyCode::Char('s')).unwrap();
@@ -521,13 +513,11 @@ mod tests {
             assert_eq!(
                 ui.current_view(),
                 &View::SessionList,
-                "Escape failed on iteration {}",
-                iteration
+                "Escape failed on iteration {iteration}"
             );
             assert!(
                 !ui.has_new_session_state(),
-                "Session state not cleared on iteration {}",
-                iteration
+                "Session state not cleared on iteration {iteration}"
             );
 
             // Verify we're in a clean state

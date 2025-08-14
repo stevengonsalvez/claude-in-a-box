@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(entry.level, LogEntryLevel::Error);
         assert_eq!(entry.message, "Error occurred");
 
-        // Test boss mode JSON parsing
+        // Test boss mode parsing (JSON fallback still works)
         let boss_stdout = LogOutput::StdOut {
             message: b"{\"type\": \"message\", \"content\": \"Hello from Claude!\"}\n"
                 .to_vec()

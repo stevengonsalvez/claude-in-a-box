@@ -155,9 +155,15 @@ if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
         log "🤖 Executing boss mode prompt..."
         log "Prompt: ${CLAUDE_BOX_PROMPT}"
 
-        # Execute Claude with the boss prompt and stream JSON output
-        log "Running: claude -p \"${CLAUDE_BOX_PROMPT}\" --output-format stream-json --verbose"
-        exec claude -p "${CLAUDE_BOX_PROMPT}" --output-format stream-json --verbose $CLI_ARGS
+        # Boss mode prompt text to append
+        BOSS_MODE_PROMPT="Ultrathink and understand our project rules, particularly around testing. You must go test first, and you must work in a way that allows for small known-good increments. You must commit when the code is in a working state, and commit early and often. When committing: - Use conventional commit format (feat:, fix:, refactor:, test:, docs:) - Commit after each logical increment (test passes, feature complete, refactor done) - Generate descriptive commit messages that explain the 'what' and 'why' - Never leave code in a broken state between commits"
+
+        # Append boss mode prompt to user prompt
+        ENHANCED_PROMPT="${CLAUDE_BOX_PROMPT} ${BOSS_MODE_PROMPT}"
+
+        # Execute Claude with the enhanced prompt and text output
+        log "Running: claude --print --output-format text --verbose \"${ENHANCED_PROMPT}\""
+        exec claude --print --output-format text --verbose "${ENHANCED_PROMPT}" $CLI_ARGS
     else
         error "❌ Boss mode requires authentication!"
         error "Please ensure one of:"

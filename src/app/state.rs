@@ -9,7 +9,7 @@ use crate::components::live_logs_stream::LogEntry;
 use crate::docker::LogStreamingCoordinator;
 use crate::models::{Session, Workspace};
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use chrono;
 use std::sync::{Arc, Mutex};
@@ -158,6 +158,223 @@ impl TextEditor {
 
     pub fn get_lines(&self) -> &Vec<String> {
         &self.lines
+    }
+
+    pub fn move_cursor_to_end(&mut self) {
+        if !self.lines.is_empty() {
+            self.cursor_line = self.lines.len() - 1;
+            self.cursor_col = self.lines[self.cursor_line].len();
+        }
+    }
+
+    pub fn set_cursor_position(&mut self, line: usize, col: usize) {
+        if line < self.lines.len() {
+            self.cursor_line = line;
+            self.cursor_col = col.min(self.lines[line].len());
+        }
+    }
+
+    // Word movement methods
+    pub fn move_cursor_word_forward(&mut self) {
+        let current_line = &self.lines[self.cursor_line];
+
+        // If at end of line, move to next line
+        if self.cursor_col >= current_line.len() {
+            if self.cursor_line < self.lines.len() - 1 {
+                self.cursor_line += 1;
+                self.cursor_col = 0;
+                // Find first non-whitespace character
+                let next_line = &self.lines[self.cursor_line];
+                while self.cursor_col < next_line.len()
+                    && next_line.chars().nth(self.cursor_col).unwrap().is_whitespace()
+                {
+                    self.cursor_col += 1;
+                }
+            }
+            return;
+        }
+
+        let chars: Vec<char> = current_line.chars().collect();
+        let mut pos = self.cursor_col;
+
+        // Skip current word
+        while pos < chars.len()
+            && !chars[pos].is_whitespace()
+            && chars[pos] != '.'
+            && chars[pos] != ','
+        {
+            pos += 1;
+        }
+
+        // Skip whitespace
+        while pos < chars.len() && chars[pos].is_whitespace() {
+            pos += 1;
+        }
+
+        self.cursor_col = pos;
+    }
+
+    pub fn move_cursor_word_backward(&mut self) {
+        // If at beginning of line, move to end of previous line
+        if self.cursor_col == 0 {
+            if self.cursor_line > 0 {
+                self.cursor_line -= 1;
+                self.cursor_col = self.lines[self.cursor_line].len();
+            }
+            return;
+        }
+
+        let current_line = &self.lines[self.cursor_line];
+        let chars: Vec<char> = current_line.chars().collect();
+        let mut pos = self.cursor_col.saturating_sub(1);
+
+        // Skip whitespace backwards
+        while pos > 0 && chars[pos].is_whitespace() {
+            pos = pos.saturating_sub(1);
+        }
+
+        // Skip word backwards
+        while pos > 0 && !chars[pos].is_whitespace() && chars[pos] != '.' && chars[pos] != ',' {
+            pos = pos.saturating_sub(1);
+        }
+
+        // If we stopped on whitespace or punctuation, move forward one
+        if pos > 0 && (chars[pos].is_whitespace() || chars[pos] == '.' || chars[pos] == ',') {
+            pos += 1;
+        }
+
+        self.cursor_col = pos;
+    }
+
+    // Word deletion methods
+    pub fn delete_word_forward(&mut self) {
+        let current_line_text = self.lines[self.cursor_line].clone();
+        let chars: Vec<char> = current_line_text.chars().collect();
+        let start_pos = self.cursor_col;
+
+        if start_pos >= chars.len() {
+            return;
+        }
+
+        let mut end_pos = start_pos;
+
+        // Skip current word
+        while end_pos < chars.len()
+            && !chars[end_pos].is_whitespace()
+            && chars[end_pos] != '.'
+            && chars[end_pos] != ','
+        {
+            end_pos += 1;
+        }
+
+        // Skip following whitespace
+        while end_pos < chars.len() && chars[end_pos].is_whitespace() {
+            end_pos += 1;
+        }
+
+        // Remove the text
+        let before: String = chars[..start_pos].iter().collect();
+        let after: String = chars[end_pos..].iter().collect();
+        self.lines[self.cursor_line] = format!("{}{}", before, after);
+    }
+
+    pub fn delete_word_backward(&mut self) {
+        if self.cursor_col == 0 {
+            return;
+        }
+
+        let current_line_text = self.lines[self.cursor_line].clone();
+        let chars: Vec<char> = current_line_text.chars().collect();
+        let end_pos = self.cursor_col;
+        let mut start_pos = end_pos.saturating_sub(1);
+
+        // Skip whitespace backwards
+        while start_pos > 0 && chars[start_pos].is_whitespace() {
+            start_pos = start_pos.saturating_sub(1);
+        }
+
+        // Skip word backwards
+        while start_pos > 0
+            && !chars[start_pos].is_whitespace()
+            && chars[start_pos] != '.'
+            && chars[start_pos] != ','
+        {
+            start_pos = start_pos.saturating_sub(1);
+        }
+
+        // If we stopped on whitespace or punctuation, move forward one
+        if start_pos > 0
+            && (chars[start_pos].is_whitespace()
+                || chars[start_pos] == '.'
+                || chars[start_pos] == ',')
+        {
+            start_pos += 1;
+        }
+
+        // Remove the text
+        let before: String = chars[..start_pos].iter().collect();
+        let after: String = chars[end_pos..].iter().collect();
+        self.lines[self.cursor_line] = format!("{}{}", before, after);
+        self.cursor_col = start_pos;
+    }
+}
+
+/// Notification system for TUI messages
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotificationType {
+    Success,
+    Error,
+    Info,
+    Warning,
+}
+
+#[derive(Debug, Clone)]
+pub struct Notification {
+    pub message: String,
+    pub notification_type: NotificationType,
+    pub created_at: Instant,
+    pub duration: Duration,
+}
+
+impl Notification {
+    pub fn success(message: String) -> Self {
+        Self {
+            message,
+            notification_type: NotificationType::Success,
+            created_at: Instant::now(),
+            duration: Duration::from_secs(3),
+        }
+    }
+
+    pub fn error(message: String) -> Self {
+        Self {
+            message,
+            notification_type: NotificationType::Error,
+            created_at: Instant::now(),
+            duration: Duration::from_secs(5),
+        }
+    }
+
+    pub fn info(message: String) -> Self {
+        Self {
+            message,
+            notification_type: NotificationType::Info,
+            created_at: Instant::now(),
+            duration: Duration::from_secs(3),
+        }
+    }
+
+    pub fn warning(message: String) -> Self {
+        Self {
+            message,
+            notification_type: NotificationType::Warning,
+            created_at: Instant::now(),
+            duration: Duration::from_secs(4),
+        }
+    }
+
+    pub fn is_expired(&self) -> bool {
+        self.created_at.elapsed() > self.duration
     }
 }
 
@@ -328,6 +545,14 @@ pub struct AppState {
     pub log_sender: Option<mpsc::UnboundedSender<(Uuid, LogEntry)>>,
     // Git view state
     pub git_view_state: Option<crate::components::GitViewState>,
+    // Notification system
+    pub notifications: Vec<Notification>,
+    // Pending event to be processed in next loop iteration
+    pub pending_event: Option<crate::app::events::AppEvent>,
+
+    // Quick commit dialog state
+    pub quick_commit_message: Option<String>, // None = not in quick commit mode, Some = message being entered
+    pub quick_commit_cursor: usize,           // Cursor position in quick commit message
 }
 
 #[derive(Debug)]
@@ -385,11 +610,12 @@ pub enum NewSessionStep {
     Creating,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AsyncAction {
     StartNewSession,        // Old - will be removed
     StartWorkspaceSearch,   // New - search all workspaces
     NewSessionInCurrentDir, // New - create session in current directory
+    NewSessionNormal,       // New - create normal new session with mode selection
     CreateNewSession,
     DeleteSession(Uuid),       // New - delete session with container cleanup
     RefreshWorkspaces,         // Manual refresh of workspace data
@@ -430,6 +656,12 @@ impl Default for AppState {
             log_streaming_coordinator: None,
             log_sender: None,
             git_view_state: None,
+            notifications: Vec::new(),
+            pending_event: None,
+
+            // Initialize quick commit state
+            quick_commit_message: None,
+            quick_commit_cursor: 0,
         }
     }
 }
@@ -1175,6 +1407,93 @@ impl AppState {
         }
     }
 
+    pub async fn new_session_normal(&mut self) {
+        use crate::git::WorkspaceScanner;
+        use std::env;
+
+        info!("Starting normal new session with mode selection");
+
+        // Check if authentication is set up first
+        if Self::is_first_time_setup() {
+            info!("Authentication not set up, switching to auth setup view");
+            self.current_view = View::AuthSetup;
+            self.auth_setup_state = Some(AuthSetupState {
+                selected_method: AuthMethod::OAuth,
+                api_key_input: String::new(),
+                is_processing: false,
+                error_message: Some("Authentication required before creating sessions.\n\nPlease set up Claude authentication to continue.".to_string()),
+                show_cursor: false,
+            });
+            return;
+        }
+
+        // Check if current directory is a git repository
+        let current_dir = match env::current_dir() {
+            Ok(dir) => {
+                info!("Current directory: {:?}", dir);
+                dir
+            }
+            Err(e) => {
+                warn!("Failed to get current directory: {}", e);
+                return;
+            }
+        };
+
+        match WorkspaceScanner::validate_workspace(&current_dir) {
+            Ok(true) => {
+                info!(
+                    "Current directory is a valid git repository: {:?}",
+                    current_dir
+                );
+            }
+            Ok(false) => {
+                warn!(
+                    "Current directory is not a git repository: {:?}",
+                    current_dir
+                );
+                info!("Falling back to workspace search");
+                // Fall back to workspace search since current directory is not a git repository
+                self.start_workspace_search().await;
+                return;
+            }
+            Err(e) => {
+                error!("Failed to validate workspace: {}", e);
+                info!("Falling back to workspace search due to validation error");
+                // Fall back to workspace search on validation error
+                self.start_workspace_search().await;
+                return;
+            }
+        }
+
+        // Generate branch name with UUID
+        let branch_base = format!(
+            "claude/{}",
+            uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
+        );
+
+        // Create new session state for normal new session (NOT current directory mode)
+        self.new_session_state = Some(NewSessionState {
+            available_repos: vec![current_dir.clone()],
+            filtered_repos: vec![(0, current_dir.clone())],
+            selected_repo_index: Some(0),
+            branch_name: branch_base.clone(),
+            step: NewSessionStep::InputBranch, // Skip repo selection
+            filter_text: String::new(),
+            is_current_dir_mode: false, // This is the key fix - normal sessions should go through mode selection
+            skip_permissions: false,
+            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
+            boss_prompt: TextEditor::new(),                // Empty prompt initially
+            file_finder: FuzzyFileFinderState::new(),
+        });
+
+        self.current_view = View::NewSession;
+
+        info!(
+            "Successfully created normal new session state with branch: {}",
+            branch_base
+        );
+    }
+
     pub async fn new_session_in_current_dir(&mut self) {
         use crate::git::WorkspaceScanner;
         use std::env;
@@ -1662,6 +1981,38 @@ impl AppState {
         }
     }
 
+    pub fn new_session_move_cursor_word_left(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_cursor_word_backward();
+            }
+        }
+    }
+
+    pub fn new_session_move_cursor_word_right(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.move_cursor_word_forward();
+            }
+        }
+    }
+
+    pub fn new_session_delete_word_forward(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.delete_word_forward();
+            }
+        }
+    }
+
+    pub fn new_session_delete_word_backward(&mut self) {
+        if let Some(ref mut state) = self.new_session_state {
+            if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
+                state.boss_prompt.delete_word_backward();
+            }
+        }
+    }
+
     pub fn new_session_insert_newline(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::InputPrompt && !state.file_finder.is_active {
@@ -1996,6 +2347,9 @@ impl AppState {
                 }
                 AsyncAction::NewSessionInCurrentDir => {
                     self.new_session_in_current_dir().await;
+                }
+                AsyncAction::NewSessionNormal => {
+                    self.new_session_normal().await;
                 }
                 AsyncAction::CreateNewSession => {
                     self.new_session_create().await;
@@ -2381,20 +2735,170 @@ impl AppState {
     }
 
     pub fn git_commit_and_push(&mut self) {
-        if let Some(git_state) = self.git_view_state.as_mut() {
-            match git_state.commit_and_push() {
-                Ok(message) => {
-                    tracing::info!("Git commit and push successful: {}", message);
-                    // Refresh git status after successful push
+        let result = if let Some(git_state) = self.git_view_state.as_mut() {
+            git_state.commit_and_push()
+        } else {
+            return;
+        };
+
+        match result {
+            Ok(message) => {
+                tracing::info!("Git commit and push successful: {}", message);
+                // Set pending event to be processed in next loop iteration
+                self.pending_event = Some(crate::app::events::AppEvent::GitCommitSuccess(message));
+                // Refresh git status after successful push
+                if let Some(git_state) = self.git_view_state.as_mut() {
                     if let Err(e) = git_state.refresh_git_status() {
                         tracing::error!("Failed to refresh git status after push: {}", e);
+                        self.add_warning_notification(
+                            "⚠️ Push successful but failed to refresh git status".to_string(),
+                        );
                     }
                 }
-                Err(e) => {
-                    tracing::error!("Git commit and push failed: {}", e);
-                }
+            }
+            Err(e) => {
+                tracing::error!("Git commit and push failed: {}", e);
+                self.add_error_notification(format!("❌ Git push failed: {}", e));
             }
         }
+    }
+
+    // Quick commit dialog methods
+    pub fn is_in_quick_commit_mode(&self) -> bool {
+        self.quick_commit_message.is_some()
+    }
+
+    pub fn start_quick_commit(&mut self) {
+        // Only start quick commit if we have a selected session and it's in a git repository
+        if let Some(session) = self.get_selected_session() {
+            // Check if the workspace path is a git repository
+            let workspace_path = std::path::Path::new(&session.workspace_path);
+            let git_dir = workspace_path.join(".git");
+
+            if git_dir.exists() {
+                self.quick_commit_message = Some(String::new());
+                self.quick_commit_cursor = 0;
+                self.add_info_notification(
+                    "📝 Enter commit message and press Enter to commit & push".to_string(),
+                );
+            } else {
+                self.add_warning_notification(
+                    "⚠️ Selected workspace is not a git repository".to_string(),
+                );
+            }
+        } else {
+            self.add_warning_notification("⚠️ No session selected".to_string());
+        }
+    }
+
+    pub fn cancel_quick_commit(&mut self) {
+        self.quick_commit_message = None;
+        self.quick_commit_cursor = 0;
+        self.add_info_notification("❌ Quick commit cancelled".to_string());
+    }
+
+    pub fn add_char_to_quick_commit(&mut self, ch: char) {
+        if let Some(ref mut message) = self.quick_commit_message {
+            message.insert(self.quick_commit_cursor, ch);
+            self.quick_commit_cursor += 1;
+        }
+    }
+
+    pub fn backspace_quick_commit(&mut self) {
+        if let Some(ref mut message) = self.quick_commit_message {
+            if self.quick_commit_cursor > 0 {
+                self.quick_commit_cursor -= 1;
+                message.remove(self.quick_commit_cursor);
+            }
+        }
+    }
+
+    pub fn move_quick_commit_cursor_left(&mut self) {
+        if self.quick_commit_cursor > 0 {
+            self.quick_commit_cursor -= 1;
+        }
+    }
+
+    pub fn move_quick_commit_cursor_right(&mut self) {
+        if let Some(ref message) = self.quick_commit_message {
+            if self.quick_commit_cursor < message.len() {
+                self.quick_commit_cursor += 1;
+            }
+        }
+    }
+
+    pub fn confirm_quick_commit(&mut self) {
+        if let Some(ref message) = self.quick_commit_message {
+            if message.trim().is_empty() {
+                self.add_warning_notification("⚠️ Commit message cannot be empty".to_string());
+                return;
+            }
+
+            // Perform the quick commit
+            self.perform_quick_commit(message.trim().to_string());
+        }
+    }
+
+    fn perform_quick_commit(&mut self, commit_message: String) {
+        let worktree_path = if let Some(session) = self.get_selected_session() {
+            std::path::PathBuf::from(&session.workspace_path)
+        } else {
+            return;
+        };
+
+        // Use the shared git operations function - DRY compliance!
+        match crate::git::operations::commit_and_push_changes(&worktree_path, &commit_message) {
+            Ok(success_message) => {
+                tracing::info!("Quick commit successful: {}", success_message);
+                // Set pending event to be processed in next loop iteration
+                self.pending_event = Some(crate::app::events::AppEvent::GitCommitSuccess(
+                    success_message,
+                ));
+                // Clear quick commit state
+                self.quick_commit_message = None;
+                self.quick_commit_cursor = 0;
+            }
+            Err(e) => {
+                tracing::error!("Quick commit failed: {}", e);
+                self.add_error_notification(format!("❌ Quick commit failed: {}", e));
+                // Keep quick commit dialog open so user can try again
+            }
+        }
+    }
+
+    /// Add a notification to the notification queue
+    pub fn add_notification(&mut self, notification: Notification) {
+        self.notifications.push(notification);
+    }
+
+    /// Add a success notification
+    pub fn add_success_notification(&mut self, message: String) {
+        self.add_notification(Notification::success(message));
+    }
+
+    /// Add an error notification
+    pub fn add_error_notification(&mut self, message: String) {
+        self.add_notification(Notification::error(message));
+    }
+
+    /// Add an info notification
+    pub fn add_info_notification(&mut self, message: String) {
+        self.add_notification(Notification::info(message));
+    }
+
+    /// Add a warning notification
+    pub fn add_warning_notification(&mut self, message: String) {
+        self.add_notification(Notification::warning(message));
+    }
+
+    /// Remove expired notifications
+    pub fn cleanup_expired_notifications(&mut self) {
+        self.notifications.retain(|n| !n.is_expired());
+    }
+
+    /// Get current notifications (non-expired)
+    pub fn get_current_notifications(&self) -> Vec<&Notification> {
+        self.notifications.iter().filter(|n| !n.is_expired()).collect()
     }
 }
 
@@ -2501,6 +3005,9 @@ impl App {
     }
 
     pub async fn tick(&mut self) -> anyhow::Result<()> {
+        // Clean up expired notifications
+        self.state.cleanup_expired_notifications();
+
         // Process incoming log entries (non-blocking)
         let mut log_entries = Vec::new();
         if let Some(coordinator) = &mut self.state.log_streaming_coordinator {
@@ -2582,3 +3089,8 @@ impl Default for App {
         Self::new()
     }
 }
+
+// Include the test module inline
+#[cfg(test)]
+#[path = "state_tests.rs"]
+mod state_tests;

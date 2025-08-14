@@ -376,7 +376,7 @@ impl LogEntry {
         }
     }
 
-    /// Create from Docker log line with boss mode JSON parsing
+    /// Create from Docker log line with boss mode parsing (text or JSON)
     pub fn from_docker_log_with_mode(
         container_name: &str,
         log_line: &str,
@@ -390,7 +390,7 @@ impl LogEntry {
         }
     }
 
-    /// Parse Claude CLI stream-json output for boss mode
+    /// Parse Claude CLI output for boss mode (text format with JSON fallback)
     fn parse_boss_mode_json(
         container_name: &str,
         log_line: &str,

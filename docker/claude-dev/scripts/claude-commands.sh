@@ -1,11 +1,10 @@
 #!/bin/bash
-# ABOUTME: Claude CLI convenience commands that output to Docker logs
-# These commands make it easy to interact with Claude while capturing output
+# ABOUTME: Claude CLI convenience commands for interactive use
 
 # Create convenient aliases for different Claude interaction modes
-alias claude-print='/app/scripts/claude-logging.sh --print'
-alias claude-script='/app/scripts/claude-logging.sh --script'
-alias claude-start='/app/scripts/claude-logging.sh'
+alias claude-print='claude --print'
+alias claude-script='claude --script'
+alias claude-start='claude'
 
 # Create functions for better user experience
 claude-ask() {
@@ -14,18 +13,18 @@ claude-ask() {
         echo "Example: claude-ask \"How do I create a React component?\""
         return 1
     fi
-    /app/scripts/claude-logging.sh --print "$*"
+    claude --print "$*"
 }
 
 claude-help() {
-    echo "🤖 Claude CLI Commands (with Docker log capture)"
+    echo "🤖 Claude CLI Commands"
     echo ""
     echo "Interactive modes:"
     echo "  claude-start          # Start interactive Claude CLI"
-    echo "  claude                # Standard Claude CLI (responses not logged)"
+    echo "  claude                # Standard Claude CLI"
     echo ""
-    echo "Logged modes (output appears in Docker logs):"
-    echo "  claude-ask \"question\" # Ask a single question with logged response"
+    echo "Direct query modes:"
+    echo "  claude-ask \"question\" # Ask a single question"
     echo "  claude-print \"query\"  # Same as claude-ask"
     echo "  claude-script         # Read from stdin, useful for piping"
     echo ""
@@ -33,8 +32,6 @@ claude-help() {
     echo "  claude-ask \"What files are in the current directory?\""
     echo "  echo \"Explain this code\" | claude-script"
     echo "  cat README.md | claude-script"
-    echo ""
-    echo "Note: Use logged modes to see Claude responses in the TUI logs!"
 }
 
 # Export functions so they're available in bash sessions

@@ -56,6 +56,11 @@ pub enum AppEvent {
     NewSessionCursorDown,
     NewSessionCursorLineStart,
     NewSessionCursorLineEnd,
+    // Word-wise movement and deletion events
+    NewSessionCursorWordLeft,
+    NewSessionCursorWordRight,
+    NewSessionDeleteWordForward,
+    NewSessionDeleteWordBackward,
     NewSessionProceedToPermissions,
     NewSessionTogglePermissions,
     NewSessionCreate,
@@ -90,6 +95,15 @@ pub enum AppEvent {
     GitViewScrollDown, // Scroll diff down
     GitViewCommitPush, // Commit and push changes
     GitViewBack,       // Return to session list
+    GitCommitAndPush,  // Direct commit and push from main view (p key)
+    // Quick commit dialog events (for home screen [p] key)
+    QuickCommitStart,           // Start quick commit dialog
+    QuickCommitInputChar(char), // Character input for quick commit
+    QuickCommitBackspace,       // Backspace in quick commit
+    QuickCommitCursorLeft,      // Move cursor left
+    QuickCommitCursorRight,     // Move cursor right
+    QuickCommitConfirm,         // Confirm quick commit (Enter)
+    QuickCommitCancel,          // Cancel quick commit (Escape)
     // Commit message input events
     GitViewStartCommit,           // Start commit message input (p key)
     GitViewCommitInputChar(char), // Character input for commit message
@@ -98,6 +112,7 @@ pub enum AppEvent {
     GitViewCommitCursorRight,     // Move cursor right in commit message
     GitViewCommitCancel,          // Cancel commit message input (Esc)
     GitViewCommitConfirm,         // Confirm and execute commit (Enter)
+    GitCommitSuccess(String),     // Commit was successful with message
 }
 
 pub struct EventHandler;
@@ -176,8 +191,22 @@ impl EventHandler {
             return Self::handle_auth_setup_keys(key_event, state);
         }
 
+        // Handle quick commit dialog input
+        if state.is_in_quick_commit_mode() {
+            return match key_event.code {
+                KeyCode::Enter => Some(AppEvent::QuickCommitConfirm),
+                KeyCode::Esc => Some(AppEvent::QuickCommitCancel),
+                KeyCode::Backspace => Some(AppEvent::QuickCommitBackspace),
+                KeyCode::Left => Some(AppEvent::QuickCommitCursorLeft),
+                KeyCode::Right => Some(AppEvent::QuickCommitCursorRight),
+                KeyCode::Char(ch) => Some(AppEvent::QuickCommitInputChar(ch)),
+                _ => None,
+            };
+        }
+
         // Handle git view
         if state.current_view == View::GitView {
+            tracing::debug!("In git view, handling git view keys");
             return Self::handle_git_view_keys(key_event, state);
         }
 
@@ -204,6 +233,7 @@ impl EventHandler {
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
+            KeyCode::Char('p') => Some(AppEvent::QuickCommitStart), // Start quick commit dialog
 
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
@@ -451,6 +481,27 @@ impl EventHandler {
                                     }
                                 }
                             }
+                            // Option key combinations for word movement and deletion (must come first)
+                            KeyCode::Left if key_event.modifiers.contains(KeyModifiers::ALT) => {
+                                tracing::debug!("InputPrompt: Option+Left - word left");
+                                Some(AppEvent::NewSessionCursorWordLeft)
+                            }
+                            KeyCode::Right if key_event.modifiers.contains(KeyModifiers::ALT) => {
+                                tracing::debug!("InputPrompt: Option+Right - word right");
+                                Some(AppEvent::NewSessionCursorWordRight)
+                            }
+                            KeyCode::Delete if key_event.modifiers.contains(KeyModifiers::ALT) => {
+                                tracing::debug!("InputPrompt: Option+Delete - delete word forward");
+                                Some(AppEvent::NewSessionDeleteWordForward)
+                            }
+                            KeyCode::Backspace
+                                if key_event.modifiers.contains(KeyModifiers::ALT) =>
+                            {
+                                tracing::debug!(
+                                    "InputPrompt: Option+Backspace - delete word backward"
+                                );
+                                Some(AppEvent::NewSessionDeleteWordBackward)
+                            }
                             KeyCode::Backspace => {
                                 tracing::debug!("InputPrompt: Backspace pressed");
                                 Some(AppEvent::NewSessionBackspacePrompt)
@@ -606,10 +657,13 @@ impl EventHandler {
     }
 
     fn handle_git_view_keys(key_event: KeyEvent, state: &mut AppState) -> Option<AppEvent> {
+        tracing::debug!("Git view key pressed: {:?}", key_event);
+
         // Check if we're in commit message input mode
         let in_commit_mode = if let Some(ref git_state) = state.git_view_state {
             git_state.is_in_commit_mode()
         } else {
+            tracing::warn!("No git state available in handle_git_view_keys");
             false
         };
 
@@ -657,7 +711,10 @@ impl EventHandler {
                         None
                     }
                 }
-                KeyCode::Char('p') => Some(AppEvent::GitViewStartCommit),
+                KeyCode::Char('p') => {
+                    tracing::info!("Git view 'p' key pressed - starting commit");
+                    Some(AppEvent::GitViewStartCommit)
+                }
                 _ => None,
             }
         }
@@ -691,8 +748,8 @@ impl EventHandler {
                 }
             }
             AppEvent::NewSession => {
-                // Mark for async processing - create session in current directory
-                state.pending_async_action = Some(AsyncAction::NewSessionInCurrentDir);
+                // Mark for async processing - create normal new session with mode selection
+                state.pending_async_action = Some(AsyncAction::NewSessionNormal);
             }
             AppEvent::SearchWorkspace => {
                 // Mark for async processing - search all workspaces
@@ -739,6 +796,11 @@ impl EventHandler {
             AppEvent::NewSessionCursorDown => state.new_session_move_cursor_down(),
             AppEvent::NewSessionCursorLineStart => state.new_session_move_to_line_start(),
             AppEvent::NewSessionCursorLineEnd => state.new_session_move_to_line_end(),
+            // Word movement and deletion events
+            AppEvent::NewSessionCursorWordLeft => state.new_session_move_cursor_word_left(),
+            AppEvent::NewSessionCursorWordRight => state.new_session_move_cursor_word_right(),
+            AppEvent::NewSessionDeleteWordForward => state.new_session_delete_word_forward(),
+            AppEvent::NewSessionDeleteWordBackward => state.new_session_delete_word_backward(),
             AppEvent::NewSessionProceedToPermissions => {
                 tracing::info!("Processing NewSessionProceedToPermissions event");
                 state.new_session_proceed_to_permissions();
@@ -991,7 +1053,13 @@ impl EventHandler {
             }
             // Git view events
             AppEvent::ShowGitView => {
+                tracing::info!("Showing git view");
                 state.show_git_view();
+                tracing::info!(
+                    "Git view state after show: current_view = {:?}, git_state = {}",
+                    state.current_view,
+                    state.git_view_state.is_some()
+                );
             }
             AppEvent::GitViewSwitchTab => {
                 if let Some(ref mut git_state) = state.git_view_state {
@@ -1027,8 +1095,15 @@ impl EventHandler {
             }
             // Commit message input events
             AppEvent::GitViewStartCommit => {
+                tracing::info!("Processing GitViewStartCommit event");
                 if let Some(ref mut git_state) = state.git_view_state {
+                    tracing::info!("Git state found, starting commit message input");
                     git_state.start_commit_message_input();
+                    state.add_info_notification(
+                        "📝 Enter commit message and press Enter to commit & push".to_string(),
+                    );
+                } else {
+                    tracing::warn!("No git state available for GitViewStartCommit");
                 }
             }
             AppEvent::GitViewCommitInputChar(ch) => {
@@ -1058,6 +1133,41 @@ impl EventHandler {
             }
             AppEvent::GitViewCommitConfirm => {
                 state.git_commit_and_push();
+            }
+            AppEvent::GitCommitAndPush => {
+                tracing::info!("Direct git commit and push from main view");
+                state.git_commit_and_push();
+            }
+            AppEvent::QuickCommitStart => {
+                tracing::info!("Starting quick commit dialog");
+                state.start_quick_commit();
+            }
+            AppEvent::QuickCommitInputChar(ch) => {
+                state.add_char_to_quick_commit(ch);
+            }
+            AppEvent::QuickCommitBackspace => {
+                state.backspace_quick_commit();
+            }
+            AppEvent::QuickCommitCursorLeft => {
+                state.move_quick_commit_cursor_left();
+            }
+            AppEvent::QuickCommitCursorRight => {
+                state.move_quick_commit_cursor_right();
+            }
+            AppEvent::QuickCommitConfirm => {
+                state.confirm_quick_commit();
+            }
+            AppEvent::QuickCommitCancel => {
+                state.cancel_quick_commit();
+            }
+            AppEvent::GitCommitSuccess(message) => {
+                tracing::info!("Git commit successful: {}", message);
+                // Add success notification
+                state.add_success_notification(format!("✅ {}", message));
+                // Exit git view and return to main session list
+                state.current_view = crate::app::state::View::SessionList;
+                state.git_view_state = None;
+                tracing::info!("Returned to session list after successful commit");
             }
         }
     }
