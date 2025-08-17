@@ -464,6 +464,44 @@ impl ContainerManager {
         }
     }
 
+    /// Remove a container by its ID directly
+    ///
+    /// This is useful for cleanup operations where we only have the container ID
+    /// and don't need to update a SessionContainer struct.
+    pub async fn remove_container_by_id(&self, container_id: &str) -> Result<(), ContainerError> {
+        info!("Removing container by ID: {}", container_id);
+
+        // Try to stop the container first (ignore errors if it's already stopped)
+        let stop_options = StopContainerOptions { t: 10 };
+        if let Err(e) = self.docker.stop_container(container_id, Some(stop_options)).await {
+            debug!(
+                "Failed to stop container {} (may already be stopped): {}",
+                container_id, e
+            );
+        }
+
+        let remove_options = RemoveContainerOptions {
+            force: true,
+            v: true, // Remove associated volumes
+            ..Default::default()
+        };
+
+        match self.docker.remove_container(container_id, Some(remove_options)).await {
+            Ok(_) => {
+                info!("Successfully removed container {}", container_id);
+                Ok(())
+            }
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => {
+                // Container was already removed
+                debug!("Container {} was already removed", container_id);
+                Ok(())
+            }
+            Err(e) => Err(ContainerError::Connection(e)),
+        }
+    }
+
     pub async fn get_container_status(
         &self,
         container_id: &str,
