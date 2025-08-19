@@ -1299,6 +1299,100 @@ impl SessionLifecycleManager {
             }
         }
 
+        // Set session mode environment variable (CRITICAL for boss mode to work!)
+        let mode_str = match request.mode {
+            crate::models::SessionMode::Interactive => "interactive",
+            crate::models::SessionMode::Boss => "boss",
+        };
+        container_config
+            .environment_vars
+            .insert("CLAUDE_BOX_MODE".to_string(), mode_str.to_string());
+        info!(
+            "Set session mode to '{}' for restart session {}",
+            mode_str, request.session_id
+        );
+
+        // Set boss prompt if in boss mode
+        if let Some(ref prompt) = request.boss_prompt {
+            container_config.environment_vars.insert("CLAUDE_BOX_PROMPT".to_string(), prompt.clone());
+            info!("Set boss prompt for restart session {}", request.session_id);
+        }
+
+        // Apply skip_permissions flag if requested
+        if request.skip_permissions {
+            let current_flag =
+                container_config.environment_vars.get("CLAUDE_CONTINUE_FLAG").cloned().unwrap_or_default();
+            let new_flag = if current_flag.is_empty() {
+                "--dangerously-skip-permissions".to_string()
+            } else {
+                format!("{} --dangerously-skip-permissions", current_flag)
+            };
+            container_config.environment_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), new_flag);
+            info!(
+                "Added --dangerously-skip-permissions flag to restart session {}",
+                request.session_id
+            );
+
+            // Update auth .claude.json to set hasTrustDialogAccepted=true to avoid bypass warning
+            if let Err(e) = Self::update_auth_claude_json_for_skip_permissions() {
+                warn!(
+                    "Failed to update auth .claude.json for skip permissions: {}",
+                    e
+                );
+            }
+        }
+
+        // Mount authentication files (similar to apply_mounting_logic in normal flow)
+        if project_config.as_ref().map_or(true, |pc| pc.mount_claude_config) {
+            if let Some(home_dir) = dirs::home_dir() {
+                // Mount the user's entire .claude directory if it exists
+                let user_claude_dir = home_dir.join(".claude");
+                if user_claude_dir.exists() && user_claude_dir.is_dir() {
+                    container_config = container_config.with_volume(
+                        user_claude_dir,
+                        "/home/claude-user/.claude".to_string(),
+                        false, // read-write
+                    );
+                    info!("Mounting user's entire .claude directory from ~/.claude");
+                }
+
+                // Mount claude-in-a-box auth credentials
+                let credentials_path = home_dir.join(".claude-in-a-box/auth/.credentials.json");
+                if credentials_path.exists() {
+                    container_config = container_config.with_volume(
+                        credentials_path,
+                        "/home/claude-user/.claude/.credentials.json".to_string(),
+                        true, // read-only
+                    );
+                    info!("Mounting claude-in-a-box .credentials.json");
+                }
+
+                // Mount .claude.json for OAuth authentication
+                let claude_json_path = home_dir.join(".claude-in-a-box/auth/.claude.json");
+                if claude_json_path.exists() {
+                    container_config = container_config.with_volume(
+                        claude_json_path,
+                        "/home/claude-user/.claude.json".to_string(),
+                        false, // read-write mount for Claude CLI organic updates (theme, etc.)
+                    );
+                    info!("Mounting claude-in-a-box .claude.json for OAuth");
+
+                    // Check for OAuth token and set environment variable
+                    if let Ok(contents) = std::fs::read_to_string(&home_dir.join(".claude-in-a-box/auth/.credentials.json")) {
+                        if let Ok(credentials) = serde_json::from_str::<serde_json::Value>(&contents) {
+                            if let Some(access_token) = credentials["claude_code_oauth_access_token"].as_str() {
+                                container_config.environment_vars.insert(
+                                    "CLAUDE_CODE_OAUTH_TOKEN".to_string(),
+                                    access_token.to_string(),
+                                );
+                                info!("Set CLAUDE_CODE_OAUTH_TOKEN environment variable");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Remove any existing container for this session first
         // This is necessary when restarting a session - we need to clean up the old container
         let container_name = format!("claude-session-{}", request.session_id);
