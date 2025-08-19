@@ -592,52 +592,6 @@ impl WorktreeManager {
 
         Ok(())
     }
-
-    /// Find all existing worktrees for a given workspace
-    pub fn find_worktrees_for_workspace(
-        &self,
-        workspace_path: &Path,
-    ) -> Result<Vec<WorktreeInfo>, WorktreeError> {
-        debug!(
-            "Finding worktrees for workspace: {}",
-            workspace_path.display()
-        );
-
-        let mut matching_worktrees = Vec::new();
-
-        // Get all existing worktrees with their session IDs
-        let all_worktrees = self.list_all_worktrees().map_err(|e| {
-            WorktreeError::CommandFailed(format!("Failed to list worktrees: {}", e))
-        })?;
-
-        // Filter worktrees that belong to the specified workspace
-        for (session_id, worktree_info) in all_worktrees {
-            // Compare the canonical paths to handle symlinks and relative paths
-            let workspace_canonical =
-                workspace_path.canonicalize().unwrap_or_else(|_| workspace_path.to_path_buf());
-            let source_canonical = worktree_info
-                .source_repository
-                .canonicalize()
-                .unwrap_or_else(|_| worktree_info.source_repository.clone());
-
-            if workspace_canonical == source_canonical {
-                debug!(
-                    "Found matching worktree for session {}: {}",
-                    session_id,
-                    worktree_info.path.display()
-                );
-                matching_worktrees.push(worktree_info);
-            }
-        }
-
-        info!(
-            "Found {} worktrees for workspace {}",
-            matching_worktrees.len(),
-            workspace_path.display()
-        );
-
-        Ok(matching_worktrees)
-    }
 }
 
 impl Default for WorktreeManager {

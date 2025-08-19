@@ -571,6 +571,25 @@ pub struct NewSessionState {
     pub restart_session_id: Option<Uuid>, // If set, this is a restart operation
 }
 
+impl Default for NewSessionState {
+    fn default() -> Self {
+        Self {
+            available_repos: vec![],
+            filtered_repos: vec![],
+            selected_repo_index: None,
+            branch_name: String::new(),
+            step: NewSessionStep::SelectRepo,
+            filter_text: String::new(),
+            is_current_dir_mode: false,
+            skip_permissions: false,
+            mode: crate::models::SessionMode::Interactive,
+            boss_prompt: TextEditor::new(),
+            file_finder: FuzzyFileFinderState::new(),
+            restart_session_id: None,
+        }
+    }
+}
+
 impl NewSessionState {
     pub fn apply_filter(&mut self) {
         self.filtered_repos.clear();
@@ -1480,14 +1499,8 @@ impl AppState {
             filtered_repos: vec![(0, current_dir.clone())],
             selected_repo_index: Some(0),
             branch_name: branch_base.clone(),
-            step: NewSessionStep::InputBranch, // Skip repo selection
-            filter_text: String::new(),
-            is_current_dir_mode: false, // This is the key fix - normal sessions should go through mode selection
-            skip_permissions: false,
-            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-            boss_prompt: TextEditor::new(),                // Empty prompt initially
-            file_finder: FuzzyFileFinderState::new(),
-            restart_session_id: None, // Not a restart
+            step: NewSessionStep::InputBranch,
+            ..Default::default()
         });
 
         self.current_view = View::NewSession;
@@ -1568,14 +1581,9 @@ impl AppState {
             filtered_repos: vec![(0, current_dir.clone())],
             selected_repo_index: Some(0),
             branch_name: branch_base.clone(),
-            step: NewSessionStep::InputBranch, // Skip repo selection
-            filter_text: String::new(),
+            step: NewSessionStep::InputBranch,
             is_current_dir_mode: true,
-            skip_permissions: false,
-            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-            boss_prompt: TextEditor::new(),                // Empty prompt initially
-            file_finder: FuzzyFileFinderState::new(),
-            restart_session_id: None, // Not a restart
+            ..Default::default()
         });
 
         self.current_view = View::NewSession;
@@ -1628,14 +1636,7 @@ impl AppState {
                             filtered_repos,
                             selected_repo_index: if has_repos { Some(0) } else { None },
                             branch_name: branch_base,
-                            step: NewSessionStep::SelectRepo,
-                            filter_text: String::new(),
-                            is_current_dir_mode: false,
-                            skip_permissions: false,
-                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: TextEditor::new(),                // Empty prompt initially
-                            file_finder: FuzzyFileFinderState::new(),
-                            restart_session_id: None, // Not a restart
+                            ..Default::default()
                         });
 
                         self.current_view = View::SearchWorkspace;
@@ -1645,9 +1646,6 @@ impl AppState {
                         warn!("Failed to load repositories: {}", e);
                         // Still transition to search view with empty state
                         self.new_session_state = Some(NewSessionState {
-                            available_repos: vec![],
-                            filtered_repos: vec![],
-                            selected_repo_index: None,
                             branch_name: format!(
                                 "claude/{}",
                                 uuid::Uuid::new_v4()
@@ -1656,14 +1654,7 @@ impl AppState {
                                     .next()
                                     .unwrap_or("session")
                             ),
-                            step: NewSessionStep::SelectRepo,
-                            filter_text: String::new(),
-                            is_current_dir_mode: false,
-                            skip_permissions: false,
-                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: TextEditor::new(),                // Empty prompt initially
-                            file_finder: FuzzyFileFinderState::new(),
-                            restart_session_id: None, // Not a restart
+                            ..Default::default()
                         });
                         self.current_view = View::SearchWorkspace;
                         info!("Transitioned to SearchWorkspace view with empty state due to error");
@@ -1674,21 +1665,11 @@ impl AppState {
                 warn!("Failed to create session loader: {}", e);
                 // Still transition to search view with empty state
                 self.new_session_state = Some(NewSessionState {
-                    available_repos: vec![],
-                    filtered_repos: vec![],
-                    selected_repo_index: None,
                     branch_name: format!(
                         "claude/{}",
                         uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
                     ),
-                    step: NewSessionStep::SelectRepo,
-                    filter_text: String::new(),
-                    is_current_dir_mode: false,
-                    skip_permissions: false,
-                    mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                    boss_prompt: TextEditor::new(),                // Empty prompt initially
-                    file_finder: FuzzyFileFinderState::new(),
-                    restart_session_id: None, // Not a restart
+                    ..Default::default()
                 });
                 self.current_view = View::SearchWorkspace;
                 info!("Transitioned to SearchWorkspace view with empty state due to loader error");
@@ -1715,15 +1696,7 @@ impl AppState {
                             available_repos: repos,
                             filtered_repos,
                             selected_repo_index: if has_repos { Some(0) } else { None },
-                            branch_name: String::new(),
-                            step: NewSessionStep::SelectRepo,
-                            filter_text: String::new(),
-                            is_current_dir_mode: false,
-                            skip_permissions: false,
-                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: TextEditor::new(),                // Empty prompt initially
-                            file_finder: FuzzyFileFinderState::new(),
-                            restart_session_id: None, // Not a restart
+                            ..Default::default()
                         });
                         self.current_view = View::NewSession;
                     }

@@ -27,7 +27,8 @@ use components::LayoutComponent;
 /// Terminal cleanup utility to ensure proper restoration
 fn cleanup_terminal() {
     let _ = disable_raw_mode();
-    let _ = execute!(io::stderr(), LeaveAlternateScreen, DisableMouseCapture);
+    // Use stdout for cleanup since that's where we enabled mouse capture
+    let _ = execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture);
 }
 
 /// Unified terminal cleanup that works with a terminal instance
