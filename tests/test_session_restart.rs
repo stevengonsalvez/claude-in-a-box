@@ -57,6 +57,7 @@ fn create_test_git_repo(repo_path: &Path) -> git2::Repository {
 
 /// Test recreating a stopped session with its existing worktree
 #[tokio::test]
+#[ignore] // Requires Docker and claude-dev image
 async fn test_recreate_stopped_session() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let repo_path = temp_dir.path().join("test_repo");
@@ -150,6 +151,7 @@ async fn test_recreate_stopped_session() {
 
 /// Test that recreating a running session fails
 #[tokio::test]
+#[ignore] // Requires Docker and claude-dev image
 async fn test_recreate_running_session_fails() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let repo_path = temp_dir.path().join("test_repo");
@@ -199,6 +201,7 @@ async fn test_recreate_running_session_fails() {
 
 /// Test that recreating a non-existent session fails
 #[tokio::test]
+#[ignore] // Requires Docker and claude-dev image
 async fn test_recreate_nonexistent_session_fails() {
     let lifecycle_manager = SessionLifecycleManager::new()
         .await
@@ -217,6 +220,7 @@ async fn test_recreate_nonexistent_session_fails() {
 
 /// Test recreating a session preserves git state and changes
 #[tokio::test]
+#[ignore] // Requires Docker and claude-dev image
 async fn test_recreate_session_preserves_git_state() {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let repo_path = temp_dir.path().join("test_repo");

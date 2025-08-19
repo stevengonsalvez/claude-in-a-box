@@ -2424,35 +2424,6 @@ impl AppState {
         Ok(())
     }
 
-    async fn create_session_internal(
-        &self,
-        repo_path: &std::path::Path,
-        branch_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
-
-        let session_id = uuid::Uuid::new_v4();
-        let workspace_name =
-            repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
-
-        let request = SessionRequest {
-            session_id,
-            workspace_name,
-            workspace_path: repo_path.to_path_buf(),
-            branch_name: branch_name.to_string(),
-            base_branch: None,
-            container_config: None,
-            skip_permissions: false, // Default to false for this internal method
-            mode: crate::models::SessionMode::Interactive, // Default to interactive mode for now
-            boss_prompt: None,
-        };
-
-        let mut manager = SessionLifecycleManager::new().await?;
-        manager.create_session(request, None).await?;
-
-        Ok(())
-    }
-
     /// Clean up orphaned containers (containers without worktrees)
     pub async fn cleanup_orphaned_containers(&mut self) -> anyhow::Result<usize> {
         use crate::docker::ContainerManager;
