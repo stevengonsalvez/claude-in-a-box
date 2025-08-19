@@ -100,7 +100,68 @@ impl SessionLoader {
                             "Failed to get worktree info for session {}: {}",
                             session_id, e
                         );
+
                         // Container exists but worktree is missing - this is an orphaned container
+                        // We have a few options:
+                        // 1. Clean up the orphaned container
+                        // 2. Create a session marked as having missing worktree
+                        // 3. Ignore it
+
+                        // For now, let's create a session marked as having issues
+                        // so the user can see it and decide what to do
+
+                        info!(
+                            "Creating session entry for orphaned container {}",
+                            session_id
+                        );
+
+                        // Create a session with error status indicating missing worktree
+                        let mut session = Session::new(
+                            format!(
+                                "orphaned-{}",
+                                session_id.to_string().split('-').next().unwrap_or("session")
+                            ),
+                            format!("Missing worktree for session {}", session_id),
+                        );
+                        session.id = session_id;
+                        session.container_id = container.id.clone();
+                        session.set_status(SessionStatus::Error(
+                            "Worktree missing - container orphaned".to_string(),
+                        ));
+
+                        // Try to determine the original workspace from container labels or name
+                        let workspace_name = container
+                            .names
+                            .as_ref()
+                            .and_then(|names| names.first())
+                            .and_then(|name| name.strip_prefix('/'))
+                            .and_then(|name| name.split('-').next())
+                            .unwrap_or("unknown")
+                            .to_string();
+
+                        // Create or find workspace for orphaned session
+                        let workspace = workspace_map
+                            .entry(std::path::PathBuf::from(format!(
+                                "/unknown/{}",
+                                workspace_name
+                            )))
+                            .or_insert_with(|| {
+                                // Create a placeholder workspace for orphaned sessions
+                                Workspace::new(
+                                    workspace_name.clone(),
+                                    std::path::PathBuf::from(format!(
+                                        "/unknown/{}",
+                                        workspace_name
+                                    )),
+                                )
+                            });
+
+                        workspace.add_session(session);
+
+                        info!(
+                            "Added orphaned session {} to workspace {}",
+                            session_id, workspace_name
+                        );
                     }
                 }
             } else {

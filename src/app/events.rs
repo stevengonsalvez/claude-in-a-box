@@ -23,7 +23,9 @@ pub enum AppEvent {
     DetachSession,
     KillContainer,
     ReauthenticateCredentials,
+    RestartSession,
     DeleteSession,
+    CleanupOrphaned, // Clean up orphaned containers
     SwitchToLogs,
     SwitchToTerminal,
     GoToTop,
@@ -231,7 +233,9 @@ impl EventHandler {
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
+            KeyCode::Char('e') => Some(AppEvent::RestartSession),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
+            KeyCode::Char('x') => Some(AppEvent::CleanupOrphaned),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
             KeyCode::Char('p') => Some(AppEvent::QuickCommitStart), // Start quick commit dialog
 
@@ -843,11 +847,20 @@ impl EventHandler {
                 info!("Queueing re-authentication request");
                 state.pending_async_action = Some(AsyncAction::ReauthenticateCredentials);
             }
+            AppEvent::RestartSession => {
+                if let Some(session_id) = state.get_selected_session_id() {
+                    state.pending_async_action = Some(AsyncAction::RestartSession(session_id));
+                }
+            }
             AppEvent::DeleteSession => {
                 // Show confirmation dialog
                 if let Some(session) = state.selected_session() {
                     state.show_delete_confirmation(session.id);
                 }
+            }
+            AppEvent::CleanupOrphaned => {
+                // Queue cleanup of orphaned containers
+                state.pending_async_action = Some(AsyncAction::CleanupOrphaned);
             }
             AppEvent::SwitchToLogs => {
                 // TODO: Implement view switching

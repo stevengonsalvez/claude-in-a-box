@@ -138,7 +138,7 @@ impl LayoutComponent {
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        let menu_text = "[n]ew [s]earch [a]ttach [g]it [p]quick-commit [c]laude [f]refresh [Tab]focus [r]e-auth [d]elete [?]help [q]uit";
+        let menu_text = "[n]ew [s]earch [a]ttach [e]restart [g]it [p]commit [c]laude [f]refresh [x]cleanup [Tab]focus [r]e-auth [d]elete [?]help [q]uit";
 
         let menu = Paragraph::new(menu_text)
             .block(

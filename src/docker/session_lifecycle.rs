@@ -6,6 +6,7 @@ use super::{
 };
 use crate::config::{
     AppConfig, ContainerTemplate, McpInitializer, ProjectConfig, apply_mcp_init_result,
+    container::ImageSource,
 };
 use crate::git::{WorktreeInfo, WorktreeManager};
 use crate::models::{Session, SessionStatus};
@@ -997,6 +998,9 @@ impl SessionLifecycleManager {
         session.branch_name = request.branch_name.clone();
         session.container_id = container.container_id.clone();
 
+        // Set session status to Running since the container was successfully created and started
+        session.set_status(SessionStatus::Running);
+
         let session_state = SessionState {
             session,
             container: Some(container),
@@ -1006,6 +1010,133 @@ impl SessionLifecycleManager {
         // Register the session
         self.active_sessions.insert(request.session_id, session_state.clone());
 
+        Ok(session_state)
+    }
+
+    /// Create a new session using an existing worktree instead of creating a new one
+    /// This is useful for reusing worktrees from previous sessions
+    pub async fn create_session_with_existing_worktree(
+        &mut self,
+        request: SessionRequest,
+        existing_worktree: WorktreeInfo,
+    ) -> Result<SessionState, SessionLifecycleError> {
+        info!(
+            "Creating new session {} with existing worktree at {}",
+            request.session_id,
+            existing_worktree.path.display()
+        );
+
+        // Check if session already exists
+        if self.active_sessions.contains_key(&request.session_id) {
+            return Err(SessionLifecycleError::SessionAlreadyExists(
+                request.session_id,
+            ));
+        }
+
+        // Verify the existing worktree still exists and is valid
+        if !existing_worktree.path.exists() {
+            return Err(SessionLifecycleError::InvalidState(format!(
+                "Existing worktree path does not exist: {}",
+                existing_worktree.path.display()
+            )));
+        }
+
+        // Reuse the existing load_session_configuration helper
+        let (project_config, template) = self.load_session_configuration(&request, &None).await?;
+
+        // Create session model using the existing worktree path
+        let mut session = Session::new_with_options(
+            format!("{}-{}", request.workspace_name, request.branch_name),
+            existing_worktree.path.to_string_lossy().to_string(),
+            request.skip_permissions,
+            request.mode.clone(),
+            request.boss_prompt.clone(),
+        );
+        session.id = request.session_id;
+        session.branch_name = request.branch_name.clone();
+
+        // Create base container config using existing helper
+        let mut container_config = self
+            .create_base_container_config(&template, &existing_worktree, &None)
+            .await?;
+
+        // Apply project overrides using existing helper
+        self.apply_project_overrides(&mut container_config, &project_config, &request, &None)
+            .await?;
+
+        // Initialize MCP servers using existing helper
+        let mcp_result = self
+            .initialize_mcp_servers(&mut container_config, &request, &project_config, &None)
+            .await?;
+
+        // Apply mounting logic using existing helper
+        self.apply_mounting_logic(&mut container_config, &project_config, &mcp_result, &None)
+            .await?;
+
+        // Remove any existing container for this session first
+        // This is necessary when restarting a session - we need to clean up the old container
+        let container_name = format!("claude-session-{}", request.session_id);
+        info!("Checking for existing container: {}", container_name);
+
+        // Try to remove existing container if it exists
+        if let Ok(containers) = self.container_manager.list_claude_containers().await {
+            for existing_container in containers {
+                if let Some(names) = &existing_container.names {
+                    if names.iter().any(|n| n.trim_start_matches('/') == container_name) {
+                        info!(
+                            "Found existing container for session {}, removing it",
+                            request.session_id
+                        );
+                        if let Some(container_id) = &existing_container.id {
+                            // Try to remove the container (this will stop it first if needed)
+                            match self.container_manager.remove_container_by_id(container_id).await
+                            {
+                                Ok(_) => {
+                                    info!("Successfully removed old container {}", container_id)
+                                }
+                                Err(e) => {
+                                    warn!("Failed to remove old container {}: {}", container_id, e)
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Create and start the container using the correct API
+        let mut container = self
+            .container_manager
+            .create_session_container(request.session_id, container_config)
+            .await?;
+
+        let container_id = container.container_id.clone().unwrap_or_default();
+        session.container_id = Some(container_id.clone());
+
+        // Start the container
+        self.container_manager.start_container(&mut container).await?;
+        session.set_status(SessionStatus::Running);
+
+        info!(
+            "Created container {} for session with existing worktree",
+            container_id
+        );
+
+        // Create session state
+        let session_state = SessionState {
+            session,
+            worktree_info: Some(existing_worktree),
+            container: Some(container),
+        };
+
+        // Store the session
+        self.active_sessions.insert(request.session_id, session_state.clone());
+
+        info!(
+            "Successfully created session {} with existing worktree",
+            request.session_id
+        );
         Ok(session_state)
     }
 }

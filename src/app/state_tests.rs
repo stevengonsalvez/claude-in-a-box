@@ -39,6 +39,7 @@ mod tests {
             mode: SessionMode::Interactive,
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
+            restart_session_id: None, // Not a restart
         });
 
         // Now simulate pressing Enter in InputBranch step
@@ -80,6 +81,7 @@ mod tests {
             mode: SessionMode::Interactive,
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
+            restart_session_id: None, // Not a restart
         });
 
         // In current directory mode, pressing Enter should skip mode selection
@@ -114,6 +116,7 @@ mod tests {
             mode: SessionMode::Interactive, // Start with Interactive
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
+            restart_session_id: None, // Not a restart
         });
 
         // Test toggling mode
@@ -158,6 +161,7 @@ mod tests {
             mode: SessionMode::Interactive,
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
+            restart_session_id: None, // Not a restart
         });
 
         state.new_session_proceed_from_mode();
@@ -183,6 +187,7 @@ mod tests {
             mode: SessionMode::Boss,
             boss_prompt: crate::app::state::TextEditor::new(),
             file_finder: crate::components::fuzzy_file_finder::FuzzyFileFinderState::new(),
+            restart_session_id: None, // Not a restart
         });
 
         state.new_session_proceed_from_mode();

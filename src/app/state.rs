@@ -568,6 +568,26 @@ pub struct NewSessionState {
     pub mode: crate::models::SessionMode, // Interactive or Boss mode
     pub boss_prompt: TextEditor,   // The prompt text editor for boss mode execution
     pub file_finder: FuzzyFileFinderState, // Fuzzy file finder for @ symbol
+    pub restart_session_id: Option<Uuid>, // If set, this is a restart operation
+}
+
+impl Default for NewSessionState {
+    fn default() -> Self {
+        Self {
+            available_repos: vec![],
+            filtered_repos: vec![],
+            selected_repo_index: None,
+            branch_name: String::new(),
+            step: NewSessionStep::SelectRepo,
+            filter_text: String::new(),
+            is_current_dir_mode: false,
+            skip_permissions: false,
+            mode: crate::models::SessionMode::Interactive,
+            boss_prompt: TextEditor::new(),
+            file_finder: FuzzyFileFinderState::new(),
+            restart_session_id: None,
+        }
+    }
 }
 
 impl NewSessionState {
@@ -625,6 +645,8 @@ pub enum AsyncAction {
     AuthSetupOAuth,            // Run OAuth authentication setup
     AuthSetupApiKey,           // Save API key authentication
     ReauthenticateCredentials, // Re-authenticate Claude credentials
+    RestartSession(Uuid),      // Restart a stopped session with new container
+    CleanupOrphaned,           // Clean up orphaned containers without worktrees
 }
 
 impl Default for AppState {
@@ -1477,13 +1499,8 @@ impl AppState {
             filtered_repos: vec![(0, current_dir.clone())],
             selected_repo_index: Some(0),
             branch_name: branch_base.clone(),
-            step: NewSessionStep::InputBranch, // Skip repo selection
-            filter_text: String::new(),
-            is_current_dir_mode: false, // This is the key fix - normal sessions should go through mode selection
-            skip_permissions: false,
-            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-            boss_prompt: TextEditor::new(),                // Empty prompt initially
-            file_finder: FuzzyFileFinderState::new(),
+            step: NewSessionStep::InputBranch,
+            ..Default::default()
         });
 
         self.current_view = View::NewSession;
@@ -1564,13 +1581,9 @@ impl AppState {
             filtered_repos: vec![(0, current_dir.clone())],
             selected_repo_index: Some(0),
             branch_name: branch_base.clone(),
-            step: NewSessionStep::InputBranch, // Skip repo selection
-            filter_text: String::new(),
+            step: NewSessionStep::InputBranch,
             is_current_dir_mode: true,
-            skip_permissions: false,
-            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-            boss_prompt: TextEditor::new(),                // Empty prompt initially
-            file_finder: FuzzyFileFinderState::new(),
+            ..Default::default()
         });
 
         self.current_view = View::NewSession;
@@ -1623,13 +1636,7 @@ impl AppState {
                             filtered_repos,
                             selected_repo_index: if has_repos { Some(0) } else { None },
                             branch_name: branch_base,
-                            step: NewSessionStep::SelectRepo,
-                            filter_text: String::new(),
-                            is_current_dir_mode: false,
-                            skip_permissions: false,
-                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: TextEditor::new(),                // Empty prompt initially
-                            file_finder: FuzzyFileFinderState::new(),
+                            ..Default::default()
                         });
 
                         self.current_view = View::SearchWorkspace;
@@ -1639,9 +1646,6 @@ impl AppState {
                         warn!("Failed to load repositories: {}", e);
                         // Still transition to search view with empty state
                         self.new_session_state = Some(NewSessionState {
-                            available_repos: vec![],
-                            filtered_repos: vec![],
-                            selected_repo_index: None,
                             branch_name: format!(
                                 "claude/{}",
                                 uuid::Uuid::new_v4()
@@ -1650,13 +1654,7 @@ impl AppState {
                                     .next()
                                     .unwrap_or("session")
                             ),
-                            step: NewSessionStep::SelectRepo,
-                            filter_text: String::new(),
-                            is_current_dir_mode: false,
-                            skip_permissions: false,
-                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: TextEditor::new(),                // Empty prompt initially
-                            file_finder: FuzzyFileFinderState::new(),
+                            ..Default::default()
                         });
                         self.current_view = View::SearchWorkspace;
                         info!("Transitioned to SearchWorkspace view with empty state due to error");
@@ -1667,20 +1665,11 @@ impl AppState {
                 warn!("Failed to create session loader: {}", e);
                 // Still transition to search view with empty state
                 self.new_session_state = Some(NewSessionState {
-                    available_repos: vec![],
-                    filtered_repos: vec![],
-                    selected_repo_index: None,
                     branch_name: format!(
                         "claude/{}",
                         uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
                     ),
-                    step: NewSessionStep::SelectRepo,
-                    filter_text: String::new(),
-                    is_current_dir_mode: false,
-                    skip_permissions: false,
-                    mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                    boss_prompt: TextEditor::new(),                // Empty prompt initially
-                    file_finder: FuzzyFileFinderState::new(),
+                    ..Default::default()
                 });
                 self.current_view = View::SearchWorkspace;
                 info!("Transitioned to SearchWorkspace view with empty state due to loader error");
@@ -1707,14 +1696,7 @@ impl AppState {
                             available_repos: repos,
                             filtered_repos,
                             selected_repo_index: if has_repos { Some(0) } else { None },
-                            branch_name: String::new(),
-                            step: NewSessionStep::SelectRepo,
-                            filter_text: String::new(),
-                            is_current_dir_mode: false,
-                            skip_permissions: false,
-                            mode: crate::models::SessionMode::Interactive, // Default to interactive mode
-                            boss_prompt: TextEditor::new(),                // Empty prompt initially
-                            file_finder: FuzzyFileFinderState::new(),
+                            ..Default::default()
                         });
                         self.current_view = View::NewSession;
                     }
@@ -2055,7 +2037,15 @@ impl AppState {
             return;
         }
 
-        let (repo_path, branch_name, session_id, skip_permissions, mode, boss_prompt) = {
+        let (
+            repo_path,
+            branch_name,
+            session_id,
+            skip_permissions,
+            mode,
+            boss_prompt,
+            restart_session_id,
+        ) = {
             if let Some(ref mut state) = self.new_session_state {
                 tracing::info!("new_session_create called with step: {:?}", state.step);
 
@@ -2081,7 +2071,11 @@ impl AppState {
                                 state.branch_name
                             );
                             state.step = NewSessionStep::Creating;
-                            let session_id = uuid::Uuid::new_v4();
+
+                            // Use existing session ID for restart, or generate new one
+                            let session_id =
+                                state.restart_session_id.unwrap_or_else(|| uuid::Uuid::new_v4());
+
                             (
                                 repo_path.clone(),
                                 state.branch_name.clone(),
@@ -2093,6 +2087,7 @@ impl AppState {
                                 } else {
                                     None
                                 },
+                                state.restart_session_id, // Pass restart session ID
                             )
                         } else {
                             tracing::error!(
@@ -2121,12 +2116,19 @@ impl AppState {
 
         // Create the session with log streaming
         tracing::info!(
-            "Calling create_session_with_logs for session {} (mode: {:?})",
+            "Calling create_session_with_logs for session {} (mode: {:?}, restart: {})",
             session_id,
-            mode
+            mode,
+            restart_session_id.is_some()
         );
-        match self
-            .create_session_with_logs(
+
+        let result = if let Some(restart_id) = restart_session_id {
+            // This is a restart - try to reuse existing worktree
+            info!(
+                "Restarting session {} with potentially updated configuration",
+                restart_id
+            );
+            self.create_restart_session_with_logs(
                 &repo_path,
                 &branch_name,
                 session_id,
@@ -2135,7 +2137,20 @@ impl AppState {
                 boss_prompt,
             )
             .await
-        {
+        } else {
+            // Normal new session creation
+            self.create_session_with_logs(
+                &repo_path,
+                &branch_name,
+                session_id,
+                skip_permissions,
+                mode,
+                boss_prompt,
+            )
+            .await
+        };
+
+        match result {
             Ok(()) => {
                 info!("Session created successfully");
                 // Reload workspaces BEFORE switching view to ensure UI shows new session immediately
@@ -2158,6 +2173,146 @@ impl AppState {
                 self.cancel_new_session();
             }
         }
+    }
+
+    async fn create_restart_session_with_logs(
+        &mut self,
+        repo_path: &std::path::Path,
+        branch_name: &str,
+        session_id: Uuid,
+        skip_permissions: bool,
+        mode: crate::models::SessionMode,
+        boss_prompt: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
+        use std::path::PathBuf;
+
+        info!(
+            "Creating restart session {} with updated configuration",
+            session_id
+        );
+
+        // Create a channel for build logs
+        let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
+
+        // Initialize logs for this session
+        self.logs.insert(
+            session_id,
+            vec!["Restarting session with updated configuration...".to_string()],
+        );
+
+        // Create a shared vector for logs
+        let session_logs = Arc::new(Mutex::new(Vec::new()));
+        let logs_clone = session_logs.clone();
+
+        // Spawn a task to collect logs
+        let session_id_clone = session_id;
+        tokio::spawn(async move {
+            while let Some(log_message) = log_receiver.recv().await {
+                if let Ok(mut logs) = logs_clone.lock() {
+                    logs.push(log_message.clone());
+                }
+                info!(
+                    "Restart log for session {}: {}",
+                    session_id_clone, log_message
+                );
+            }
+        });
+
+        let workspace_name =
+            repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
+
+        let request = SessionRequest {
+            session_id,
+            workspace_name,
+            workspace_path: repo_path.to_path_buf(),
+            branch_name: branch_name.to_string(),
+            base_branch: None,
+            container_config: None,
+            skip_permissions,
+            mode,
+            boss_prompt,
+        };
+
+        // Add initial log message
+        if let Some(session_logs) = self.logs.get_mut(&session_id) {
+            session_logs.push("Checking for existing worktree...".to_string());
+        }
+
+        let mut manager = SessionLifecycleManager::new().await?;
+
+        // Check if worktree exists from the previous session
+        let existing_worktree_path = self
+            .workspaces
+            .iter()
+            .flat_map(|w| &w.sessions)
+            .find(|s| s.id == session_id)
+            .map(|s| PathBuf::from(&s.workspace_path));
+
+        let result = if let Some(worktree_path) = existing_worktree_path {
+            if worktree_path.exists() {
+                info!(
+                    "Found existing worktree at {}, reusing it",
+                    worktree_path.display()
+                );
+
+                if let Some(logs) = self.logs.get_mut(&session_id) {
+                    logs.push(format!(
+                        "Reusing existing worktree at {}",
+                        worktree_path.display()
+                    ));
+                }
+
+                let worktree_info = crate::git::WorktreeInfo {
+                    id: session_id, // Use session ID as worktree ID
+                    path: worktree_path.clone(),
+                    session_path: worktree_path.clone(), // Same as path for existing worktrees
+                    branch_name: branch_name.to_string(),
+                    source_repository: repo_path.to_path_buf(),
+                    commit_hash: None, // We don't track this for existing worktrees
+                };
+
+                manager.create_session_with_existing_worktree(request, worktree_info).await
+            } else {
+                info!("Worktree path no longer exists, creating fresh session");
+
+                if let Some(logs) = self.logs.get_mut(&session_id) {
+                    logs.push("Worktree not found, creating fresh session...".to_string());
+                }
+
+                manager.create_session_with_logs(request, Some(log_sender.clone())).await
+            }
+        } else {
+            info!("No existing worktree info found, creating fresh session");
+
+            if let Some(logs) = self.logs.get_mut(&session_id) {
+                logs.push("Creating fresh session...".to_string());
+            }
+
+            manager.create_session_with_logs(request, Some(log_sender.clone())).await
+        };
+
+        // Wait a moment for logs to be collected
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Transfer collected logs to our main logs HashMap
+        if let Ok(collected_logs) = session_logs.lock() {
+            if let Some(logs) = self.logs.get_mut(&session_id) {
+                logs.extend(collected_logs.clone());
+            }
+        }
+
+        // Add completion log based on result
+        if let Some(logs) = self.logs.get_mut(&session_id) {
+            match &result {
+                Ok(_) => logs
+                    .push("Session restarted successfully with updated configuration!".to_string()),
+                Err(e) => logs.push(format!("Session restart failed: {}", e)),
+            }
+        }
+
+        result.map(|_| ())?;
+        Ok(())
     }
 
     async fn create_session_with_logs(
@@ -2242,37 +2397,79 @@ impl AppState {
         Ok(())
     }
 
-    async fn create_session_internal(
-        &self,
-        repo_path: &std::path::Path,
-        branch_name: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
+    /// Clean up orphaned containers (containers without worktrees)
+    pub async fn cleanup_orphaned_containers(&mut self) -> anyhow::Result<usize> {
+        use crate::docker::ContainerManager;
 
-        let session_id = uuid::Uuid::new_v4();
-        let workspace_name =
-            repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
+        info!("Starting cleanup of orphaned containers");
 
-        let request = SessionRequest {
-            session_id,
-            workspace_name,
-            workspace_path: repo_path.to_path_buf(),
-            branch_name: branch_name.to_string(),
-            base_branch: None,
-            container_config: None,
-            skip_permissions: false, // Default to false for this internal method
-            mode: crate::models::SessionMode::Interactive, // Default to interactive mode for now
-            boss_prompt: None,
-        };
+        let container_manager = ContainerManager::new().await?;
+        let containers = container_manager.list_claude_containers().await?;
 
-        let mut manager = SessionLifecycleManager::new().await?;
-        manager.create_session(request, None).await?;
+        let mut cleaned_up = 0;
 
-        Ok(())
+        for container in containers {
+            if let Some(session_id_str) =
+                container.labels.as_ref().and_then(|labels| labels.get("claude-session-id"))
+            {
+                if let Ok(session_id) = uuid::Uuid::parse_str(session_id_str) {
+                    // Check if worktree exists for this session
+                    let worktree_manager = crate::git::WorktreeManager::new()?;
+                    match worktree_manager.get_worktree_info(session_id) {
+                        Ok(_) => {
+                            // Worktree exists, container is not orphaned
+                            continue;
+                        }
+                        Err(_) => {
+                            // Worktree missing, this is an orphaned container
+                            info!(
+                                "Found orphaned container for session {}, removing it",
+                                session_id
+                            );
+
+                            if let Some(container_id) = &container.id {
+                                // Remove the orphaned container (this will stop it first)
+                                if let Err(e) =
+                                    container_manager.remove_container_by_id(container_id).await
+                                {
+                                    warn!(
+                                        "Failed to remove orphaned container {}: {}",
+                                        container_id, e
+                                    );
+                                } else {
+                                    cleaned_up += 1;
+                                    info!(
+                                        "Successfully removed orphaned container {}",
+                                        container_id
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if cleaned_up > 0 {
+            info!("Cleaned up {} orphaned containers", cleaned_up);
+            self.add_success_notification(format!(
+                "🧹 Cleaned up {} orphaned containers",
+                cleaned_up
+            ));
+
+            // Reload workspaces to reflect changes
+            self.load_real_workspaces().await;
+            self.ui_needs_refresh = true;
+        } else {
+            info!("No orphaned containers found");
+            self.add_info_notification("✅ No orphaned containers found".to_string());
+        }
+
+        Ok(cleaned_up)
     }
 
     async fn delete_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
-        use crate::docker::SessionLifecycleManager;
+        use crate::docker::{ContainerManager, SessionLifecycleManager};
         use crate::git::WorktreeManager;
 
         info!("Deleting session: {}", session_id);
@@ -2285,10 +2482,35 @@ impl AppState {
             workspace_count_before, session_count_before
         );
 
+        // First, try to find and remove the container directly
+        // This ensures we clean up containers even if they're not in the lifecycle manager
+        let container_name = format!("claude-session-{}", session_id);
+        let container_manager = ContainerManager::new().await?;
+
+        info!("Looking for container: {}", container_name);
+        if let Ok(containers) = container_manager.list_claude_containers().await {
+            for container in containers {
+                if let Some(names) = &container.names {
+                    if names.iter().any(|n| n.trim_start_matches('/') == container_name) {
+                        info!("Found container for session {}, removing it", session_id);
+                        if let Some(container_id) = &container.id {
+                            match container_manager.remove_container_by_id(container_id).await {
+                                Ok(_) => info!("Successfully removed container {}", container_id),
+                                Err(e) => {
+                                    warn!("Failed to remove container {}: {}", container_id, e)
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
         // Create session lifecycle manager
         let mut manager = SessionLifecycleManager::new().await?;
 
-        // Try to remove the session through lifecycle manager first
+        // Try to remove the session through lifecycle manager (this will handle worktree)
         match manager.remove_session(session_id).await {
             Ok(_) => {
                 info!("Session removed through lifecycle manager");
@@ -2417,6 +2639,22 @@ impl AppState {
                     info!("Starting re-authentication process");
                     if let Err(e) = self.handle_reauthenticate().await {
                         error!("Failed to re-authenticate: {}", e);
+                    }
+                }
+                AsyncAction::RestartSession(session_id) => {
+                    info!("Starting session restart for session {}", session_id);
+                    if let Err(e) = self.handle_restart_session(session_id).await {
+                        error!("Failed to restart session: {}", e);
+                    }
+                }
+                AsyncAction::CleanupOrphaned => {
+                    info!("Starting cleanup of orphaned containers");
+                    if let Err(e) = self.cleanup_orphaned_containers().await {
+                        error!("Failed to cleanup orphaned containers: {}", e);
+                        self.add_error_notification(format!(
+                            "❌ Failed to cleanup orphaned containers: {}",
+                            e
+                        ));
                     }
                 }
             }
@@ -2712,6 +2950,73 @@ impl AppState {
         self.current_view = View::AuthSetup;
 
         info!("Re-authentication initiated - switched to auth setup view");
+        Ok(())
+    }
+
+    async fn handle_restart_session(
+        &mut self,
+        session_id: Uuid,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Initiating restart UI flow for session {}", session_id);
+
+        // Find the session in our workspace list
+        let session_info = self.workspaces.iter().find_map(|workspace| {
+            workspace
+                .sessions
+                .iter()
+                .find(|s| s.id == session_id)
+                .map(|session| (workspace, session))
+        });
+
+        if let Some((workspace, session)) = session_info {
+            match &session.status {
+                crate::models::SessionStatus::Stopped => {
+                    info!(
+                        "Session {} is stopped, starting restart UI flow",
+                        session_id
+                    );
+
+                    // Start the new session UI flow with pre-populated data from the existing session
+                    self.current_view = View::NewSession;
+                    self.new_session_state = Some(NewSessionState {
+                        available_repos: vec![workspace.path.clone()],
+                        filtered_repos: vec![(0, workspace.path.clone())],
+                        selected_repo_index: Some(0),
+                        branch_name: session.branch_name.clone(),
+                        step: NewSessionStep::InputBranch, // Start at branch input since repo is pre-selected
+                        filter_text: String::new(),
+                        is_current_dir_mode: false,
+                        skip_permissions: session.skip_permissions,
+                        mode: session.mode.clone(),
+                        boss_prompt: if let Some(ref prompt) = session.boss_prompt {
+                            TextEditor::from_string(prompt)
+                        } else {
+                            TextEditor::new()
+                        },
+                        file_finder: FuzzyFileFinderState::new(),
+                        restart_session_id: Some(session_id), // Mark this as a restart operation
+                    });
+
+                    self.add_info_notification(
+                        "🔄 Restarting session - review and update settings as needed".to_string(),
+                    );
+                }
+                status => {
+                    warn!(
+                        "Cannot restart session {} - current status: {:?}",
+                        session_id, status
+                    );
+                    self.add_error_notification(format!(
+                        "❌ Cannot restart session - current status: {:?}",
+                        status
+                    ));
+                }
+            }
+        } else {
+            error!("Session {} not found in workspaces", session_id);
+            self.add_error_notification("❌ Session not found".to_string());
+        }
+
         Ok(())
     }
 

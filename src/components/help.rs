@@ -33,9 +33,16 @@ impl HelpComponent {
             ListItem::new("  n          New session (current directory)"),
             ListItem::new("  s          Search & select workspace"),
             ListItem::new("  a          Attach to session"),
+            ListItem::new("  e          Restart stopped session"),
             ListItem::new("  r          Re-authenticate credentials"),
             ListItem::new("  d          Delete session"),
+            ListItem::new("  x          Cleanup orphaned containers"),
             ListItem::new("  f          Refresh workspaces"),
+            ListItem::new(""),
+            ListItem::new("Git Actions:")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ListItem::new("  g          Show git view"),
+            ListItem::new("  p          Commit & push"),
             ListItem::new(""),
             ListItem::new("Views:")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
