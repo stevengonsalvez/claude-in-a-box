@@ -35,3 +35,4 @@ logs/
 # Amazonq
 .amazonq/
 AmazonQ.md
+.claude/
