@@ -91,8 +91,14 @@ async function exchangeCodeForTokens(authorizationCode) {
     client_id: OAUTH_CONSTANTS.CLIENT_ID,
     code: cleanedCode,
     redirect_uri: OAUTH_CONSTANTS.REDIRECT_URI,
-    code_verifier: state.code_verifier
+    code_verifier: state.code_verifier,
+    state: state.state
   };
+
+  // Debug logging (can be removed in production)
+  if (process.env.DEBUG_OAUTH) {
+    console.error('Token request body:', JSON.stringify(tokenRequestBody, null, 2));
+  }
 
   return new Promise((resolve, reject) => {
     const url = new URL(OAUTH_CONSTANTS.OAUTH_TOKEN_URL);
@@ -123,7 +129,9 @@ async function exchangeCodeForTokens(authorizationCode) {
           if (res.statusCode === 200) {
             resolve(response);
           } else {
-            console.error('OAuth token exchange failed:', response);
+            console.error('OAuth token exchange failed:');
+            console.error('Status code:', res.statusCode);
+            console.error('Response:', JSON.stringify(response, null, 2));
             resolve(null);
           }
         } catch (error) {
