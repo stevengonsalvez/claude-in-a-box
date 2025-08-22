@@ -33,11 +33,19 @@ function cleanAuthorizationCode(authorizationCode) {
     return authorizationCode;
   }
 
+  console.error('[DEBUG] Raw authorization code:', authorizationCode);
+
   // Remove URL fragments (everything after #)
   let cleaned = authorizationCode.split('#')[0];
+  console.error('[DEBUG] After removing fragment:', cleaned);
 
   // Remove query parameters (everything after ?)
   cleaned = cleaned.split('?')[0];
+  console.error('[DEBUG] After removing query params:', cleaned);
+
+  // Remove any ampersands and what follows
+  cleaned = cleaned.split('&')[0];
+  console.error('[DEBUG] Final cleaned code:', cleaned);
 
   return cleaned;
 }
@@ -50,17 +58,25 @@ async function verifyState() {
   try {
     const stateData = await fs.readFile(OAUTH_CONSTANTS.STATE_FILE, 'utf-8');
     const state = JSON.parse(stateData);
+    
+    console.error('[DEBUG] Loaded state from file:', {
+      state: state.state,
+      has_code_verifier: !!state.code_verifier,
+      expires_at: state.expires_at
+    });
 
     // Check if state has expired
     const expiresAt = new Date(state.expires_at);
     const now = new Date();
 
     if (now >= expiresAt) {
+      console.error('[DEBUG] State has expired');
       return null; // Expired
     }
 
     return state;
   } catch (error) {
+    console.error('[DEBUG] Failed to load state:', error.message);
     // File doesn't exist or is invalid JSON
     return null;
   }
@@ -95,10 +111,9 @@ async function exchangeCodeForTokens(authorizationCode) {
     state: state.state
   };
 
-  // Debug logging (can be removed in production)
-  if (process.env.DEBUG_OAUTH) {
-    console.error('Token request body:', JSON.stringify(tokenRequestBody, null, 2));
-  }
+  // Always log in debug mode for now
+  console.error('[DEBUG] Token request body:', JSON.stringify(tokenRequestBody, null, 2));
+  console.error('[DEBUG] Request URL:', OAUTH_CONSTANTS.OAUTH_TOKEN_URL);
 
   return new Promise((resolve, reject) => {
     const url = new URL(OAUTH_CONSTANTS.OAUTH_TOKEN_URL);
@@ -117,12 +132,16 @@ async function exchangeCodeForTokens(authorizationCode) {
 
     const req = https.request(options, (res) => {
       let data = '';
+      
+      console.error('[DEBUG] Response status:', res.statusCode);
+      console.error('[DEBUG] Response headers:', res.headers);
 
       res.on('data', (chunk) => {
         data += chunk;
       });
 
       res.on('end', () => {
+        console.error('[DEBUG] Raw response data:', data);
         try {
           const response = JSON.parse(data);
 
