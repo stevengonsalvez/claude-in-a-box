@@ -179,10 +179,15 @@ async function saveCredentials(tokens) {
     throw new Error('Tokens are required');
   }
 
-  // Create credentials object with timestamp
+  // Create credentials object in the format expected by Claude CLI
   const credentials = {
-    ...tokens,
-    created_at: new Date().toISOString()
+    claudeAiOauth: {
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: Date.now() + (tokens.expires_in * 1000),
+      scopes: tokens.scope ? tokens.scope.split(' ') : ['user:inference', 'user:profile'],
+      isMax: true
+    }
   };
 
   // Ensure the directory exists
@@ -199,6 +204,19 @@ async function saveCredentials(tokens) {
     JSON.stringify(credentials, null, 2),
     'utf-8'
   );
+  
+  // Also create a minimal .claude.json file for TUI validation
+  const claudeJsonPath = path.join(credentialsDir, '.claude.json');
+  const claudeJson = {
+    installMethod: "claude-in-a-box",
+    autoUpdates: false,
+    hasCompletedOnboarding: true,
+    hasTrustDialogAccepted: true,
+    firstStartTime: new Date().toISOString()
+  };
+  
+  await fs.writeFile(claudeJsonPath, JSON.stringify(claudeJson, null, 2), 'utf-8');
+  console.error('[DEBUG] Created .claude.json for TUI validation at:', claudeJsonPath);
 }
 
 /**
