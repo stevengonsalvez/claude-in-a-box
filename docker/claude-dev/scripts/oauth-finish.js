@@ -11,7 +11,7 @@ const OAUTH_CONSTANTS = {
   OAUTH_TOKEN_URL: 'https://console.anthropic.com/v1/oauth/token',
   CLIENT_ID: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
   REDIRECT_URI: 'https://console.anthropic.com/oauth/code/callback',
-  STATE_FILE: '/tmp/oauth-state.json',
+  STATE_FILE: path.join(process.env.HOME || '', '.claude', '.claude_oauth_state.json'),
   CREDENTIALS_PATH: path.join(process.env.HOME || '', '.claude', '.credentials.json'),
   REQUEST_HEADERS: {
     'Content-Type': 'application/json',
