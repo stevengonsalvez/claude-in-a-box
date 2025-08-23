@@ -16,7 +16,7 @@ describe('OAuth Finish', () => {
       assert.strictEqual(oauthFinish.OAUTH_CONSTANTS.OAUTH_TOKEN_URL, 'https://console.anthropic.com/v1/oauth/token');
       assert.strictEqual(oauthFinish.OAUTH_CONSTANTS.CLIENT_ID, '9d1c250a-e61b-44d9-88ed-5944d1962f5e');
       assert.strictEqual(oauthFinish.OAUTH_CONSTANTS.REDIRECT_URI, 'https://console.anthropic.com/oauth/code/callback');
-      assert.strictEqual(oauthFinish.OAUTH_CONSTANTS.STATE_FILE, '/tmp/oauth-state.json');
+      assert.ok(oauthFinish.OAUTH_CONSTANTS.STATE_FILE.endsWith(path.join('.claude', '.claude_oauth_state.json')), 'STATE_FILE path should be constructed correctly');
       assert.ok(oauthFinish.OAUTH_CONSTANTS.CREDENTIALS_PATH.includes('.credentials.json'));
       assert.strictEqual(oauthFinish.OAUTH_CONSTANTS.REQUEST_HEADERS['Content-Type'], 'application/json');
     });
@@ -193,12 +193,13 @@ describe('OAuth Finish', () => {
         const fileContent = await fs.readFile(testCredentialsFile, 'utf-8');
         const savedCredentials = JSON.parse(fileContent);
 
-        assert.strictEqual(savedCredentials.access_token, 'test-access-token-123');
-        assert.strictEqual(savedCredentials.token_type, 'Bearer');
-        assert.strictEqual(savedCredentials.expires_in, 3600);
-        assert.strictEqual(savedCredentials.refresh_token, 'test-refresh-token-456');
-        assert.strictEqual(savedCredentials.scope, 'org:create_api_key user:profile user:inference');
-        assert.ok(savedCredentials.created_at); // Should have timestamp
+        const oauthCreds = savedCredentials.claudeAiOauth;
+        assert.ok(oauthCreds, 'claudeAiOauth object should exist');
+        assert.strictEqual(oauthCreds.accessToken, 'test-access-token-123');
+        assert.strictEqual(oauthCreds.refreshToken, 'test-refresh-token-456');
+        assert.ok(oauthCreds.expiresAt, 'expiresAt should exist');
+        assert.deepStrictEqual(oauthCreds.scopes, ['org:create_api_key', 'user:profile', 'user:inference']);
+        assert.strictEqual(oauthCreds.isMax, true);
       } finally {
         // Restore original constant
         oauthFinish.OAUTH_CONSTANTS.CREDENTIALS_PATH = originalCredentialsPath;

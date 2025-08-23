@@ -54,10 +54,10 @@ mkdir -p /home/claude-user/.claude
 if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
     log "Existing credentials found. Checking if they contain valid OAuth tokens..."
 
-    # Check if credentials contain required OAuth fields
-    if grep -q "access_token" /home/claude-user/.claude/.credentials.json 2>/dev/null; then
+    # Check if credentials contain required OAuth fields using jq
+    if jq -e '.claudeAiOauth.accessToken' /home/claude-user/.claude/.credentials.json >/dev/null 2>&1; then
         # Check if token appears to be valid (not empty and looks like a token)
-        ACCESS_TOKEN=$(grep -o '"access_token"[[:space:]]*:[[:space:]]*"[^"]*"' /home/claude-user/.claude/.credentials.json 2>/dev/null | cut -d'"' -f4)
+        ACCESS_TOKEN=$(jq -r '.claudeAiOauth.accessToken' /home/claude-user/.claude/.credentials.json 2>/dev/null)
         if [ -n "$ACCESS_TOKEN" ] && [ ${#ACCESS_TOKEN} -gt 10 ]; then
             success "Valid OAuth credentials found!"
             success "Authentication setup complete - you can now use claude-box sessions"
@@ -66,7 +66,7 @@ if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/
             warn "Credentials file exists but access token appears invalid"
         fi
     else
-        warn "Credentials file exists but doesn't contain OAuth tokens"
+        warn "Credentials file exists but doesn't contain valid OAuth tokens"
     fi
 
     log "Will re-authenticate to get fresh OAuth credentials..."
