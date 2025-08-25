@@ -104,7 +104,7 @@ if [ "$AUTH_METHOD" = "oauth" ]; then
     log "Copy the authorization code from the URL or page and paste it here."
     echo ""
     echo -n "Enter authorization code: "
-    read AUTHORIZATION_CODE
+    read -r AUTHORIZATION_CODE
 
     if [ -z "$AUTHORIZATION_CODE" ]; then
         error "Authorization code is required"

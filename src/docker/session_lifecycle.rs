@@ -1056,9 +1056,8 @@ impl SessionLifecycleManager {
         session.branch_name = request.branch_name.clone();
 
         // Create base container config using existing helper
-        let mut container_config = self
-            .create_base_container_config(&template, &existing_worktree, &None)
-            .await?;
+        let mut container_config =
+            self.create_base_container_config(&template, &existing_worktree, &None).await?;
 
         // Apply project overrides using existing helper
         self.apply_project_overrides(&mut container_config, &project_config, &request, &None)

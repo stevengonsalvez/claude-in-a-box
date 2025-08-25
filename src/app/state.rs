@@ -1064,10 +1064,7 @@ impl AppState {
             "/app/scripts/oauth-refresh.js",
         ]);
 
-        let output = tokio::process::Command::new("docker")
-            .args(&args)
-            .output()
-            .await?;
+        let output = tokio::process::Command::new("docker").args(&args).output().await?;
 
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1123,7 +1120,8 @@ impl AppState {
         // Check and refresh OAuth tokens if needed
         let home_dir = dirs::home_dir();
         if let Some(home) = home_dir {
-            let credentials_path = home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+            let credentials_path =
+                home.join(".claude-in-a-box").join("auth").join(".credentials.json");
 
             // Only attempt refresh if we have OAuth credentials
             if credentials_path.exists() && Self::oauth_token_needs_refresh(&credentials_path) {
@@ -1855,29 +1853,24 @@ impl AppState {
 
         // Get available repositories
         match SessionLoader::new().await {
-            Ok(loader) => {
-                match loader.get_available_repositories().await {
-                    Ok(repos) => {
-                        let has_repos = !repos.is_empty();
-                        let filtered_repos: Vec<(usize, std::path::PathBuf)> = repos
-                            .iter()
-                            .enumerate()
-                            .map(|(idx, path)| (idx, path.clone()))
-                            .collect();
+            Ok(loader) => match loader.get_available_repositories().await {
+                Ok(repos) => {
+                    let has_repos = !repos.is_empty();
+                    let filtered_repos: Vec<(usize, std::path::PathBuf)> =
+                        repos.iter().enumerate().map(|(idx, path)| (idx, path.clone())).collect();
 
-                        self.new_session_state = Some(NewSessionState {
-                            available_repos: repos,
-                            filtered_repos,
-                            selected_repo_index: if has_repos { Some(0) } else { None },
-                            ..Default::default()
-                        });
-                        self.current_view = View::NewSession;
-                    }
-                    Err(e) => {
-                        warn!("Failed to get available repositories: {}", e);
-                    }
+                    self.new_session_state = Some(NewSessionState {
+                        available_repos: repos,
+                        filtered_repos,
+                        selected_repo_index: if has_repos { Some(0) } else { None },
+                        ..Default::default()
+                    });
+                    self.current_view = View::NewSession;
                 }
-            }
+                Err(e) => {
+                    warn!("Failed to get available repositories: {}", e);
+                }
+            },
             Err(e) => {
                 warn!("Failed to create session loader: {}", e);
             }
@@ -3408,7 +3401,8 @@ impl App {
         // Try to refresh OAuth tokens if they're expired (before checking first-time setup)
         let home_dir = dirs::home_dir();
         if let Some(home) = home_dir {
-            let credentials_path = home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+            let credentials_path =
+                home.join(".claude-in-a-box").join("auth").join(".credentials.json");
 
             // Only attempt refresh if we have OAuth credentials that need refreshing
             if credentials_path.exists() && AppState::oauth_token_needs_refresh(&credentials_path) {
@@ -3515,9 +3509,12 @@ impl App {
             // Check if we need to refresh OAuth tokens
             let home_dir = dirs::home_dir();
             if let Some(home) = home_dir {
-                let credentials_path = home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+                let credentials_path =
+                    home.join(".claude-in-a-box").join("auth").join(".credentials.json");
 
-                if credentials_path.exists() && AppState::oauth_token_needs_refresh(&credentials_path) {
+                if credentials_path.exists()
+                    && AppState::oauth_token_needs_refresh(&credentials_path)
+                {
                     info!("OAuth token needs refresh (periodic check)");
 
                     // Refresh tokens inline (this is quick enough not to block UI)

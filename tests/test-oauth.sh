@@ -169,7 +169,7 @@ force_refresh() {
     echo -e "${YELLOW}Marking token as expiring soon...${NC}"
     local TEMP_CREDS=$(mktemp)
     local TEMP_EXPIRE=$(($(date +%s000) + 300000))
-    jq --arg expire "$TEMP_EXPIRE" '.claudeAiOauth.expiresAt = ($expire | tonumber)' "$CREDENTIALS_FILE" > "$TEMP_CREDS"
+    jq --argjson expire "$TEMP_EXPIRE" '.claudeAiOauth.expiresAt = $expire' "$CREDENTIALS_FILE" > "$TEMP_CREDS"
     cp "$TEMP_CREDS" "$CREDENTIALS_FILE"
 
     # Run refresh
@@ -216,7 +216,7 @@ set_expire_soon() {
 
     # Set to expire in 5 minutes
     local EXPIRE_TIME=$(($(date +%s000) + 300000))
-    jq --arg expire "$EXPIRE_TIME" '.claudeAiOauth.expiresAt = ($expire | tonumber)' "$CREDENTIALS_FILE" > "$CREDENTIALS_FILE.tmp"
+    jq --argjson expire "$EXPIRE_TIME" '.claudeAiOauth.expiresAt = $expire' "$CREDENTIALS_FILE" > "$CREDENTIALS_FILE.tmp"
     mv "$CREDENTIALS_FILE.tmp" "$CREDENTIALS_FILE"
 
     echo -e "${GREEN}✓ Token set to expire in 5 minutes${NC}"
@@ -273,7 +273,7 @@ test_startup_refresh() {
     # Set token to expire in 25 minutes (triggers 30-min refresh buffer)
     echo -e "${YELLOW}Setting token to expire in 25 minutes...${NC}"
     local EXPIRE_TIME=$(($(date +%s000) + 1500000))  # 25 minutes from now
-    jq --arg expire "$EXPIRE_TIME" '.claudeAiOauth.expiresAt = ($expire | tonumber)' "$CREDENTIALS_FILE" > "$CREDENTIALS_FILE.tmp"
+    jq --argjson expire "$EXPIRE_TIME" '.claudeAiOauth.expiresAt = $expire' "$CREDENTIALS_FILE" > "$CREDENTIALS_FILE.tmp"
     mv "$CREDENTIALS_FILE.tmp" "$CREDENTIALS_FILE"
 
     echo ""
