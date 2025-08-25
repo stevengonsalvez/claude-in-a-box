@@ -106,7 +106,8 @@ COPY --chown=claude-user:claude-user config/ /app/config/
 # Make scripts executable
 RUN chmod +x /app/scripts/*.sh && \
     chmod +x /app/scripts/oauth-start.js && \
-    chmod +x /app/scripts/oauth-finish.js
+    chmod +x /app/scripts/oauth-finish.js && \
+    chmod +x /app/scripts/oauth-refresh.js
 
 # Copy custom bashrc for interactive sessions
 COPY --chown=claude-user:claude-user scripts/session-bashrc.sh /home/claude-user/.claude-box-bashrc

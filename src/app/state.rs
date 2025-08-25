@@ -533,6 +533,8 @@ pub struct AppState {
     pub log_last_updated: HashMap<Uuid, std::time::Instant>,
     // Track the last time we checked for log updates globally
     pub last_log_check: Option<std::time::Instant>,
+    // Track the last time we checked for OAuth token refresh
+    pub last_token_refresh_check: Option<std::time::Instant>,
     // Claude chat integration
     pub claude_chat_state: Option<ClaudeChatState>,
     // Live logs from Docker containers
@@ -672,6 +674,7 @@ impl Default for AppState {
             auth_setup_state: None,
             log_last_updated: HashMap::new(),
             last_log_check: None,
+            last_token_refresh_check: None,
             claude_chat_state: None,
             live_logs: HashMap::new(),
             claude_manager: None,
@@ -878,10 +881,31 @@ impl AppState {
             false
         };
 
-        // For OAuth authentication, we need BOTH .credentials.json AND .claude.json AND valid tokens
+        // For OAuth authentication, we need BOTH .credentials.json AND .claude.json
+        // If we have a refresh token, we can refresh expired access tokens, so it's not "first time setup"
         let has_valid_oauth = if has_credentials && has_claude_json {
-            // Check if OAuth token is still valid (not expired)
-            Self::is_oauth_token_valid(&auth_dir.join(".credentials.json"))
+            // Check if we have OAuth credentials (either valid token OR refresh token to get new one)
+            let credentials_path = auth_dir.join(".credentials.json");
+            if let Ok(contents) = std::fs::read_to_string(&credentials_path) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                    if let Some(oauth) = json.get("claudeAiOauth") {
+                        // If we have a refresh token, we can refresh even if access token is expired
+                        if oauth.get("refreshToken").is_some() {
+                            info!("Found refresh token - can refresh if needed");
+                            true
+                        } else {
+                            // No refresh token, check if access token is still valid
+                            Self::is_oauth_token_valid(&credentials_path)
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
         } else {
             false
         };
@@ -932,6 +956,137 @@ impl AppState {
         false
     }
 
+    /// Check if OAuth token needs refresh (expires within 30 minutes)
+    fn oauth_token_needs_refresh(credentials_path: &std::path::Path) -> bool {
+        use std::fs;
+
+        if let Ok(contents) = fs::read_to_string(credentials_path) {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
+                if let Some(oauth) = json.get("claudeAiOauth") {
+                    // Check if we have a refresh token
+                    if oauth.get("refreshToken").is_none() {
+                        info!("No refresh token available");
+                        return false;
+                    }
+
+                    if let Some(expires_at) = oauth.get("expiresAt").and_then(|v| v.as_u64()) {
+                        let current_time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+
+                        // Refresh if token expires in less than 30 minutes
+                        let buffer_time = 30 * 60 * 1000; // 30 minutes in milliseconds
+
+                        if current_time >= (expires_at.saturating_sub(buffer_time)) {
+                            info!(
+                                "OAuth token needs refresh, expires at: {}",
+                                chrono::DateTime::from_timestamp_millis(expires_at as i64)
+                                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                                    .unwrap_or_else(|| "unknown".to_string())
+                            );
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Refresh OAuth tokens using the refresh token
+    pub async fn refresh_oauth_tokens(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        info!("Attempting to refresh OAuth tokens");
+
+        let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
+        let auth_dir = home_dir.join(".claude-in-a-box").join("auth");
+        let credentials_path = auth_dir.join(".credentials.json");
+
+        // Check if tokens actually need refresh
+        if !Self::oauth_token_needs_refresh(&credentials_path) {
+            info!("OAuth tokens do not need refresh yet");
+            return Ok(());
+        }
+
+        // Build the Docker image if needed
+        let image_name = "claude-box:claude-dev";
+        let image_check = std::process::Command::new("docker")
+            .args(["image", "inspect", image_name])
+            .output()?;
+
+        if !image_check.status.success() {
+            info!("Building claude-dev image for token refresh...");
+            let build_status = std::process::Command::new("docker")
+                .args(["build", "-t", image_name, "docker/claude-dev"])
+                .status()?;
+
+            if !build_status.success() {
+                return Err("Failed to build image for token refresh".into());
+            }
+        }
+
+        // Run the oauth-refresh.js script in a container (with retries built-in)
+        info!("Running OAuth token refresh in container");
+
+        // Create the volume mount string that will live long enough
+        let volume_mount = format!("{}:/home/claude-user/.claude", auth_dir.display());
+
+        // Build args based on debug mode
+        let mut args = vec![
+            "run",
+            "--rm",
+            "-v",
+            &volume_mount,
+            "-e",
+            "PATH=/home/claude-user/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "-e",
+            "HOME=/home/claude-user",
+        ];
+
+        // Add debug env if needed
+        // Check if we're in debug mode by checking RUST_LOG env var
+        if std::env::var("RUST_LOG").unwrap_or_default().contains("debug") {
+            args.push("-e");
+            args.push("DEBUG=1");
+        }
+
+        args.extend([
+            "-w",
+            "/home/claude-user",
+            "--user",
+            "claude-user",
+            "--entrypoint",
+            "node",
+            image_name,
+            "/app/scripts/oauth-refresh.js",
+        ]);
+
+        let output = std::process::Command::new("docker")
+            .args(&args)
+            .output()?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            info!("OAuth token refresh successful: {}", stdout.trim());
+
+            // Verify the new token is valid
+            if Self::is_oauth_token_valid(&credentials_path) {
+                info!("New OAuth token verified as valid");
+                Ok(())
+            } else {
+                Err("Token refresh succeeded but new token is invalid".into())
+            }
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            warn!("OAuth token refresh failed");
+            warn!("Stderr: {}", stderr.trim());
+            warn!("Stdout: {}", stdout.trim());
+            Err(format!("Token refresh failed: {}", stderr.trim()).into())
+        }
+    }
+
     pub fn check_current_directory_status(&mut self) {
         use crate::git::workspace_scanner::WorkspaceScanner;
         use std::env;
@@ -961,6 +1116,21 @@ impl AppState {
 
     pub async fn load_real_workspaces(&mut self) {
         info!("Loading active sessions from Docker containers");
+
+        // Check and refresh OAuth tokens if needed
+        let home_dir = dirs::home_dir();
+        if let Some(home) = home_dir {
+            let credentials_path = home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+
+            // Only attempt refresh if we have OAuth credentials
+            if credentials_path.exists() && Self::oauth_token_needs_refresh(&credentials_path) {
+                info!("OAuth token needs refresh, attempting automatic refresh");
+                match self.refresh_oauth_tokens().await {
+                    Ok(()) => info!("OAuth tokens refreshed successfully"),
+                    Err(e) => warn!("Failed to refresh OAuth tokens: {}", e),
+                }
+            }
+        }
 
         // Try to load active sessions
         match SessionLoader::new().await {
@@ -3232,6 +3402,21 @@ impl App {
         self.state.log_streaming_coordinator = Some(coordinator);
         self.state.log_sender = Some(log_sender);
 
+        // Try to refresh OAuth tokens if they're expired (before checking first-time setup)
+        let home_dir = dirs::home_dir();
+        if let Some(home) = home_dir {
+            let credentials_path = home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+
+            // Only attempt refresh if we have OAuth credentials that need refreshing
+            if credentials_path.exists() && AppState::oauth_token_needs_refresh(&credentials_path) {
+                info!("OAuth token needs refresh on startup, attempting automatic refresh");
+                match self.state.refresh_oauth_tokens().await {
+                    Ok(()) => info!("OAuth tokens refreshed successfully on startup"),
+                    Err(e) => warn!("Failed to refresh OAuth tokens on startup: {}", e),
+                }
+            }
+        }
+
         // Check if this is first time setup
         if AppState::is_first_time_setup() {
             self.state.current_view = View::AuthSetup;
@@ -3312,6 +3497,52 @@ impl App {
     pub async fn tick(&mut self) -> anyhow::Result<()> {
         // Clean up expired notifications
         self.state.cleanup_expired_notifications();
+
+        // Periodic OAuth token refresh check (every 5 minutes)
+        let now = Instant::now();
+        let should_check_token = self
+            .state
+            .last_token_refresh_check
+            .map(|last| now.duration_since(last).as_secs() >= 300) // Check every 5 minutes
+            .unwrap_or(true); // First time
+
+        if should_check_token {
+            self.state.last_token_refresh_check = Some(now);
+
+            // Check if we need to refresh OAuth tokens
+            let home_dir = dirs::home_dir();
+            if let Some(home) = home_dir {
+                let credentials_path = home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+
+                if credentials_path.exists() && AppState::oauth_token_needs_refresh(&credentials_path) {
+                    info!("OAuth token needs refresh (periodic check)");
+
+                    // Refresh tokens inline (this is quick enough not to block UI)
+                    match self.state.refresh_oauth_tokens().await {
+                        Ok(()) => {
+                            info!("OAuth tokens refreshed successfully (periodic)");
+                            // Add a notification to inform the user
+                            self.state.add_notification(Notification {
+                                message: "✅ OAuth tokens refreshed automatically".to_string(),
+                                notification_type: NotificationType::Success,
+                                created_at: Instant::now(),
+                                duration: Duration::from_secs(5),
+                            });
+                        }
+                        Err(e) => {
+                            warn!("Failed to refresh OAuth tokens (periodic): {}", e);
+                            // Add a warning notification
+                            self.state.add_notification(Notification {
+                                message: format!("⚠️ Token refresh failed: {}", e),
+                                notification_type: NotificationType::Warning,
+                                created_at: Instant::now(),
+                                duration: Duration::from_secs(10),
+                            });
+                        }
+                    }
+                }
+            }
+        }
 
         // Process incoming log entries (non-blocking)
         let mut log_entries = Vec::new();
