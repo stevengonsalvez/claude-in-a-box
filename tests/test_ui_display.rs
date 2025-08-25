@@ -1,6 +1,6 @@
 // ABOUTME: Test UI display components including menu bar and help text
 
-use claude_box::app::App;
+use claude_box::app::{App, state::View};
 use claude_box::components::LayoutComponent;
 use ratatui::{Terminal, backend::TestBackend};
 
@@ -9,7 +9,11 @@ async fn test_bottom_menu_bar_shows_refresh_key() {
     let mut app = App::new();
     app.state.load_mock_data();
 
-    let backend = TestBackend::new(120, 40);
+    // Force the view to SessionList to bypass auth check in tests
+    app.state.current_view = View::SessionList;
+    app.state.auth_setup_state = None; // Clear any auth setup state
+
+    let backend = TestBackend::new(180, 40);  // Wider to fit full menu bar
     let mut terminal = Terminal::new(backend).unwrap();
     let mut layout = LayoutComponent::new();
 
@@ -24,20 +28,35 @@ async fn test_bottom_menu_bar_shows_refresh_key() {
     let buffer = terminal.backend().buffer();
     let content: String = buffer.content().iter().map(ratatui::buffer::Cell::symbol).collect();
 
+    // Debug output to see what was actually rendered
+    let printable_content = content
+        .chars()
+        .filter(|c| c.is_ascii_graphic() || *c == ' ')
+        .collect::<String>();
+
     // Check that the bottom bar contains the refresh key
     assert!(
         content.contains("[f]refresh"),
         "Bottom menu bar should contain '[f]refresh' but content was: {}",
-        content
-            .chars()
-            .filter(|c| c.is_ascii_graphic() || *c == ' ')
-            .collect::<String>()
+        printable_content
     );
 
     // Also check for other expected menu items to ensure we're looking at the right place
-    assert!(content.contains("[n]ew"), "Should contain '[n]ew'");
-    assert!(content.contains("[?]help"), "Should contain '[?]help'");
-    assert!(content.contains("[q]uit"), "Should contain '[q]uit'");
+    assert!(
+        content.contains("[n]ew"),
+        "Should contain '[n]ew' but content was: {}",
+        printable_content
+    );
+    assert!(
+        content.contains("[?]help"),
+        "Should contain '[?]help' but content was: {}",
+        printable_content
+    );
+    assert!(
+        content.contains("[q]uit"),
+        "Should contain '[q]uit' but content was: {}",
+        printable_content
+    );
 }
 
 #[tokio::test]
@@ -48,7 +67,7 @@ async fn test_help_screen_shows_refresh_key() {
     // Show help
     app.state.help_visible = true;
 
-    let backend = TestBackend::new(120, 40);
+    let backend = TestBackend::new(180, 40);  // Wider to fit full menu bar
     let mut terminal = Terminal::new(backend).unwrap();
     let mut layout = LayoutComponent::new();
 
@@ -96,7 +115,7 @@ async fn test_refresh_key_in_help_under_session_actions() {
     app.state.load_mock_data();
     app.state.help_visible = true;
 
-    let backend = TestBackend::new(120, 40);
+    let backend = TestBackend::new(180, 40);  // Wider to fit full menu bar
     let mut terminal = Terminal::new(backend).unwrap();
     let mut layout = LayoutComponent::new();
 
