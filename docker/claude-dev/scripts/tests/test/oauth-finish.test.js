@@ -227,7 +227,7 @@ describe('OAuth Finish', () => {
 
         const fileContent = await fs.readFile(testCredentialsPath, 'utf-8');
         const savedCredentials = JSON.parse(fileContent);
-        assert.strictEqual(savedCredentials.access_token, 'test-token');
+        assert.strictEqual(savedCredentials.claudeAiOauth.accessToken, 'test-token');
       } finally {
         // Clean up
         try {

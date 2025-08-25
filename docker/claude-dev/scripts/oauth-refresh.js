@@ -50,8 +50,8 @@ function needsRefresh(credentials) {
   const now = Date.now();
   const expiresAt = credentials.claudeAiOauth.expiresAt;
 
-  // Refresh if token expires in less than 10 minutes
-  const bufferTime = 10 * 60 * 1000; // 10 minutes
+  // Refresh if token expires in less than 30 minutes
+  const bufferTime = 30 * 60 * 1000; // 30 minutes
 
   if (process.env.DEBUG) {
     const timeUntilExpiry = (expiresAt - now) / 1000 / 60; // minutes
@@ -161,10 +161,11 @@ async function saveUpdatedCredentials(credentials, tokens) {
 
 /**
  * Main refresh function with retry logic
+ * @param {boolean} force - Force refresh even if token is still valid
  * @param {number} maxRetries - Maximum number of retry attempts
  * @returns {Promise<boolean>} Success status
  */
-async function performRefresh(maxRetries = 3) {
+async function performRefresh(force = false, maxRetries = 3) {
   try {
     // Load existing credentials
     const credentials = await loadCredentials();
@@ -173,10 +174,14 @@ async function performRefresh(maxRetries = 3) {
       return false;
     }
 
-    // Check if refresh is needed
-    if (!needsRefresh(credentials)) {
+    // Check if refresh is needed (unless forced)
+    if (!force && !needsRefresh(credentials)) {
       console.log('Token is still valid, no refresh needed');
       return true;
+    }
+
+    if (force) {
+      console.log('Forcing token refresh as requested');
     }
 
     // Get refresh token
@@ -244,7 +249,7 @@ if (require.main === module) {
 
   const forceRefresh = process.argv.includes('--force');
 
-  performRefresh().then((success) => {
+  performRefresh(forceRefresh).then((success) => {
     process.exit(success ? 0 : 1);
   });
 }

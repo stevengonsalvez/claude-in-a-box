@@ -168,7 +168,8 @@ force_refresh() {
     # Temporarily make token expire soon
     echo -e "${YELLOW}Marking token as expiring soon...${NC}"
     local TEMP_CREDS=$(mktemp)
-    jq '.claudeAiOauth.expiresAt = '$(date +%s000)' + 300000' "$CREDENTIALS_FILE" > "$TEMP_CREDS"
+    local TEMP_EXPIRE=$(($(date +%s000) + 300000))
+    jq --arg expire "$TEMP_EXPIRE" '.claudeAiOauth.expiresAt = ($expire | tonumber)' "$CREDENTIALS_FILE" > "$TEMP_CREDS"
     cp "$TEMP_CREDS" "$CREDENTIALS_FILE"
 
     # Run refresh
@@ -215,7 +216,7 @@ set_expire_soon() {
 
     # Set to expire in 5 minutes
     local EXPIRE_TIME=$(($(date +%s000) + 300000))
-    jq '.claudeAiOauth.expiresAt = '$EXPIRE_TIME "$CREDENTIALS_FILE" > "$CREDENTIALS_FILE.tmp"
+    jq --arg expire "$EXPIRE_TIME" '.claudeAiOauth.expiresAt = ($expire | tonumber)' "$CREDENTIALS_FILE" > "$CREDENTIALS_FILE.tmp"
     mv "$CREDENTIALS_FILE.tmp" "$CREDENTIALS_FILE"
 
     echo -e "${GREEN}✓ Token set to expire in 5 minutes${NC}"

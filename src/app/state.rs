@@ -1011,15 +1011,17 @@ impl AppState {
 
         // Build the Docker image if needed
         let image_name = "claude-box:claude-dev";
-        let image_check = std::process::Command::new("docker")
+        let image_check = tokio::process::Command::new("docker")
             .args(["image", "inspect", image_name])
-            .output()?;
+            .output()
+            .await?;
 
         if !image_check.status.success() {
             info!("Building claude-dev image for token refresh...");
-            let build_status = std::process::Command::new("docker")
+            let build_status = tokio::process::Command::new("docker")
                 .args(["build", "-t", image_name, "docker/claude-dev"])
-                .status()?;
+                .status()
+                .await?;
 
             if !build_status.success() {
                 return Err("Failed to build image for token refresh".into());
@@ -1062,9 +1064,10 @@ impl AppState {
             "/app/scripts/oauth-refresh.js",
         ]);
 
-        let output = std::process::Command::new("docker")
+        let output = tokio::process::Command::new("docker")
             .args(&args)
-            .output()?;
+            .output()
+            .await?;
 
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
