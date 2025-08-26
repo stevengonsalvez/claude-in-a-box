@@ -91,6 +91,7 @@ impl LogsViewerComponent {
         frame.render_widget(paragraph, area);
     }
 
+    #[allow(elided_lifetimes_in_paths)]
     fn get_session_logs(
         &self,
         state: &AppState,
@@ -107,6 +108,7 @@ impl LogsViewerComponent {
         self.get_mock_logs(session)
     }
 
+    #[allow(elided_lifetimes_in_paths)]
     fn get_mock_logs(&self, session: &crate::models::Session) -> Vec<ListItem> {
         match session.status {
             crate::models::SessionStatus::Running => vec![

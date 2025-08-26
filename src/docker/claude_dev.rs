@@ -414,7 +414,8 @@ impl ClaudeDevManager {
     }
 
     /// Check if first file is newer than second file
-    fn is_newer(&self, file1: &Path, file2: &Path) -> Result<bool> {
+    #[allow(dead_code)]
+    fn _is_newer(&self, file1: &Path, file2: &Path) -> Result<bool> {
         if !file2.exists() {
             return Ok(true);
         }

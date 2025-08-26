@@ -53,6 +53,7 @@ impl SessionListComponent {
         frame.render_stateful_widget(list, area, &mut self.list_state);
     }
 
+    #[allow(elided_lifetimes_in_paths)]
     fn build_list_items_static(state: &AppState) -> Vec<ListItem> {
         let mut items = Vec::new();
 
