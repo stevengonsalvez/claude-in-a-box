@@ -11,7 +11,6 @@ use ratatui::{
 
 pub struct ClaudeChatComponent {
     scroll_offset: usize,
-    input_cursor_pos: usize,
     max_visible_messages: usize,
 }
 
@@ -19,7 +18,6 @@ impl ClaudeChatComponent {
     pub fn new() -> Self {
         Self {
             scroll_offset: 0,
-            input_cursor_pos: 0,
             max_visible_messages: 10,
         }
     }
@@ -144,6 +142,7 @@ impl ClaudeChatComponent {
         }
     }
 
+    #[allow(elided_lifetimes_in_paths)]
     fn format_message(&self, message: &ClaudeMessage, _index: usize) -> ListItem {
         let (icon, color) = match message.role {
             ClaudeRole::User => ("👤", Color::Green),

@@ -23,7 +23,7 @@ pub struct DockerLogStreamingManager {
 #[derive(Debug)]
 struct StreamingTask {
     container_id: String,
-    container_name: String,
+    _container_name: String,
     task_handle: JoinHandle<()>,
 }
 
@@ -85,7 +85,7 @@ impl DockerLogStreamingManager {
             session_id,
             StreamingTask {
                 container_id,
-                container_name,
+                _container_name: container_name,
                 task_handle,
             },
         );

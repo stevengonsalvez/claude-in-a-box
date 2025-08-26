@@ -6,7 +6,6 @@ use super::{
 };
 use crate::config::{
     AppConfig, ContainerTemplate, McpInitializer, ProjectConfig, apply_mcp_init_result,
-    container::ImageSource,
 };
 use crate::git::{WorktreeInfo, WorktreeManager};
 use crate::models::{Session, SessionStatus};

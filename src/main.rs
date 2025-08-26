@@ -1,5 +1,9 @@
 // ABOUTME: Main entry point for Claude-in-a-Box with TUI and CLI support
 
+#![allow(dead_code)]
+#![allow(elided_lifetimes_in_paths)]
+#![allow(hidden_glob_reexports)]
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crossterm::{

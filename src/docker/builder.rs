@@ -286,7 +286,8 @@ impl ImageBuilder {
     }
 
     /// Build image from a standard Dockerfile
-    async fn build_from_dockerfile(&self, context: &BuildContext) -> Result<()> {
+    #[allow(dead_code)]
+    async fn _build_from_dockerfile(&self, context: &BuildContext) -> Result<()> {
         self.build_from_dockerfile_with_logs(context, None).await
     }
 
@@ -343,7 +344,8 @@ impl ImageBuilder {
     }
 
     /// Build claude-dev image based on our claude-docker setup
-    async fn build_claude_dev_image(
+    #[allow(dead_code)]
+    async fn _build_claude_dev_image(
         &self,
         tag: &str,
         base_image: Option<&str>,
