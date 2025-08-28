@@ -9,10 +9,16 @@ const os = require('os');
 const PORT = process.env.PTY_PORT || 8080;
 const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
 
+// Check if we should start Claude CLI directly
+const START_CLAUDE_DIRECTLY = process.env.START_CLAUDE_DIRECTLY === 'true';
+const CLAUDE_CONTINUE_FLAG = process.env.CLAUDE_CONTINUE_FLAG || '';
+
 console.log(`[PTY Service] Starting on port ${PORT}...`);
+console.log(`[PTY Service] START_CLAUDE_DIRECTLY: ${START_CLAUDE_DIRECTLY}`);
+console.log(`[PTY Service] CLAUDE_CONTINUE_FLAG: ${CLAUDE_CONTINUE_FLAG}`);
 
 // Create WebSocket server
-const wss = new WebSocket.Server({ 
+const wss = new WebSocket.Server({
   port: PORT,
   perMessageDeflate: {
     zlibDeflateOptions: {
@@ -38,30 +44,66 @@ const sessions = new Map();
 
 wss.on('connection', (ws, req) => {
   console.log(`[PTY Service] New connection from ${req.socket.remoteAddress}`);
-  
+
   let term = null;
   const sessionId = Date.now().toString();
-  
+
   // Create PTY instance
   try {
-    term = pty.spawn(shell, [], {
+    let command = shell;
+    let args = [];
+
+    if (START_CLAUDE_DIRECTLY) {
+      // Start Claude CLI directly
+      command = '/home/claude-user/.npm-global/bin/claude';
+
+      // Add continue flags if provided
+      if (CLAUDE_CONTINUE_FLAG) {
+        args = CLAUDE_CONTINUE_FLAG.split(' ').filter(arg => arg);
+      }
+
+      console.log(`[PTY Service] Starting Claude CLI directly with command: ${command} ${args.join(' ')}`);
+    } else {
+      console.log(`[PTY Service] Starting shell: ${command}`);
+    }
+
+    term = pty.spawn(command, args, {
       name: 'xterm-256color',
       cols: 120,
       rows: 40,
       cwd: process.env.HOME || '/workspace',
-      env: process.env
+      env: {
+        ...process.env,
+        // Ensure Claude has proper terminal settings
+        TERM: 'xterm-256color',
+        COLORTERM: 'truecolor',
+        // Pass through the continue flag for any scripts
+        CLAUDE_CONTINUE_FLAG: CLAUDE_CONTINUE_FLAG
+      }
     });
-    
+
     console.log(`[PTY Service] Created PTY process with PID ${term.pid}`);
     sessions.set(sessionId, { ws, term });
-    
+
     // Send session init message
     ws.send(JSON.stringify({
       type: 'session_init',
       session_id: sessionId,
       buffer: []
     }));
-    
+
+    // Only send newline for bash prompt, not for Claude CLI
+    if (!START_CLAUDE_DIRECTLY) {
+      // Send an initial newline to trigger bash prompt display
+      // This ensures the prompt appears when attaching to a session
+      setTimeout(() => {
+        if (term) {
+          console.log('[PTY Service] Sending initial newline to trigger prompt');
+          term.write('\n');
+        }
+      }, 100);
+    }
+
     // Handle PTY output
     term.onData((data) => {
       try {
@@ -75,7 +117,7 @@ wss.on('connection', (ws, req) => {
         console.error('[PTY Service] Error sending data:', ex);
       }
     });
-    
+
     term.onExit((code, signal) => {
       console.log(`[PTY Service] PTY process exited with code ${code}, signal ${signal}`);
       ws.send(JSON.stringify({
@@ -85,7 +127,7 @@ wss.on('connection', (ws, req) => {
       }));
       ws.close();
     });
-    
+
   } catch (error) {
     console.error('[PTY Service] Failed to create PTY:', error);
     ws.send(JSON.stringify({
@@ -95,30 +137,30 @@ wss.on('connection', (ws, req) => {
     ws.close();
     return;
   }
-  
+
   // Handle WebSocket messages
   ws.on('message', (message) => {
     try {
       const msg = JSON.parse(message.toString());
-      
+
       switch (msg.type) {
         case 'input':
           if (term) {
             term.write(msg.data);
           }
           break;
-          
+
         case 'resize':
           if (term && msg.cols && msg.rows) {
             term.resize(msg.cols, msg.rows);
             console.log(`[PTY Service] Resized terminal to ${msg.cols}x${msg.rows}`);
           }
           break;
-          
+
         case 'heartbeat':
           ws.send(JSON.stringify({ type: 'heartbeat_ack' }));
           break;
-          
+
         default:
           console.log(`[PTY Service] Unknown message type: ${msg.type}`);
       }
@@ -126,7 +168,7 @@ wss.on('connection', (ws, req) => {
       console.error('[PTY Service] Error processing message:', ex);
     }
   });
-  
+
   // Handle WebSocket close
   ws.on('close', () => {
     console.log(`[PTY Service] Connection closed for session ${sessionId}`);
@@ -135,7 +177,7 @@ wss.on('connection', (ws, req) => {
       sessions.delete(sessionId);
     }
   });
-  
+
   // Handle WebSocket errors
   ws.on('error', (error) => {
     console.error(`[PTY Service] WebSocket error for session ${sessionId}:`, error);

@@ -745,6 +745,23 @@ impl SessionLifecycleManager {
         config
             .environment_vars
             .insert("CLAUDE_BOX_MODE".to_string(), mode_str.to_string());
+
+        // Set INTERACTIVE_MODE flag for PTY service to determine startup behavior
+        // When true, PTY service will start Claude CLI directly instead of bash
+        if request.mode == crate::models::SessionMode::Interactive {
+            config
+                .environment_vars
+                .insert("INTERACTIVE_MODE".to_string(), "true".to_string());
+            info!(
+                "Set INTERACTIVE_MODE=true for interactive session {}",
+                request.session_id
+            );
+        } else {
+            config
+                .environment_vars
+                .insert("INTERACTIVE_MODE".to_string(), "false".to_string());
+        }
+
         info!(
             "Set session mode to '{}' for session {}",
             mode_str, request.session_id

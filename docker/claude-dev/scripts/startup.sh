@@ -184,6 +184,15 @@ mkdir -p /workspace/.claude-box/logs
 # Start PTY service in the background for WebSocket terminal access
 if [ -f /app/pty-service/index.js ]; then
     log "Starting PTY service on port 8080..."
+
+    # Configure PTY service based on mode
+    if [ "$CLAUDE_BOX_MODE" = "true" ] && [ "$INTERACTIVE_MODE" = "true" ]; then
+        log "PTY service will start Claude CLI directly in interactive mode"
+        export START_CLAUDE_DIRECTLY=true
+    else
+        export START_CLAUDE_DIRECTLY=false
+    fi
+
     cd /app/pty-service && nohup node index.js > /workspace/.claude-box/logs/pty-service.log 2>&1 &
     PTY_PID=$!
     sleep 1

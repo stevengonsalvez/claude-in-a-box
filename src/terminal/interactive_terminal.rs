@@ -409,6 +409,14 @@ impl InteractiveTerminalComponent {
         Ok(())
     }
 
+    /// Send input to the PTY
+    pub async fn send_input(&self, data: &str) -> Result<()> {
+        if !self.connected {
+            return Err(anyhow::anyhow!("Not connected to PTY service"));
+        }
+        self.ws_client.send_input(data.to_string()).await
+    }
+
     /// Process pending messages
     pub async fn process_messages(&mut self) {
         let mut receiver = self.message_receiver.lock().await;

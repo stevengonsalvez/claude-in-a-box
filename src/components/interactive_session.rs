@@ -107,6 +107,13 @@ impl InteractiveSessionComponent {
                             host_port
                         );
                         self.connection_status = ConnectionStatus::Connected;
+
+                        // Send an initial input to ensure prompt appears
+                        // This helps when attaching to a new session
+                        if let Err(e) = terminal.send_input("").await {
+                            warn!("Failed to send initial input to trigger prompt: {}", e);
+                        }
+
                         self.terminal = Some(terminal);
                         Ok(())
                     }
@@ -128,42 +135,114 @@ impl InteractiveSessionComponent {
     /// Check if the container has PTY service running
     async fn check_pty_service(&self) -> bool {
         use crate::docker::ContainerManager;
-        use tracing::{info, warn};
+        use tracing::{error, info, warn};
 
-        // Try to check if the PTY service is running by checking for the process
+        // Try multiple methods to detect PTY service
         match ContainerManager::new().await {
             Ok(manager) => {
-                // Check if node process is running on port 8080
+                // Method 1: Check for node process running index.js (most reliable)
                 let check_cmd = vec![
                     "bash".to_string(),
                     "-c".to_string(),
-                    "netstat -tulpn 2>/dev/null | grep :8080 || lsof -i :8080 2>/dev/null || echo 'PTY_NOT_FOUND'".to_string(),
+                    "ps aux | grep 'node.*index.js' | grep -v grep".to_string(),
                 ];
 
                 match manager.exec_command(&self.container_id, check_cmd).await {
                     Ok(output_bytes) => {
                         let output = String::from_utf8_lossy(&output_bytes);
-                        let has_pty = !output.contains("PTY_NOT_FOUND") && !output.is_empty();
-                        if has_pty {
-                            info!("PTY service detected in container {}", self.container_id);
+                        info!(
+                            "PTY process check output for container {}: {}",
+                            self.container_id,
+                            output.trim()
+                        );
+
+                        if !output.trim().is_empty()
+                            && output.contains("node")
+                            && output.contains("index.js")
+                        {
+                            info!(
+                                "✓ PTY service detected via process check in container {}",
+                                self.container_id
+                            );
+                            return true;
                         } else {
-                            warn!("PTY service not found in container {}", self.container_id);
+                            warn!("Process check failed, trying directory check...");
                         }
-                        has_pty
                     }
                     Err(e) => {
                         warn!(
-                            "Failed to check PTY service in container {}: {}",
+                            "Failed to check PTY process in container {}: {}",
                             self.container_id, e
                         );
-                        // Assume it might be available if we can't check
-                        true
                     }
                 }
+
+                // Method 2: Check if PTY service directory exists
+                let check_dir = vec![
+                    "test".to_string(),
+                    "-d".to_string(),
+                    "/app/pty-service".to_string(),
+                ];
+
+                match manager.exec_command(&self.container_id, check_dir).await {
+                    Ok(_) => {
+                        // Exit code 0 means directory exists
+                        info!(
+                            "✓ PTY service directory found in container {}",
+                            self.container_id
+                        );
+
+                        // Also try to check if we can curl the service locally
+                        let curl_check = vec![
+                            "bash".to_string(),
+                            "-c".to_string(),
+                            "curl -f -s http://localhost:8080 2>&1 || echo 'CURL_FAILED'"
+                                .to_string(),
+                        ];
+
+                        match manager.exec_command(&self.container_id, curl_check).await {
+                            Ok(curl_output) => {
+                                let output = String::from_utf8_lossy(&curl_output);
+                                if output.contains("Upgrade Required") {
+                                    info!(
+                                        "✓ PTY service responding on port 8080 in container {}",
+                                        self.container_id
+                                    );
+                                    return true;
+                                } else {
+                                    warn!(
+                                        "PTY service directory exists but service not responding: {}",
+                                        output.trim()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Curl check failed: {}", e);
+                                // Directory exists, assume service might be starting up
+                                return true;
+                            }
+                        }
+
+                        return true;
+                    }
+                    Err(e) => {
+                        error!(
+                            "PTY service directory not found in container {}: {}",
+                            self.container_id, e
+                        );
+                    }
+                }
+
+                // If all checks fail, PTY is not available
+                error!(
+                    "❌ PTY service not detected in container {} after all checks",
+                    self.container_id
+                );
+                false
             }
             Err(e) => {
-                warn!("Failed to create container manager: {}", e);
-                // Assume it might be available if we can't check
+                error!("Failed to create container manager for PTY check: {}", e);
+                // If we can't check, assume it might be available
                 true
             }
         }
