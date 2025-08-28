@@ -15,7 +15,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -34,36 +34,36 @@ pub enum ViewMode {
 pub struct InteractiveTerminalComponent {
     /// WebSocket client for PTY communication
     ws_client: Arc<WebSocketTerminalClient>,
-    
+
     /// Terminal emulator widget
     terminal: Arc<Mutex<TerminalEmulatorWidget>>,
-    
+
     /// Current view mode
     pub view_mode: ViewMode,
-    
+
     /// Input buffer for typing
     input_buffer: String,
     input_cursor: usize,
-    
+
     /// Session information
     session_id: Uuid,
     session_name: String,
     container_id: String,
-    
+
     /// Connection status
     connected: bool,
     connection_error: Option<String>,
-    
+
     /// Permission prompt state
     awaiting_permission: bool,
     permission_options: Vec<String>,
-    
+
     /// Message receiver channel
     message_receiver: Arc<Mutex<mpsc::UnboundedReceiver<Message>>>,
-    
+
     /// Focus state
     is_focused: bool,
-    
+
     /// Terminal dimensions
     terminal_cols: u16,
     terminal_rows: u16,
@@ -78,13 +78,13 @@ impl InteractiveTerminalComponent {
         port: u16,
     ) -> Result<Self> {
         info!("Creating interactive terminal for session {}", session_id);
-        
+
         // Create WebSocket client using container ID as hostname
         let ws_client = Arc::new(WebSocketTerminalClient::new(&container_id, port));
-        
+
         Self::create_with_client(session_id, session_name, container_id, ws_client).await
     }
-    
+
     /// Create a new interactive terminal component with a specific host port
     pub async fn new_with_host_port(
         session_id: Uuid,
@@ -92,14 +92,17 @@ impl InteractiveTerminalComponent {
         container_id: String,
         host_port: u16,
     ) -> Result<Self> {
-        info!("Creating interactive terminal for session {} with host port {}", session_id, host_port);
-        
+        info!(
+            "Creating interactive terminal for session {} with host port {}",
+            session_id, host_port
+        );
+
         // Create WebSocket client using localhost and mapped port
         let ws_client = Arc::new(WebSocketTerminalClient::new("localhost", host_port));
-        
+
         Self::create_with_client(session_id, session_name, container_id, ws_client).await
     }
-    
+
     /// Internal method to create component with a WebSocket client
     async fn create_with_client(
         session_id: Uuid,
@@ -107,13 +110,12 @@ impl InteractiveTerminalComponent {
         container_id: String,
         ws_client: Arc<WebSocketTerminalClient>,
     ) -> Result<Self> {
-        
         // Create terminal emulator (default size, will be resized)
         let terminal = Arc::new(Mutex::new(TerminalEmulatorWidget::new(120, 40)));
-        
+
         // Create message receiver channel
         let (msg_sender, msg_receiver) = mpsc::unbounded_channel();
-        
+
         let component = Self {
             ws_client: ws_client.clone(),
             terminal: terminal.clone(),
@@ -132,44 +134,56 @@ impl InteractiveTerminalComponent {
             terminal_cols: 120,
             terminal_rows: 40,
         };
-        
+
         // Spawn message handler task
         let ws_client_clone = ws_client.clone();
         let terminal_clone = terminal.clone();
         let msg_sender_clone = msg_sender.clone();
-        
+
         tokio::spawn(async move {
             Self::message_handler_loop(ws_client_clone, terminal_clone, msg_sender_clone).await;
         });
-        
+
         Ok(component)
     }
 
     /// Connect to the container PTY service
     pub async fn connect(&mut self) -> Result<()> {
         info!("InteractiveTerminalComponent: Starting connection to PTY service");
-        info!("Session: {}, Container: {}", self.session_name, self.container_id);
-        
+        info!(
+            "Session: {}, Container: {}",
+            self.session_name, self.container_id
+        );
+
         match self.ws_client.connect().await {
             Ok(_) => {
                 info!("WebSocket client connected successfully");
                 self.connected = true;
                 self.connection_error = None;
-                
+
                 // Send initial resize
-                info!("Sending initial terminal resize: {}x{}", self.terminal_cols, self.terminal_rows);
+                info!(
+                    "Sending initial terminal resize: {}x{}",
+                    self.terminal_cols, self.terminal_rows
+                );
                 match self.ws_client.resize(self.terminal_cols, self.terminal_rows).await {
                     Ok(_) => info!("Terminal resize sent successfully"),
                     Err(e) => warn!("Failed to send initial resize: {}", e),
                 }
-                
-                info!("PTY connection fully established for session {}", self.session_name);
+
+                info!(
+                    "PTY connection fully established for session {}",
+                    self.session_name
+                );
                 Ok(())
             }
             Err(e) => {
                 self.connected = false;
                 self.connection_error = Some(e.to_string());
-                error!("Failed to connect to PTY service for session {}: {}", self.session_name, e);
+                error!(
+                    "Failed to connect to PTY service for session {}: {}",
+                    self.session_name, e
+                );
                 Err(e)
             }
         }
@@ -185,7 +199,7 @@ impl InteractiveTerminalComponent {
             if let Some(msg) = ws_client.receive().await {
                 // Forward message to component
                 let _ = msg_sender.send(msg.clone());
-                
+
                 // Process specific message types
                 match msg {
                     Message::Output(output) => {
@@ -194,7 +208,7 @@ impl InteractiveTerminalComponent {
                     }
                     Message::SessionInit(init) => {
                         info!("Session initialized: {}", init.session_id);
-                        
+
                         // Process buffered output
                         let mut term = terminal.lock().await;
                         for output_msg in init.buffer {
@@ -221,12 +235,12 @@ impl InteractiveTerminalComponent {
     /// Handle keyboard input
     pub async fn handle_input(&mut self, key: KeyEvent) -> Result<bool> {
         debug!("InteractiveTerminal received key: {:?}", key);
-        
+
         if !self.connected {
             debug!("Not connected, ignoring input");
             return Ok(false);
         }
-        
+
         // Handle special key combinations
         match (key.code, key.modifiers) {
             // Expand/collapse terminal (x key)
@@ -235,7 +249,7 @@ impl InteractiveTerminalComponent {
                 self.toggle_view_mode();
                 return Ok(true);
             }
-            
+
             // Scroll controls
             (KeyCode::PageUp, _) => {
                 let mut term = self.terminal.lock().await;
@@ -257,27 +271,27 @@ impl InteractiveTerminalComponent {
                 term.scroll_to_bottom();
                 return Ok(true);
             }
-            
+
             // Clear terminal
             (KeyCode::Char('l'), KeyModifiers::CONTROL) => {
                 let mut term = self.terminal.lock().await;
                 term.clear();
                 return Ok(true);
             }
-            
+
             _ => {}
         }
-        
+
         // Handle permission prompt input
         if self.awaiting_permission {
             return self.handle_permission_input(key).await;
         }
-        
+
         // Forward input to PTY in expanded mode
         if self.view_mode == ViewMode::Expanded {
             return self.forward_input_to_pty(key).await;
         }
-        
+
         Ok(false)
     }
 
@@ -297,7 +311,7 @@ impl InteractiveTerminalComponent {
                 self.permission_options.clear();
                 Ok(true)
             }
-            _ => Ok(false)
+            _ => Ok(false),
         }
     }
 
@@ -351,7 +365,7 @@ impl InteractiveTerminalComponent {
             }
             _ => return Ok(false),
         };
-        
+
         // Send to PTY
         self.ws_client.send_input(String::from_utf8_lossy(&data).to_string()).await?;
         Ok(true)
@@ -364,7 +378,7 @@ impl InteractiveTerminalComponent {
             ViewMode::Expanded => ViewMode::Normal,
             ViewMode::Minimized => ViewMode::Normal,
         };
-        
+
         debug!("Toggled view mode to {:?}", self.view_mode);
     }
 
@@ -382,23 +396,23 @@ impl InteractiveTerminalComponent {
     pub async fn resize(&mut self, cols: u16, rows: u16) -> Result<()> {
         self.terminal_cols = cols;
         self.terminal_rows = rows;
-        
+
         // Update terminal emulator
         let mut term = self.terminal.lock().await;
         term.resize(cols, rows);
-        
+
         // Send resize to PTY if connected
         if self.connected {
             self.ws_client.resize(cols, rows).await?;
         }
-        
+
         Ok(())
     }
 
     /// Process pending messages
     pub async fn process_messages(&mut self) {
         let mut receiver = self.message_receiver.lock().await;
-        
+
         while let Ok(msg) = receiver.try_recv() {
             match msg {
                 Message::PermissionRequired(perm) => {
@@ -422,7 +436,7 @@ impl InteractiveTerminalComponent {
     pub async fn render(&mut self, frame: &mut Frame<'_>, area: Rect) {
         // Process any pending messages
         self.process_messages().await;
-        
+
         match self.view_mode {
             ViewMode::Normal => self.render_normal(frame, area).await,
             ViewMode::Expanded => self.render_expanded(frame, area).await,
@@ -437,28 +451,28 @@ impl InteractiveTerminalComponent {
         if inner.width != self.terminal_cols || inner.height != self.terminal_rows {
             let _ = self.resize(inner.width, inner.height).await;
         }
-        
+
         // Update and render terminal
         {
             let mut term = self.terminal.lock().await;
-            
+
             // Update terminal properties
             term.set_title(format!("📺 {} - Interactive Terminal", self.session_name));
             term.set_focused(self.is_focused);
-            
+
             // Render terminal
             let term_widget = std::mem::replace(&mut *term, TerminalEmulatorWidget::new(120, 40));
             frame.render_widget(term_widget, area);
-            
+
             // Restore terminal (ugly but necessary due to Widget consuming self)
             *term = TerminalEmulatorWidget::new(self.terminal_cols, self.terminal_rows);
         }
-        
+
         // Render permission prompt if needed
         if self.awaiting_permission {
             self.render_permission_prompt(frame, area);
         }
-        
+
         // Render connection status if not connected
         if !self.connected {
             self.render_connection_status(frame, area);
@@ -469,29 +483,32 @@ impl InteractiveTerminalComponent {
     async fn render_expanded(&mut self, frame: &mut Frame<'_>, area: Rect) {
         // Clear the area first for fullscreen effect
         frame.render_widget(Clear, area);
-        
+
         // Use full area
         let inner = Block::default().borders(Borders::ALL).inner(area);
         if inner.width != self.terminal_cols || inner.height != self.terminal_rows {
             let _ = self.resize(inner.width, inner.height).await;
         }
-        
+
         // Update and render terminal
         {
             let mut term = self.terminal.lock().await;
-            
+
             // Update terminal properties
-            term.set_title(format!("📺 {} - Interactive Terminal (Expanded - Press 'x' to minimize)", self.session_name));
+            term.set_title(format!(
+                "📺 {} - Interactive Terminal (Expanded - Press 'x' to minimize)",
+                self.session_name
+            ));
             term.set_focused(true);
-            
+
             // Render terminal
             let term_widget = std::mem::replace(&mut *term, TerminalEmulatorWidget::new(120, 40));
             frame.render_widget(term_widget, area);
-            
+
             // Restore terminal
             *term = TerminalEmulatorWidget::new(self.terminal_cols, self.terminal_rows);
         }
-        
+
         // Render permission prompt if needed
         if self.awaiting_permission {
             self.render_permission_prompt(frame, area);
@@ -505,45 +522,50 @@ impl InteractiveTerminalComponent {
         } else {
             format!("📺 {} - Disconnected", self.session_name)
         };
-        
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(if self.is_focused { Color::Cyan } else { Color::Gray }));
-        
-        let paragraph = Paragraph::new(status)
-            .block(block)
-            .style(Style::default().fg(Color::White));
-        
+
+        let block = Block::default().borders(Borders::ALL).border_style(Style::default().fg(
+            if self.is_focused {
+                Color::Cyan
+            } else {
+                Color::Gray
+            },
+        ));
+
+        let paragraph =
+            Paragraph::new(status).block(block).style(Style::default().fg(Color::White));
+
         frame.render_widget(paragraph, area);
     }
 
     /// Render permission prompt overlay
     fn render_permission_prompt(&self, frame: &mut Frame<'_>, area: Rect) {
         let popup_area = Self::centered_rect(60, 40, area);
-        
+
         frame.render_widget(Clear, popup_area);
-        
+
         let mut lines = vec![
-            Line::from("Permission Required").style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Line::from("Permission Required")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Line::from(""),
         ];
-        
+
         for option in &self.permission_options {
             lines.push(Line::from(format!("  {}", option)));
         }
-        
+
         lines.push(Line::from(""));
-        lines.push(Line::from("Press number to select or ESC to cancel").style(Style::default().fg(Color::Gray)));
-        
+        lines.push(
+            Line::from("Press number to select or ESC to cancel")
+                .style(Style::default().fg(Color::Gray)),
+        );
+
         let block = Block::default()
             .title("⚠️ Action Required")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow));
-        
-        let paragraph = Paragraph::new(lines)
-            .block(block)
-            .wrap(Wrap { trim: true });
-        
+
+        let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: true });
+
         frame.render_widget(paragraph, popup_area);
     }
 
@@ -551,26 +573,25 @@ impl InteractiveTerminalComponent {
     fn render_connection_status(&self, frame: &mut Frame<'_>, area: Rect) {
         if let Some(error) = &self.connection_error {
             let popup_area = Self::centered_rect(60, 20, area);
-            
+
             frame.render_widget(Clear, popup_area);
-            
+
             let lines = vec![
-                Line::from("Connection Error").style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Line::from("Connection Error")
+                    .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
                 Line::from(""),
                 Line::from(error.clone()),
                 Line::from(""),
                 Line::from("Attempting to reconnect...").style(Style::default().fg(Color::Gray)),
             ];
-            
+
             let block = Block::default()
                 .title("❌ Connection Failed")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Red));
-            
-            let paragraph = Paragraph::new(lines)
-                .block(block)
-                .wrap(Wrap { trim: true });
-            
+
+            let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: true });
+
             frame.render_widget(paragraph, popup_area);
         }
     }

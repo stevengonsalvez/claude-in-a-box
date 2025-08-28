@@ -16,33 +16,33 @@ use vt100;
 pub struct TerminalEmulatorWidget {
     /// VT100 parser for processing ANSI escape codes
     parser: vt100::Parser,
-    
+
     /// Scrollback buffer
     scrollback: VecDeque<String>,
     max_scrollback: usize,
-    
+
     /// Current scroll offset (0 = bottom/latest)
     scroll_offset: usize,
-    
+
     /// Terminal dimensions
     cols: u16,
     rows: u16,
-    
+
     /// Cursor position tracking
     cursor_visible: bool,
     cursor_x: u16,
     cursor_y: u16,
-    
+
     /// Selection for copy/paste
     selection_start: Option<(u16, u16)>,
     selection_end: Option<(u16, u16)>,
-    
+
     /// Title for the terminal block
     title: String,
-    
+
     /// Border style based on focus state
     border_style: Style,
-    
+
     /// Show scrollbar
     show_scrollbar: bool,
 }
@@ -71,19 +71,25 @@ impl TerminalEmulatorWidget {
     /// Process PTY output data
     pub fn process_output(&mut self, data: &str) {
         use tracing::trace;
-        
-        trace!("Terminal emulator processing {} bytes of output", data.len());
-        
+
+        trace!(
+            "Terminal emulator processing {} bytes of output",
+            data.len()
+        );
+
         // Feed data to VT100 parser
         self.parser.process(data.as_bytes());
-        
+
         // Extract info from screen (before mutable borrow)
         let (cursor_y, cursor_x) = self.parser.screen().cursor_position();
         let cursor_visible = !self.parser.screen().hide_cursor();
         let (rows, cols) = self.parser.screen().size();
-        
-        trace!("Terminal cursor at ({}, {}), visible: {}", cursor_x, cursor_y, cursor_visible);
-        
+
+        trace!(
+            "Terminal cursor at ({}, {}), visible: {}",
+            cursor_x, cursor_y, cursor_visible
+        );
+
         // Build lines to add to scrollback
         let mut lines_to_add = Vec::new();
         for row in 0..rows {
@@ -93,35 +99,38 @@ impl TerminalEmulatorWidget {
                     line.push_str(&cell.contents());
                 }
             }
-            
+
             // Only add non-empty lines to scrollback
             let trimmed = line.trim_end();
             if !trimmed.is_empty() || row == rows - 1 {
                 lines_to_add.push(line);
             }
         }
-        
+
         trace!("Parsed {} lines from terminal output", lines_to_add.len());
-        
+
         // Now update self fields
         self.cursor_x = cursor_x;
         self.cursor_y = cursor_y;
         self.cursor_visible = cursor_visible;
-        
+
         // Add lines to scrollback
         for line in lines_to_add {
             self.add_to_scrollback(line);
         }
-        
+
         // Reset scroll to bottom on new output
         self.scroll_offset = 0;
-        trace!("Terminal scrollback now has {} lines", self.scrollback.len());
+        trace!(
+            "Terminal scrollback now has {} lines",
+            self.scrollback.len()
+        );
     }
 
     /// Add a line to the scrollback buffer
     fn add_to_scrollback(&mut self, line: String) {
         self.scrollback.push_back(line);
-        
+
         // Trim scrollback if it exceeds max size
         while self.scrollback.len() > self.max_scrollback {
             self.scrollback.pop_front();
@@ -218,12 +227,12 @@ impl TerminalEmulatorWidget {
     fn screen_to_text(&self) -> Text<'static> {
         let screen = self.parser.screen();
         let mut lines = Vec::new();
-        
+
         // Calculate visible range based on scroll
         let total_lines = self.scrollback.len();
         let visible_start = total_lines.saturating_sub(self.rows as usize + self.scroll_offset);
         let visible_end = visible_start + self.rows as usize;
-        
+
         // Get lines from scrollback or current screen
         if self.scroll_offset > 0 {
             // Showing scrollback
@@ -239,11 +248,11 @@ impl TerminalEmulatorWidget {
                 let mut spans = Vec::new();
                 let mut current_style = Style::default();
                 let mut current_text = String::new();
-                
+
                 for col in 0..cols {
                     if let Some(cell) = screen.cell(row, col) {
                         let cell_style = Self::cell_to_style(&cell);
-                        
+
                         // If style changed, push current span and start new one
                         if cell_style != current_style && !current_text.is_empty() {
                             spans.push(Span::styled(current_text.clone(), current_style));
@@ -252,43 +261,43 @@ impl TerminalEmulatorWidget {
                         } else if current_text.is_empty() {
                             current_style = cell_style;
                         }
-                        
+
                         current_text.push_str(&cell.contents());
                     } else {
                         current_text.push(' ');
                     }
                 }
-                
+
                 // Push final span
                 if !current_text.is_empty() {
                     spans.push(Span::styled(current_text, current_style));
                 }
-                
+
                 lines.push(Line::from(spans));
             }
         }
-        
+
         Text::from(lines)
     }
 
     /// Convert VT100 cell attributes to ratatui Style
     fn cell_to_style(cell: &vt100::Cell) -> Style {
         let mut style = Style::default();
-        
+
         // Foreground color
         style = match cell.fgcolor() {
             vt100::Color::Default => style,
             vt100::Color::Idx(n) => style.fg(Self::ansi_to_ratatui_color(n)),
             vt100::Color::Rgb(r, g, b) => style.fg(Color::Rgb(r, g, b)),
         };
-        
+
         // Background color
         style = match cell.bgcolor() {
             vt100::Color::Default => style,
             vt100::Color::Idx(n) => style.bg(Self::ansi_to_ratatui_color(n)),
             vt100::Color::Rgb(r, g, b) => style.bg(Color::Rgb(r, g, b)),
         };
-        
+
         // Text attributes
         if cell.bold() {
             style = style.add_modifier(Modifier::BOLD);
@@ -302,7 +311,7 @@ impl TerminalEmulatorWidget {
         if cell.inverse() {
             style = style.add_modifier(Modifier::REVERSED);
         }
-        
+
         style
     }
 
@@ -334,29 +343,31 @@ impl TerminalEmulatorWidget {
         if !self.show_scrollbar || self.scrollback.len() <= self.rows as usize {
             return;
         }
-        
+
         let scrollbar_x = area.right().saturating_sub(1);
         let scrollbar_height = area.height.saturating_sub(2); // Account for borders
-        
+
         // Calculate scrollbar position and size
         let total_lines = self.scrollback.len();
         let visible_lines = self.rows as usize;
-        let scrollbar_size = ((visible_lines as f32 / total_lines as f32) * scrollbar_height as f32).max(1.0) as u16;
+        let scrollbar_size =
+            ((visible_lines as f32 / total_lines as f32) * scrollbar_height as f32).max(1.0) as u16;
         let scrollbar_pos = if self.scroll_offset == 0 {
             scrollbar_height - scrollbar_size
         } else {
             let max_scroll = total_lines.saturating_sub(visible_lines);
             let pos_ratio = 1.0 - (self.scroll_offset as f32 / max_scroll as f32);
-            ((pos_ratio * (scrollbar_height - scrollbar_size) as f32) as u16).min(scrollbar_height - scrollbar_size)
+            ((pos_ratio * (scrollbar_height - scrollbar_size) as f32) as u16)
+                .min(scrollbar_height - scrollbar_size)
         };
-        
+
         // Draw scrollbar track
         for y in area.top() + 1..area.bottom() - 1 {
             buf.get_mut(scrollbar_x, y)
                 .set_symbol("│")
                 .set_style(Style::default().fg(Color::DarkGray));
         }
-        
+
         // Draw scrollbar thumb
         for i in 0..scrollbar_size {
             let y = area.top() + 1 + scrollbar_pos + i;
@@ -376,41 +387,40 @@ impl Widget for TerminalEmulatorWidget {
             .title(self.title.clone())
             .borders(Borders::ALL)
             .border_style(self.border_style);
-        
+
         // Render the block
         let inner = block.inner(area);
         block.render(area, buf);
-        
+
         // Get terminal content as Text
         let text = self.screen_to_text();
-        
+
         // Create paragraph with the terminal content
-        let paragraph = Paragraph::new(text)
-            .wrap(Wrap { trim: false });
-        
+        let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
+
         // Render the paragraph
         paragraph.render(inner, buf);
-        
+
         // Render cursor if visible and at bottom
         if self.cursor_visible && self.is_at_bottom() {
             let cursor_x = inner.left() + self.cursor_x.min(inner.width - 1);
             let cursor_y = inner.top() + self.cursor_y.min(inner.height - 1);
-            
+
             if cursor_x < inner.right() && cursor_y < inner.bottom() {
                 buf.get_mut(cursor_x, cursor_y)
                     .set_style(Style::default().add_modifier(Modifier::REVERSED));
             }
         }
-        
+
         // Render scrollbar
         self.render_scrollbar(area, buf);
-        
+
         // Render scroll indicator
         if self.scroll_offset > 0 {
             let indicator = format!(" ▲ {} lines above ", self.scroll_offset);
             let indicator_x = area.left() + 2;
             let indicator_y = area.top();
-            
+
             for (i, ch) in indicator.chars().enumerate() {
                 if indicator_x + (i as u16) < area.right() - 2 {
                     buf.get_mut(indicator_x + i as u16, indicator_y)

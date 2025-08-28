@@ -2,36 +2,36 @@
 // Manages WebSocket connection lifecycle, message handling, and reconnection
 
 use crate::terminal::protocol::{ConnectionState, ConnectionStatus, Message};
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex, RwLock};
-use tokio::time::{sleep, Duration, Instant};
+use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::time::{Duration, Instant, sleep};
 use tokio_tungstenite::{connect_async, tungstenite};
 use tracing::{debug, error, info, warn};
 
 pub struct WebSocketTerminalClient {
     /// WebSocket URL for the container PTY service
     url: String,
-    
+
     /// Current connection status
     status: Arc<RwLock<ConnectionStatus>>,
-    
+
     /// Channel to send messages to the WebSocket
     tx_sender: mpsc::UnboundedSender<Message>,
     tx_receiver: Arc<Mutex<mpsc::UnboundedReceiver<Message>>>,
-    
+
     /// Channel to receive messages from the WebSocket
     rx_sender: mpsc::UnboundedSender<Message>,
     rx_receiver: Arc<Mutex<mpsc::UnboundedReceiver<Message>>>,
-    
+
     /// Reconnection configuration
     reconnect_interval: Duration,
     max_reconnect_attempts: u32,
-    
+
     /// Task handle for the connection loop
     connection_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    
+
     /// Heartbeat configuration
     heartbeat_interval: Duration,
     heartbeat_timeout: Duration,
@@ -42,10 +42,10 @@ impl WebSocketTerminalClient {
     /// Create a new WebSocket terminal client
     pub fn new(container_id: &str, port: u16) -> Self {
         let url = format!("ws://{}:{}/pty", container_id, port);
-        
+
         let (tx_sender, tx_receiver) = mpsc::unbounded_channel();
         let (rx_sender, rx_receiver) = mpsc::unbounded_channel();
-        
+
         Self {
             url,
             status: Arc::new(RwLock::new(ConnectionStatus {
@@ -71,7 +71,7 @@ impl WebSocketTerminalClient {
     pub async fn connect(&self) -> Result<()> {
         info!("Starting WebSocket connection to {}", self.url);
         debug!("WebSocket URL: {}", self.url);
-        
+
         // Update status
         {
             let mut status = self.status.write().await;
@@ -79,18 +79,18 @@ impl WebSocketTerminalClient {
             status.reconnect_attempts = 0;
             info!("Set connection state to Connecting");
         }
-        
+
         // Start connection loop
         info!("Spawning connection loop task");
         let handle = self.spawn_connection_loop().await;
-        
+
         // Store the handle
         {
             let mut connection_handle = self.connection_handle.lock().await;
             *connection_handle = Some(handle);
             info!("Connection loop task spawned successfully");
         }
-        
+
         // Wait for initial connection
         info!("Waiting for initial connection (timeout: 5 seconds)");
         let timeout = tokio::time::timeout(Duration::from_secs(5), async {
@@ -101,11 +101,14 @@ impl WebSocketTerminalClient {
                 let current_state = status.state.clone();
                 let last_error = status.last_error.clone();
                 drop(status);
-                
+
                 if check_count % 10 == 0 {
-                    debug!("Connection check #{}: state = {:?}", check_count, current_state);
+                    debug!(
+                        "Connection check #{}: state = {:?}",
+                        check_count, current_state
+                    );
                 }
-                
+
                 if current_state == ConnectionState::Connected {
                     info!("WebSocket connection established successfully!");
                     return Ok(());
@@ -114,11 +117,11 @@ impl WebSocketTerminalClient {
                     error!("Connection failed with error: {:?}", last_error);
                     return Err(anyhow!("Connection failed: {:?}", last_error));
                 }
-                
+
                 sleep(Duration::from_millis(100)).await;
             }
         });
-        
+
         match timeout.await {
             Ok(result) => result,
             Err(_) => {
@@ -138,7 +141,7 @@ impl WebSocketTerminalClient {
         let max_reconnect_attempts = self.max_reconnect_attempts;
         let heartbeat_interval = self.heartbeat_interval;
         let last_heartbeat = self.last_heartbeat.clone();
-        
+
         tokio::spawn(async move {
             loop {
                 match Self::connection_handler(
@@ -148,13 +151,15 @@ impl WebSocketTerminalClient {
                     rx_sender.clone(),
                     heartbeat_interval,
                     last_heartbeat.clone(),
-                ).await {
+                )
+                .await
+                {
                     Ok(_) => {
                         info!("WebSocket connection closed normally");
                     }
                     Err(e) => {
                         error!("WebSocket connection error: {}", e);
-                        
+
                         // Update error status
                         {
                             let mut status_guard = status.write().await;
@@ -163,7 +168,7 @@ impl WebSocketTerminalClient {
                         }
                     }
                 }
-                
+
                 // Check if we should reconnect
                 let should_reconnect = {
                     let mut status_guard = status.write().await;
@@ -177,11 +182,11 @@ impl WebSocketTerminalClient {
                         true
                     }
                 };
-                
+
                 if !should_reconnect {
                     break;
                 }
-                
+
                 // Wait before reconnecting
                 sleep(reconnect_interval).await;
                 info!("Attempting to reconnect...");
@@ -200,10 +205,10 @@ impl WebSocketTerminalClient {
     ) -> Result<()> {
         info!("Connection handler starting for URL: {}", url);
         debug!("Attempting WebSocket handshake...");
-        
+
         // Connect to WebSocket
         let ws_result = connect_async(url).await;
-        
+
         match &ws_result {
             Ok(_) => info!("WebSocket handshake successful"),
             Err(e) => {
@@ -218,13 +223,12 @@ impl WebSocketTerminalClient {
                 }
             }
         }
-        
-        let (ws_stream, response) = ws_result
-            .map_err(|e| anyhow!("Failed to connect: {}", e))?;
-        
+
+        let (ws_stream, response) = ws_result.map_err(|e| anyhow!("Failed to connect: {}", e))?;
+
         info!("WebSocket connected successfully to {}", url);
         debug!("WebSocket response status: {:?}", response.status());
-        
+
         // Update status
         {
             let mut status_guard = status.write().await;
@@ -232,13 +236,13 @@ impl WebSocketTerminalClient {
             status_guard.last_error = None;
             info!("Updated connection state to Connected");
         }
-        
+
         // Split the WebSocket stream
         let (mut ws_sender, mut ws_receiver) = ws_stream.split();
-        
+
         // Create channel for outgoing messages (including heartbeats)
         let (outgoing_tx, mut outgoing_rx) = mpsc::unbounded_channel::<tungstenite::Message>();
-        
+
         // Spawn task to handle outgoing messages
         let send_task = tokio::spawn(async move {
             while let Some(msg) = outgoing_rx.recv().await {
@@ -248,16 +252,16 @@ impl WebSocketTerminalClient {
                 }
             }
         });
-        
+
         // Spawn heartbeat task
         let heartbeat_tx = outgoing_tx.clone();
         let heartbeat_handle = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(heartbeat_interval);
             ticker.tick().await; // Skip first immediate tick
-            
+
             loop {
                 ticker.tick().await;
-                
+
                 // Send heartbeat
                 let heartbeat_msg = Message::heartbeat();
                 if let Ok(json) = serde_json::to_string(&heartbeat_msg) {
@@ -268,10 +272,10 @@ impl WebSocketTerminalClient {
                 }
             }
         });
-        
+
         // Handle incoming and outgoing messages
         let mut tx_guard = tx_receiver.lock().await;
-        
+
         loop {
             tokio::select! {
                 // Handle outgoing messages
@@ -281,10 +285,10 @@ impl WebSocketTerminalClient {
                         error!("Failed to queue outgoing message");
                         break;
                     }
-                    
+
                     debug!("Sent message: {:?}", msg);
                 }
-                
+
                 // Handle incoming messages
                 Some(ws_msg) = ws_receiver.next() => {
                     match ws_msg {
@@ -292,10 +296,10 @@ impl WebSocketTerminalClient {
                             match serde_json::from_str::<Message>(&text) {
                                 Ok(msg) => {
                                     debug!("Received message: {:?}", msg);
-                                    
+
                                     // Update last heartbeat on any message
                                     *last_heartbeat.lock().await = Instant::now();
-                                    
+
                                     // Handle special messages
                                     match &msg {
                                         Message::SessionInit(init) => {
@@ -308,7 +312,7 @@ impl WebSocketTerminalClient {
                                         }
                                         _ => {}
                                     }
-                                    
+
                                     // Forward to receiver channel
                                     if let Err(e) = rx_sender.send(msg) {
                                         warn!("Failed to forward message: {}", e);
@@ -332,7 +336,7 @@ impl WebSocketTerminalClient {
                         }
                     }
                 }
-                
+
                 // Both channels closed
                 else => {
                     info!("Channels closed, ending connection");
@@ -340,20 +344,19 @@ impl WebSocketTerminalClient {
                 }
             }
         }
-        
+
         // Clean up tasks
         heartbeat_handle.abort();
         send_task.abort();
-        
+
         // Update status
         {
             let mut status_guard = status.write().await;
             status_guard.state = ConnectionState::Disconnected;
         }
-        
+
         Ok(())
     }
-
 
     /// Send a message to the PTY
     pub async fn send(&self, message: Message) -> Result<()> {
@@ -364,8 +367,9 @@ impl WebSocketTerminalClient {
                 return Err(anyhow!("Not connected"));
             }
         }
-        
-        self.tx_sender.send(message)
+
+        self.tx_sender
+            .send(message)
             .map_err(|e| anyhow!("Failed to send message: {}", e))
     }
 
@@ -408,19 +412,19 @@ impl WebSocketTerminalClient {
     /// Disconnect from the WebSocket server
     pub async fn disconnect(&self) -> Result<()> {
         info!("Disconnecting WebSocket client");
-        
+
         // Update status to prevent reconnection
         {
             let mut status = self.status.write().await;
             status.state = ConnectionState::Disconnected;
             status.reconnect_attempts = self.max_reconnect_attempts;
         }
-        
+
         // Cancel the connection task
         if let Some(handle) = self.connection_handle.lock().await.take() {
             handle.abort();
         }
-        
+
         Ok(())
     }
 }

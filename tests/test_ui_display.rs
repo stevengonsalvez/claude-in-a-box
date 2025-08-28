@@ -13,7 +13,7 @@ async fn test_bottom_menu_bar_shows_refresh_key() {
     app.state.current_view = View::SessionList;
     app.state.auth_setup_state = None; // Clear any auth setup state
 
-    let backend = TestBackend::new(180, 40);  // Wider to fit full menu bar
+    let backend = TestBackend::new(180, 40); // Wider to fit full menu bar
     let mut terminal = Terminal::new(backend).unwrap();
     let mut layout = LayoutComponent::new();
 
@@ -67,7 +67,7 @@ async fn test_help_screen_shows_refresh_key() {
     // Show help
     app.state.help_visible = true;
 
-    let backend = TestBackend::new(180, 40);  // Wider to fit full menu bar
+    let backend = TestBackend::new(180, 40); // Wider to fit full menu bar
     let mut terminal = Terminal::new(backend).unwrap();
     let mut layout = LayoutComponent::new();
 
@@ -115,7 +115,7 @@ async fn test_refresh_key_in_help_under_session_actions() {
     app.state.load_mock_data();
     app.state.help_visible = true;
 
-    let backend = TestBackend::new(180, 40);  // Wider to fit full menu bar
+    let backend = TestBackend::new(180, 40); // Wider to fit full menu bar
     let mut terminal = Terminal::new(backend).unwrap();
     let mut layout = LayoutComponent::new();
 

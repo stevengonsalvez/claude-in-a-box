@@ -254,7 +254,8 @@ async fn run_tui_loop(
                     use crate::app::state::View;
                     if app.state.current_view == View::AttachedTerminal {
                         // Pass key events directly to the interactive session
-                        let continue_session = layout.handle_interactive_session_input(key_event).await;
+                        let continue_session =
+                            layout.handle_interactive_session_input(key_event).await;
                         if !continue_session {
                             // User detached from session
                             app.state.attached_session_id = None;

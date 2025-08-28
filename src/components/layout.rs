@@ -7,9 +7,9 @@ use ratatui::{
 };
 
 use super::{
-    AuthSetupComponent, ClaudeChatComponent,
-    ConfirmationDialogComponent, HelpComponent, InteractiveSessionComponent, LiveLogsStreamComponent, LogsViewerComponent,
-    NewSessionComponent, NonGitNotificationComponent, SessionListComponent,
+    AuthSetupComponent, ClaudeChatComponent, ConfirmationDialogComponent, HelpComponent,
+    InteractiveSessionComponent, LiveLogsStreamComponent, LogsViewerComponent, NewSessionComponent,
+    NonGitNotificationComponent, SessionListComponent,
 };
 use crate::app::{AppState, state::View};
 
@@ -136,9 +136,12 @@ impl LayoutComponent {
     pub fn live_logs_mut(&mut self) -> &mut LiveLogsStreamComponent {
         &mut self.live_logs_stream
     }
-    
+
     /// Handle keyboard input for interactive session
-    pub async fn handle_interactive_session_input(&mut self, key: crossterm::event::KeyEvent) -> bool {
+    pub async fn handle_interactive_session_input(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> bool {
         if let Some(ref mut session) = self.interactive_session {
             // Returns false if user wants to detach
             match session.handle_input(key).await {
@@ -362,9 +365,9 @@ impl LayoutComponent {
         // Create interactive session if needed
         if self.interactive_session.is_none() {
             if let Some(session_id) = state.attached_session_id {
-                if let Some(session) = state.workspaces.iter()
-                    .flat_map(|w| &w.sessions)
-                    .find(|s| s.id == session_id) {
+                if let Some(session) =
+                    state.workspaces.iter().flat_map(|w| &w.sessions).find(|s| s.id == session_id)
+                {
                     if let Some(container_id) = &session.container_id {
                         // Create the interactive session component
                         if let Ok(mut component) = tokio::task::block_in_place(|| {
@@ -373,14 +376,14 @@ impl LayoutComponent {
                                     session_id,
                                     session.name.clone(),
                                     container_id.clone(),
-                                ).await
+                                )
+                                .await
                             })
                         }) {
                             // Try to connect
                             let _ = tokio::task::block_in_place(|| {
-                                tokio::runtime::Handle::current().block_on(async {
-                                    component.connect().await
-                                })
+                                tokio::runtime::Handle::current()
+                                    .block_on(async { component.connect().await })
                             });
                             self.interactive_session = Some(component);
                         }
@@ -388,25 +391,26 @@ impl LayoutComponent {
                 }
             }
         }
-        
+
         // Render the interactive session
         if let Some(ref mut session) = self.interactive_session {
             tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async {
-                    session.render(frame, area).await
-                })
+                tokio::runtime::Handle::current()
+                    .block_on(async { session.render(frame, area).await })
             });
         } else {
             // Fallback: show error message
-            use ratatui::widgets::{Block, Borders, Paragraph};
             use ratatui::style::{Color, Style};
-            
+            use ratatui::widgets::{Block, Borders, Paragraph};
+
             let error_msg = "Failed to create interactive session\n\nPress [Esc] to return";
             let paragraph = Paragraph::new(error_msg)
-                .block(Block::default()
-                    .title("Error")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red)))
+                .block(
+                    Block::default()
+                        .title("Error")
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Red)),
+                )
                 .style(Style::default().fg(Color::Red))
                 .alignment(Alignment::Center);
             frame.render_widget(paragraph, area);

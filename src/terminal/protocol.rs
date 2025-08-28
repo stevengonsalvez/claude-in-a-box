@@ -21,7 +21,7 @@ pub enum Message {
     Reset(ResetMessage),
     SessionStatus(SessionStatusRequest),
     Heartbeat(HeartbeatMessage),
-    
+
     // PTY Service → Client
     Output(OutputMessage),
     SessionInit(SessionInitMessage),
@@ -92,16 +92,16 @@ pub struct OutputMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParsedOutput {
-    pub thinking: Vec<String>,    // Internal monologue lines
-    pub tool_use: Vec<String>,     // Tool usage lines (renamed from toolUse)
-    pub content: Vec<String>,      // Actual response content
-    pub ui: Vec<String>,           // UI chrome elements
-    pub raw: String,               // Original raw output
+    pub thinking: Vec<String>, // Internal monologue lines
+    pub tool_use: Vec<String>, // Tool usage lines (renamed from toolUse)
+    pub content: Vec<String>,  // Actual response content
+    pub ui: Vec<String>,       // UI chrome elements
+    pub raw: String,           // Original raw output
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionInitMessage {
-    pub session_id: String, // renamed from sessionId
+    pub session_id: String,         // renamed from sessionId
     pub buffer: Vec<OutputMessage>, // Recent session history
     pub timestamp: i64,
 }
@@ -137,11 +137,11 @@ pub struct ErrorMessage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionStatusResponse {
-    pub session_id: String, // renamed from sessionId
+    pub session_id: String,   // renamed from sessionId
     pub session_active: bool, // renamed from sessionActive
-    pub is_processing: bool, // renamed from isProcessing
-    pub queue_length: usize, // renamed from queueLength
-    pub last_activity: i64, // renamed from lastActivity
+    pub is_processing: bool,  // renamed from isProcessing
+    pub queue_length: usize,  // renamed from queueLength
+    pub last_activity: i64,   // renamed from lastActivity
     pub health: HealthInfo,
     pub timestamp: i64,
 }

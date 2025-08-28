@@ -1418,7 +1418,7 @@ impl AppState {
                     // The actual WebSocket connection will be established in the view component
                     self.attached_session_id = Some(session_id);
                     self.current_view = View::AttachedTerminal;
-                    
+
                     info!(
                         "Ready to connect to WebSocket PTY for container {} session {}",
                         container_id, session_id
