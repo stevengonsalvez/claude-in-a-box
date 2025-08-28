@@ -7,8 +7,8 @@ use ratatui::{
 };
 
 use super::{
-    AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
-    ConfirmationDialogComponent, HelpComponent, LiveLogsStreamComponent, LogsViewerComponent,
+    AuthSetupComponent, ClaudeChatComponent,
+    ConfirmationDialogComponent, HelpComponent, InteractiveSessionComponent, LiveLogsStreamComponent, LogsViewerComponent,
     NewSessionComponent, NonGitNotificationComponent, SessionListComponent,
 };
 use crate::app::{AppState, state::View};
@@ -22,7 +22,7 @@ pub struct LayoutComponent {
     new_session: NewSessionComponent,
     confirmation_dialog: ConfirmationDialogComponent,
     non_git_notification: NonGitNotificationComponent,
-    attached_terminal: AttachedTerminalComponent,
+    interactive_session: Option<InteractiveSessionComponent>,
     auth_setup: AuthSetupComponent,
 }
 
@@ -37,7 +37,7 @@ impl LayoutComponent {
             new_session: NewSessionComponent::new(),
             confirmation_dialog: ConfirmationDialogComponent::new(),
             non_git_notification: NonGitNotificationComponent::new(),
-            attached_terminal: AttachedTerminalComponent::new(),
+            interactive_session: None,
             auth_setup: AuthSetupComponent::new(),
         }
     }
@@ -58,7 +58,7 @@ impl LayoutComponent {
 
         // Special handling for attached terminal view (full screen)
         if state.current_view == View::AttachedTerminal {
-            self.attached_terminal.render(frame, frame.size(), state);
+            self.render_interactive_session(frame, frame.size(), state);
             return;
         }
 
@@ -135,6 +135,29 @@ impl LayoutComponent {
     /// Get mutable reference to live logs component for scroll handling
     pub fn live_logs_mut(&mut self) -> &mut LiveLogsStreamComponent {
         &mut self.live_logs_stream
+    }
+    
+    /// Handle keyboard input for interactive session
+    pub async fn handle_interactive_session_input(&mut self, key: crossterm::event::KeyEvent) -> bool {
+        if let Some(ref mut session) = self.interactive_session {
+            // Returns false if user wants to detach
+            match session.handle_input(key).await {
+                Ok(continue_session) => {
+                    if !continue_session {
+                        // User wants to detach, clean up the session
+                        let _ = session.disconnect().await;
+                        self.interactive_session = None;
+                    }
+                    continue_session
+                }
+                Err(e) => {
+                    tracing::error!("Error handling interactive session input: {}", e);
+                    true // Continue the session despite the error
+                }
+            }
+        } else {
+            false // No session to handle
+        }
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
@@ -333,6 +356,61 @@ impl LayoutComponent {
             .style(Style::default().fg(Color::Gray))
             .alignment(Alignment::Center);
         frame.render_widget(instructions, dialog_layout[2]);
+    }
+
+    fn render_interactive_session(&mut self, frame: &mut Frame, area: Rect, state: &AppState) {
+        // Create interactive session if needed
+        if self.interactive_session.is_none() {
+            if let Some(session_id) = state.attached_session_id {
+                if let Some(session) = state.workspaces.iter()
+                    .flat_map(|w| &w.sessions)
+                    .find(|s| s.id == session_id) {
+                    if let Some(container_id) = &session.container_id {
+                        // Create the interactive session component
+                        if let Ok(mut component) = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                InteractiveSessionComponent::new(
+                                    session_id,
+                                    session.name.clone(),
+                                    container_id.clone(),
+                                ).await
+                            })
+                        }) {
+                            // Try to connect
+                            let _ = tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async {
+                                    component.connect().await
+                                })
+                            });
+                            self.interactive_session = Some(component);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Render the interactive session
+        if let Some(ref mut session) = self.interactive_session {
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(async {
+                    session.render(frame, area).await
+                })
+            });
+        } else {
+            // Fallback: show error message
+            use ratatui::widgets::{Block, Borders, Paragraph};
+            use ratatui::style::{Color, Style};
+            
+            let error_msg = "Failed to create interactive session\n\nPress [Esc] to return";
+            let paragraph = Paragraph::new(error_msg)
+                .block(Block::default()
+                    .title("Error")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Red)))
+                .style(Style::default().fg(Color::Red))
+                .alignment(Alignment::Center);
+            frame.render_widget(paragraph, area);
+        }
     }
 }
 

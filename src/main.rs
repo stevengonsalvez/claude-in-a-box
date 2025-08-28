@@ -20,6 +20,7 @@ mod config;
 mod docker;
 mod git;
 mod models;
+mod terminal;
 
 use app::{App, EventHandler};
 use components::LayoutComponent;
@@ -249,7 +250,17 @@ async fn run_tui_loop(
         if crossterm::event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key_event) => {
-                    if let Some(app_event) =
+                    // Special handling for interactive terminal
+                    use crate::app::state::View;
+                    if app.state.current_view == View::AttachedTerminal {
+                        // Pass key events directly to the interactive session
+                        let continue_session = layout.handle_interactive_session_input(key_event).await;
+                        if !continue_session {
+                            // User detached from session
+                            app.state.attached_session_id = None;
+                            app.state.current_view = View::SessionList;
+                        }
+                    } else if let Some(app_event) =
                         EventHandler::handle_key_event(key_event, &mut app.state)
                     {
                         // Handle scroll events for live logs

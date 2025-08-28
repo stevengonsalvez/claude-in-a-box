@@ -1,0 +1,13 @@
+{
+  "name": "pty-service",
+  "version": "1.0.0",
+  "description": "PTY WebSocket service for claude-in-a-box",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.14.2",
+    "node-pty": "^1.0.0"
+  }
+}

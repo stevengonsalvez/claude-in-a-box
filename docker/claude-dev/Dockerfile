@@ -126,6 +126,15 @@ USER root
 RUN /app/scripts/install-mcp-servers-simple.sh
 # Note: Using simple script for now. Complex script in install-mcp-servers.sh has minor exit code issue
 
+# Install PTY service for WebSocket terminal access
+COPY --chown=claude-user:claude-user pty-service/ /app/pty-service/
+WORKDIR /app/pty-service
+RUN npm install --production && \
+    chmod +x index.js
+
+# Expose port for PTY WebSocket service
+EXPOSE 8080
+
 # Authentication and environment variables are handled at runtime
 # via volume mounts and environment variables - no build-time copying needed
 

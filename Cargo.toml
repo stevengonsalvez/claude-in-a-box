@@ -33,6 +33,14 @@ reqwest = { version = "0.11", features = ["json", "stream"] }
 async-stream = "0.3"
 tokio-stream = "0.1"
 
+# WebSocket support for PTY streaming
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+tungstenite = "0.21"
+
+# Terminal emulation
+vt100 = "0.15"  # Lightweight terminal emulator for PTY output parsing
+unicode-width = "0.1"  # For proper character width handling
+
 # Utils
 anyhow = "1.0"
 thiserror = "1.0"

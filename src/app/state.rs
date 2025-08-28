@@ -1386,7 +1386,7 @@ impl AppState {
         self.workspaces.get(workspace_idx)?.sessions.get(session_idx)
     }
 
-    /// Attach to a container session using docker exec with proper terminal handling
+    /// Attach to a container session using WebSocket PTY connection
     pub async fn attach_to_container(
         &mut self,
         session_id: Uuid,
@@ -1404,7 +1404,7 @@ impl AppState {
 
         if let Some(container_id) = container_id {
             info!(
-                "Attaching to container {} for session {}",
+                "Attaching to container {} for session {} via WebSocket PTY",
                 container_id, session_id
             );
 
@@ -1414,32 +1414,16 @@ impl AppState {
 
             match status {
                 crate::docker::ContainerStatus::Running => {
-                    // Start an interactive bash shell instead of Claude CLI directly
-                    // This gives users more flexibility to run claude when needed
-                    // Force bash to read .bashrc to load custom session environment
-                    let exec_command = vec![
-                        "/bin/bash".to_string(),
-                        "-l".to_string(), // Login shell to read .bash_profile/.bashrc
-                        "-i".to_string(), // Interactive shell
-                    ];
-
-                    match container_manager
-                        .exec_interactive_blocking(&container_id, exec_command)
-                        .await
-                    {
-                        Ok(_exit_status) => {
-                            info!(
-                                "Successfully detached from container {} for session {}",
-                                container_id, session_id
-                            );
-                            // The container session has ended, stay in current view
-                            Ok(())
-                        }
-                        Err(e) => {
-                            error!("Failed to exec into container {}: {}", container_id, e);
-                            Err(format!("Failed to attach to container: {}", e).into())
-                        }
-                    }
+                    // Set the attached session ID and switch to the AttachedTerminal view
+                    // The actual WebSocket connection will be established in the view component
+                    self.attached_session_id = Some(session_id);
+                    self.current_view = View::AttachedTerminal;
+                    
+                    info!(
+                        "Ready to connect to WebSocket PTY for container {} session {}",
+                        container_id, session_id
+                    );
+                    Ok(())
                 }
                 _ => {
                     warn!(

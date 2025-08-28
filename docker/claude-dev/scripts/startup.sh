@@ -178,6 +178,28 @@ elif [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
     exit 1
 fi
 
+# Create log directory first (if not exists)
+mkdir -p /workspace/.claude-box/logs
+
+# Start PTY service in the background for WebSocket terminal access
+if [ -f /app/pty-service/index.js ]; then
+    log "Starting PTY service on port 8080..."
+    cd /app/pty-service && nohup node index.js > /workspace/.claude-box/logs/pty-service.log 2>&1 &
+    PTY_PID=$!
+    sleep 1
+    if kill -0 $PTY_PID 2>/dev/null; then
+        success "PTY service started on port 8080 (PID: $PTY_PID)"
+    else
+        warn "PTY service failed to start - WebSocket terminal will not be available"
+        # Show the error if log file exists
+        if [ -f /workspace/.claude-box/logs/pty-service.log ]; then
+            error "PTY service error: $(tail -n 5 /workspace/.claude-box/logs/pty-service.log)"
+        fi
+    fi
+else
+    warn "PTY service not found - WebSocket terminal will not be available"
+fi
+
 # If no command specified, run interactive shell
 if [ $# -eq 0 ]; then
     # Create log directory

@@ -686,7 +686,7 @@ impl ContainerManager {
         Ok(())
     }
 
-    async fn get_container_port_mappings(
+    pub async fn get_container_port_mappings(
         &self,
         container_id: &str,
     ) -> Result<HashMap<u16, u16>, ContainerError> {
