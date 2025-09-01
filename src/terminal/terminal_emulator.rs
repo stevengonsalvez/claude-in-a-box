@@ -380,8 +380,9 @@ impl TerminalEmulatorWidget {
     }
 }
 
-impl Widget for TerminalEmulatorWidget {
-    fn render(self, area: Rect, buf: &mut Buffer) {
+impl TerminalEmulatorWidget {
+    /// Render the terminal widget by reference (doesn't consume self)
+    pub fn render_ref(&self, area: Rect, buf: &mut Buffer) {
         // Create block with title and borders
         let block = Block::default()
             .title(self.title.clone())
@@ -429,5 +430,11 @@ impl Widget for TerminalEmulatorWidget {
                 }
             }
         }
+    }
+}
+
+impl Widget for TerminalEmulatorWidget {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        self.render_ref(area, buf);
     }
 }

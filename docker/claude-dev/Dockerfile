@@ -48,6 +48,7 @@ RUN apt-get update && apt-get install -y \
     htop \
     tree \
     ncdu \
+    expect \
     ${PACKAGES} \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -99,7 +100,7 @@ RUN ARCH=$(dpkg --print-architecture | sed 's/aarch64/arm64/') && \
     curl -L https://github.com/supabase/cli/releases/download/${SUPABASE_VERSION}/supabase_linux_${ARCH}.tar.gz | sudo tar -xz -C /usr/local/bin && \
     sudo chmod +x /usr/local/bin/supabase || true
 
-# Create app directory and copy scripts
+# Create app directory and copy scripts and config
 COPY --chown=claude-user:claude-user scripts/ /app/scripts/
 COPY --chown=claude-user:claude-user config/ /app/config/
 
@@ -125,15 +126,6 @@ RUN mkdir -p /home/claude-user/.npm-global/lib && npm install -g @anthropic-ai/c
 USER root
 RUN /app/scripts/install-mcp-servers-simple.sh
 # Note: Using simple script for now. Complex script in install-mcp-servers.sh has minor exit code issue
-
-# Install PTY service for WebSocket terminal access
-COPY --chown=claude-user:claude-user pty-service/ /app/pty-service/
-WORKDIR /app/pty-service
-RUN npm install --production && \
-    chmod +x index.js
-
-# Expose port for PTY WebSocket service
-EXPOSE 8080
 
 # Authentication and environment variables are handled at runtime
 # via volume mounts and environment variables - no build-time copying needed

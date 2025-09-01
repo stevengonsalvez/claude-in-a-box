@@ -252,7 +252,8 @@ async fn run_tui_loop(
                 Event::Key(key_event) => {
                     // Special handling for interactive terminal
                     use crate::app::state::View;
-                    if app.state.current_view == View::AttachedTerminal {
+                    // Only handle interactive session input when actually in InteractiveSession view
+                    if app.state.current_view == View::InteractiveSession {
                         // Pass key events directly to the interactive session
                         let continue_session =
                             layout.handle_interactive_session_input(key_event).await;

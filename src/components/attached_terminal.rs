@@ -64,14 +64,14 @@ impl AttachedTerminalComponent {
         let info_content = vec![
             "🔗 Session Container".to_string(),
             "".to_string(),
-            "🚀 Claude CLI is auto-started and running in background!".to_string(),
+            "🚀 Claude CLI is ready to start on connection!".to_string(),
             "".to_string(),
             "Actions:".to_string(),
-            "  • Press [a] to attach to interactive shell".to_string(),
+            "  • Press [a] to attach directly to Claude CLI".to_string(),
             "  • Press [k] to kill container".to_string(),
             "  • Press [Esc] to return to session list".to_string(),
             "".to_string(),
-            "💡 In shell: Run 'claude-start' to attach to Claude immediately".to_string(),
+            "💡 Claude will start automatically when you attach".to_string(),
         ];
 
         let info_text = info_content.join("\n");

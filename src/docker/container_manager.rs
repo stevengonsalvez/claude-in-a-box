@@ -322,6 +322,14 @@ impl ContainerManager {
             config.environment_vars.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
 
         // Create container config
+        // For interactive mode, we need to allocate a TTY and attach stdin/stdout/stderr
+        // Check if this is an interactive session based on environment variables
+        let is_interactive = env.iter().any(|e| e == "CLAUDE_BOX_MODE=interactive");
+        
+        if is_interactive {
+            info!("Creating container {} with TTY allocation for interactive mode", container_name);
+        }
+        
         let container_config = Config {
             image: Some(config.image.clone()),
             working_dir: Some(config.working_dir.clone()),
@@ -336,6 +344,13 @@ impl ContainerManager {
                 labels.insert("claude-managed".to_string(), "true".to_string());
                 labels
             }),
+            // Critical for interactive mode: allocate TTY and attach streams
+            tty: Some(is_interactive),
+            attach_stdin: Some(is_interactive),
+            attach_stdout: Some(is_interactive),
+            attach_stderr: Some(is_interactive),
+            open_stdin: Some(is_interactive),
+            stdin_once: Some(false), // Keep stdin open for multiple inputs
             ..Default::default()
         };
 

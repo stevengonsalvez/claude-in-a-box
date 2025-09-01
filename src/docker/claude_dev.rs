@@ -319,8 +319,10 @@ impl ClaudeDevManager {
             env_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), "--continue".to_string());
         }
 
-        // Add dangerously-skip-permissions flag if requested
-        if self.config.skip_permissions {
+        // Skip permissions only works in Boss mode
+        // Interactive mode can't use --dangerously-skip-permissions with PID 1
+        let mode = env_vars.get("CLAUDE_BOX_MODE").cloned().unwrap_or_default();
+        if self.config.skip_permissions && mode == "boss" {
             let current_flag = env_vars.get("CLAUDE_CONTINUE_FLAG").cloned().unwrap_or_default();
             let new_flag = if current_flag.is_empty() {
                 "--dangerously-skip-permissions".to_string()
@@ -328,6 +330,10 @@ impl ClaudeDevManager {
                 format!("{} --dangerously-skip-permissions", current_flag)
             };
             env_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), new_flag);
+            debug!("Added --dangerously-skip-permissions flag for boss mode");
+        } else if self.config.skip_permissions && mode == "interactive" {
+            // Interactive mode uses pre-configured settings instead
+            debug!("Interactive mode using pre-configured permissions via claude-settings.json");
         }
 
         // Setup volume mounts

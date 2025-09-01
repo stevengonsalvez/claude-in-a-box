@@ -338,13 +338,25 @@ impl NewSessionComponent {
         .style(Style::default().fg(Color::Gray));
         frame.render_widget(description, chunks[1]);
 
-        // Options
-        let option_text = if session_state.skip_permissions {
-            "🚀 Skip permission prompts (--dangerously-skip-permissions)\n\n\
-             Claude will execute commands without asking"
+        // Options - show different messages based on mode
+        let (option_text, instructions_text) = if session_state.mode == crate::models::SessionMode::Boss {
+            // Boss mode can use skip permissions
+            let text = if session_state.skip_permissions {
+                "🚀 Skip permission prompts (--dangerously-skip-permissions)\n\n\
+                 Claude will execute commands without asking"
+            } else {
+                "🛡️  Keep permission prompts (default)\n\n\
+                 Claude will ask before executing commands"
+            };
+            (text, "Space: Toggle • Enter: Continue • Esc: Cancel")
         } else {
-            "🛡️  Keep permission prompts (default)\n\n\
-             Claude will ask before executing commands"
+            // Interactive mode uses pre-configured permissions
+            (
+                "✅ Permissions Pre-configured\n\n\
+                 Common development commands are pre-approved\n\
+                 via claude-settings.json for seamless operation",
+                "Enter: Continue • Esc: Cancel"
+            )
         };
 
         let options = Paragraph::new(option_text)
@@ -352,14 +364,14 @@ impl NewSessionComponent {
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Green))
-                    .title("Current Selection"),
+                    .title("Permission Settings"),
             )
             .style(Style::default().fg(Color::White))
             .alignment(Alignment::Center);
         frame.render_widget(options, chunks[2]);
 
         // Instructions
-        let instructions = Paragraph::new("Space: Toggle • Enter: Continue • Esc: Cancel")
+        let instructions = Paragraph::new(instructions_text)
             .block(
                 Block::default()
                     .borders(Borders::ALL)

@@ -120,6 +120,41 @@ else
     warn "Claude logging commands not found"
 fi
 
+# Configure Claude CLI settings for permissions
+log "Configuring Claude CLI settings"
+
+# Check if .claude is a mounted directory (from host)
+if mountpoint -q /home/claude-user/.claude 2>/dev/null; then
+    log ".claude directory is mounted from host"
+    # If mounted and no settings.json exists, copy our default there
+    if [ ! -f /home/claude-user/.claude/settings.json ]; then
+        if [ -f /app/config/claude-settings.json ]; then
+            log "Copying default settings to mounted .claude directory"
+            cp /app/config/claude-settings.json /home/claude-user/.claude/settings.json
+            success "Claude settings configured with pre-approved tools"
+        else
+            warn "Default Claude settings template not found"
+        fi
+    else
+        log "Existing Claude settings found in mounted directory, preserving"
+    fi
+else
+    # Not mounted, handle normally
+    if [ ! -f /home/claude-user/.claude/settings.json ]; then
+        if [ -f /app/config/claude-settings.json ]; then
+            log "Applying default Claude settings with pre-approved permissions"
+            mkdir -p /home/claude-user/.claude
+            cp /app/config/claude-settings.json /home/claude-user/.claude/settings.json
+            chown -R claude-user:claude-user /home/claude-user/.claude
+            success "Claude settings configured with pre-approved tools"
+        else
+            warn "Default Claude settings template not found"
+        fi
+    else
+        log "Existing Claude settings found, preserving user configuration"
+    fi
+fi
+
 # Ensure theme preferences are set to avoid Claude CLI theme prompt
 # Check if theme is already configured
 if ! claude config get -g theme >/dev/null 2>&1; then
@@ -129,20 +164,25 @@ else
     log "Theme already configured: $(claude config get -g theme 2>/dev/null || echo 'unknown')"
 fi
 
-# Set trust dialog to accepted to avoid prompts when using --dangerously-skip-permissions
-if [[ "$CLAUDE_CONTINUE_FLAG" == *"--dangerously-skip-permissions"* ]]; then
-    log "Setting trust dialog acceptance to avoid permission prompts (skip permissions enabled)"
-    # Use direct binary to avoid triggering our wrapper's --dangerously-skip-permissions flag
-    /home/claude-user/.npm-global/bin/claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
+# Trust dialog should be accepted via the settings.json
+# Log the status for debugging
+if [ -f /home/claude-user/.claude/settings.json ]; then
+    log "Claude settings file exists, trust dialog should be configured"
 else
-    log "Trust dialog will be shown as needed (permissions enabled)"
+    # If no settings file exists, set trust dialog directly
+    log "No settings file found, setting trust dialog acceptance directly"
+    /home/claude-user/.npm-global/bin/claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || warn "Failed to set trust dialog config"
 fi
 
 # Determine which CLI to use (adapted from claude-docker startup.sh)
-CLI_CMD="claude"
+# Use the direct binary path to avoid wrapper functions
+CLI_CMD="/home/claude-user/.npm-global/bin/claude"
 CLI_ARGS="$CLAUDE_CONTINUE_FLAG"
 
-log "Using Claude CLI with args: $CLI_ARGS"
+# Only log CLI args if they're actually being used (boss mode)
+if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "$CLI_ARGS" ]; then
+    log "Boss mode will use additional Claude CLI args: $CLI_ARGS"
+fi
 
 # Handle boss mode execution
 if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
@@ -178,61 +218,57 @@ elif [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
     exit 1
 fi
 
-# Create log directory first (if not exists)
+# Create log directory (if not exists)
 mkdir -p /workspace/.claude-box/logs
 
-# Start PTY service in the background for WebSocket terminal access
-if [ -f /app/pty-service/index.js ]; then
-    log "Starting PTY service on port 8080..."
+# Debug: Log script arguments
+log "DEBUG: Script called with $# arguments"
+log "DEBUG: Arguments: $@"
 
-    # Configure PTY service based on mode
-    if [ "$CLAUDE_BOX_MODE" = "true" ] && [ "$INTERACTIVE_MODE" = "true" ]; then
-        log "PTY service will start Claude CLI directly in interactive mode"
-        export START_CLAUDE_DIRECTLY=true
-    else
-        export START_CLAUDE_DIRECTLY=false
-    fi
-
-    cd /app/pty-service && nohup node index.js > /workspace/.claude-box/logs/pty-service.log 2>&1 &
-    PTY_PID=$!
-    sleep 1
-    if kill -0 $PTY_PID 2>/dev/null; then
-        success "PTY service started on port 8080 (PID: $PTY_PID)"
-    else
-        warn "PTY service failed to start - WebSocket terminal will not be available"
-        # Show the error if log file exists
-        if [ -f /workspace/.claude-box/logs/pty-service.log ]; then
-            error "PTY service error: $(tail -n 5 /workspace/.claude-box/logs/pty-service.log)"
-        fi
-    fi
-else
-    warn "PTY service not found - WebSocket terminal will not be available"
-fi
-
-# If no command specified, run interactive shell
+# If no command specified, run Claude CLI as main process
 if [ $# -eq 0 ]; then
-    # Create log directory
-    mkdir -p /workspace/.claude-box/logs
-
     success "Container environment ready!"
     if [ "${AUTH_OK}" = "true" ]; then
-        success "✅ Authentication detected - Claude will work immediately"
-        success "📝 Available Claude commands:"
-        success "   • claude-ask \"question\" - Ask Claude with logged response"
-        success "   • claude-start - Interactive Claude CLI"
-        success "   • claude-help - Show all available commands"
-        success "   💡 Use claude-ask to see responses in TUI logs!"
+        success "✅ Authentication detected - Claude CLI starting"
+        log "Starting Claude CLI as main process in interactive mode"
+        # Debug: Log what we're about to execute
+        log "DEBUG: CLI_CMD='$CLI_CMD'"
+        log "DEBUG: CLI_ARGS='$CLI_ARGS'"
+        log "DEBUG: CLAUDE_CONTINUE_FLAG='$CLAUDE_CONTINUE_FLAG'"
+        # Debug: Check for any Claude-related environment variables
+        log "DEBUG: Environment variables containing CLAUDE:"
+        env | grep -i claude | while read line; do
+            log "DEBUG: $line"
+        done
+        # Debug: Check TTY status
+        if [ -t 0 ]; then
+            log "DEBUG: stdin is a TTY"
+        else
+            log "DEBUG: stdin is NOT a TTY"
+        fi
+        if [ -t 1 ]; then
+            log "DEBUG: stdout is a TTY"
+        else
+            log "DEBUG: stdout is NOT a TTY"
+        fi
+        # Run Claude CLI directly as PID 1 in interactive mode
+        # This allows Docker attach to connect directly to Claude
+        # NOTE: Don't pass --dangerously-skip-permissions here as it causes issues with PID 1
+        
+        # Set the trust dialog as accepted directly via claude config
+        log "Setting trust dialog acceptance via CLI config"
+        $CLI_CMD config set hasTrustDialogAccepted true 2>/dev/null || true
+        
+        # Use the wrapper script to handle initial prompts automatically
+        log "Starting Claude CLI with automatic prompt handling"
+        exec /app/scripts/claude-wrapper.sh
     else
-        warn "⚠️  No authentication detected"
-        warn "📝 Set ANTHROPIC_API_KEY or mount authentication files"
-    fi
-
-    log "Starting interactive shell..."
-    # Use sleep infinity to keep container running when not attached to TTY
-    if [ -t 0 ]; then
-        exec bash
-    else
-        log "No TTY detected, keeping container alive..."
+        error "❌ Authentication required to run Claude CLI!"
+        error "Please ensure one of:"
+        error "  1. Run 'claude-box auth' to set up authentication"
+        error "  2. Have ~/.claude-in-a-box/auth/.credentials.json mounted"
+        error "  3. Set ANTHROPIC_API_KEY in environment"
+        # Keep container alive but show error
         exec sleep infinity
     fi
 else

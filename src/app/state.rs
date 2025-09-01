@@ -394,6 +394,7 @@ pub enum View {
     SearchWorkspace,
     NonGitNotification,
     AttachedTerminal,
+    InteractiveSession,  // WebSocket-based interactive terminal
     AuthSetup,  // New view for authentication setup
     ClaudeChat, // Claude chat popup overlay
     GitView,    // Git status and diff view
@@ -583,7 +584,7 @@ impl Default for NewSessionState {
             step: NewSessionStep::SelectRepo,
             filter_text: String::new(),
             is_current_dir_mode: false,
-            skip_permissions: false,
+            skip_permissions: false, // Always false - permissions handled via settings
             mode: crate::models::SessionMode::Interactive,
             boss_prompt: TextEditor::new(),
             file_finder: FuzzyFileFinderState::new(),
@@ -2165,7 +2166,12 @@ impl AppState {
     pub fn new_session_toggle_permissions(&mut self) {
         if let Some(ref mut state) = self.new_session_state {
             if state.step == NewSessionStep::ConfigurePermissions {
-                state.skip_permissions = !state.skip_permissions;
+                // Only allow skip_permissions toggle in Boss mode
+                // Interactive mode can't use --dangerously-skip-permissions with PID 1
+                if state.mode == crate::models::SessionMode::Boss {
+                    state.skip_permissions = !state.skip_permissions;
+                }
+                // For Interactive mode, skip_permissions stays false (handled via settings)
             }
         }
     }
@@ -2205,7 +2211,7 @@ impl AppState {
                     NewSessionStep::InputBranch if state.is_current_dir_mode => {
                         // For current directory mode, skip to permissions step with defaults
                         state.step = NewSessionStep::ConfigurePermissions;
-                        state.skip_permissions = false; // Default to safe permissions
+                        state.skip_permissions = false; // Always false - permissions handled via settings
                         state.mode = crate::models::SessionMode::Interactive; // Default mode
                         true
                     }
@@ -3136,7 +3142,7 @@ impl AppState {
                         step: NewSessionStep::InputBranch, // Start at branch input since repo is pre-selected
                         filter_text: String::new(),
                         is_current_dir_mode: false,
-                        skip_permissions: session.skip_permissions,
+                        skip_permissions: false, // Always false - permissions handled via settings
                         mode: session.mode.clone(),
                         boss_prompt: if let Some(ref prompt) = session.boss_prompt {
                             TextEditor::from_string(prompt)

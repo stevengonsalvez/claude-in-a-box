@@ -40,6 +40,7 @@ tungstenite = "0.21"
 # Terminal emulation
 vt100 = "0.15"  # Lightweight terminal emulator for PTY output parsing
 unicode-width = "0.1"  # For proper character width handling
+strip-ansi-escapes = "0.2"  # Strip ANSI escape sequences for readable text output
 
 # Utils
 anyhow = "1.0"

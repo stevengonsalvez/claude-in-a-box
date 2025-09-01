@@ -773,8 +773,9 @@ impl SessionLifecycleManager {
             info!("Set boss prompt for session {}", request.session_id);
         }
 
-        // Apply skip_permissions flag if requested
-        if request.skip_permissions {
+        // Skip permissions only works in Boss mode
+        // Interactive mode can't use --dangerously-skip-permissions with PID 1
+        if request.skip_permissions && request.mode == crate::models::SessionMode::Boss {
             let current_flag =
                 config.environment_vars.get("CLAUDE_CONTINUE_FLAG").cloned().unwrap_or_default();
             let new_flag = if current_flag.is_empty() {
@@ -784,7 +785,7 @@ impl SessionLifecycleManager {
             };
             config.environment_vars.insert("CLAUDE_CONTINUE_FLAG".to_string(), new_flag);
             info!(
-                "Added --dangerously-skip-permissions flag to session {}",
+                "Added --dangerously-skip-permissions flag to boss mode session {}",
                 request.session_id
             );
 
@@ -795,6 +796,12 @@ impl SessionLifecycleManager {
                     e
                 );
             }
+        } else if request.skip_permissions && request.mode == crate::models::SessionMode::Interactive {
+            // Interactive mode uses pre-configured settings instead
+            info!(
+                "Interactive mode session {} using pre-configured permissions via claude-settings.json",
+                request.session_id
+            );
         }
 
         Ok(())

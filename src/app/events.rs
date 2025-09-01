@@ -21,6 +21,7 @@ pub enum AppEvent {
     SearchWorkspace,   // Search all workspaces
     AttachSession,
     DetachSession,
+    LaunchInteractiveShell,
     KillContainer,
     ReauthenticateCredentials,
     RestartSession,
@@ -600,6 +601,7 @@ impl EventHandler {
         _state: &mut AppState,
     ) -> Option<AppEvent> {
         match key_event.code {
+            KeyCode::Char('a') => Some(AppEvent::LaunchInteractiveShell),
             KeyCode::Char('d') => Some(AppEvent::DetachSession),
             KeyCode::Char('q') | KeyCode::Esc => Some(AppEvent::DetachSession),
             KeyCode::Char('k') => Some(AppEvent::KillContainer),
@@ -837,6 +839,13 @@ impl EventHandler {
                 state.attached_session_id = None;
                 state.current_view = View::SessionList;
                 state.ui_needs_refresh = true;
+            }
+            AppEvent::LaunchInteractiveShell => {
+                // Switch to interactive session view to launch the WebSocket terminal
+                if state.attached_session_id.is_some() {
+                    state.current_view = View::InteractiveSession;
+                    state.ui_needs_refresh = true;
+                }
             }
             AppEvent::KillContainer => {
                 if let Some(session_id) = state.attached_session_id {

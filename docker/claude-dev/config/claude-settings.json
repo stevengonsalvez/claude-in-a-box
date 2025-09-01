@@ -1,0 +1,21 @@
+{
+  "defaultMode": "acceptEdits",
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read", 
+      "Write",
+      "Edit",
+      "MultiEdit",
+      "Grep",
+      "Glob",
+      "WebSearch",
+      "WebFetch",
+      "TodoWrite",
+      "Task",
+      "NotebookEdit"
+    ],
+    "deny": []
+  },
+  "hasTrustDialogAccepted": true
+}
