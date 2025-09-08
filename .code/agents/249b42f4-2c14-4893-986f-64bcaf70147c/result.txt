@@ -1,0 +1,304 @@
+## Comprehensive Plan to Fix JSON Detection/Parsing for Boss Mode Logs
+
+### Phase 1: Diagnosis & Debugging Infrastructure (1-2 hours)
+
+#### 1.1 Add Debug Logging Module
+**Touch Points:**
+- `src/docker/log_streaming.rs` (lines 185-235)
+- Create new `src/utils/debug_helpers.rs`
+
+**Implementation:**
+```rust
+// In log_streaming.rs, add conditional debug logging
+if std::env::var("CLAUDE_BOX_PARSER_DEBUG").is_ok() {
+    debug!("=== Parser Debug ===");
+    debug!("Raw message: {:?}", raw_message);
+    debug!("First 100 chars: {:?}", &raw_message.chars().take(100).collect::<String>());
+    debug!("Contains '{{': {}", raw_message.contains('{'));
+    debug!("Contains '\"type\"': {}", raw_message.contains("\"type\""));
+}
+```
+
+#### 1.2 Create JSON Extraction Function
+**Touch Point:** New function in `src/docker/log_streaming.rs`
+
+```rust
+/// Extract JSON from Docker log line with timestamp prefix
+/// Format: "2025-09-08T19:20:30.123456789Z {...}"
+fn extract_json_from_docker_log(line: &str) -> Option<&str> {
+    // Method 1: Find first '{' and validate it's balanced
+    if let Some(start) = line.find('{') {
+        let json_candidate = &line[start..];
+        // Quick validation: check for closing '}'
+        if json_candidate.contains('}') {
+            return Some(json_candidate);
+        }
+    }
+    None
+}
+```
+
+### Phase 2: Fix Core Detection Issues (2-3 hours)
+
+#### 2.1 Fix String Detection Bug
+**Touch Point:** `src/docker/log_streaming.rs` (lines 189-192)
+
+**Current (BROKEN):**
+```rust
+let contains_claude_json = raw_message.contains(r#"{"type":"#) && 
+    (raw_message.contains(r#""assistant""#) ||  // WRONG: Looking for ""assistant""
+     raw_message.contains(r#""user""#) || 
+     raw_message.contains(r#""system""#));
+```
+
+**Fixed:**
+```rust
+let contains_claude_json = raw_message.contains(r#"{"type":"#) && 
+    (raw_message.contains(r#""role":"assistant""#) ||  // Correct JSON field check
+     raw_message.contains(r#""role":"user""#) || 
+     raw_message.contains(r#""role":"system""#) ||
+     raw_message.contains(r#""subtype":"init""#));  // For system init events
+```
+
+#### 2.2 Improve JSON Detection Logic
+**Touch Point:** `src/docker/log_streaming.rs` (lines 185-235)
+
+```rust
+// Enhanced detection with proper extraction
+let json_portion = extract_json_from_docker_log(&raw_message);
+let is_json_line = json_portion.is_some() && 
+                   json_portion.unwrap().contains("\"type\":");
+
+if is_boss_mode && is_json_line {
+    if let Some(json_str) = json_portion {
+        // Validate it's actually parseable JSON
+        if let Ok(_) = serde_json::from_str::<serde_json::Value>(json_str) {
+            // Create parser if needed
+            if agent_parser.is_none() {
+                debug!("Creating Claude JSON parser for valid JSON");
+                agent_parser = Some(Box::new(crate::agent_parsers::ClaudeJsonParser::new()));
+            }
+            
+            // Parse the clean JSON
+            if let Some(ref mut parser) = agent_parser {
+                match parser.parse_line(json_str) {
+                    Ok(events) => {
+                        // Process events...
+                        handled_as_json = true;
+                    }
+                    Err(e) => {
+                        debug!("Parser error: {} for JSON: {}", e, json_str);
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+#### 2.3 Fix ParserFactory Detection
+**Touch Point:** `src/agent_parsers/types.rs` (lines 129-137)
+
+```rust
+impl ParserFactory {
+    pub fn create_parser(first_line: &str) -> Box<dyn AgentOutputParser> {
+        // Strip timestamp if present
+        let content = if let Some(json_start) = first_line.find('{') {
+            &first_line[json_start..]
+        } else {
+            first_line
+        };
+        
+        // Check for JSON markers
+        if content.starts_with('{') && content.contains("\"type\"") {
+            Box::new(crate::agent_parsers::claude_json::ClaudeJsonParser::new())
+        } else {
+            Box::new(crate::agent_parsers::plain_text::PlainTextParser::new())
+        }
+    }
+}
+```
+
+### Phase 3: Handle Edge Cases (1-2 hours)
+
+#### 3.1 Multi-line JSON Buffering
+**Touch Point:** `src/docker/log_streaming.rs`
+
+Add state tracking for incomplete JSON:
+```rust
+struct StreamingTask {
+    container_id: String,
+    container_name: String,
+    task_handle: JoinHandle<()>,
+    json_buffer: String,  // NEW: Buffer for incomplete JSON
+}
+```
+
+#### 3.2 JSON Balance Checker
+```rust
+fn is_balanced_json(s: &str) -> bool {
+    let mut depth = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
+    
+    for ch in s.chars() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        
+        match ch {
+            '\\' if in_string => escape_next = true,
+            '"' if !in_string => in_string = true,
+            '"' if in_string => in_string = false,
+            '{' | '[' if !in_string => depth += 1,
+            '}' | ']' if !in_string => depth -= 1,
+            _ => {}
+        }
+    }
+    
+    depth == 0 && !in_string
+}
+```
+
+### Phase 4: Testing Strategy (2-3 hours)
+
+#### 4.1 Unit Tests for JSON Extraction
+**Touch Point:** `src/docker/log_streaming.rs` (tests module)
+
+```rust
+#[cfg(test)]
+mod json_extraction_tests {
+    use super::*;
+    
+    #[test]
+    fn test_extract_json_with_timestamp() {
+        let input = r#"2025-09-08T19:20:30.123456789Z {"type":"assistant","role":"assistant"}"#;
+        let result = extract_json_from_docker_log(input);
+        assert_eq!(result, Some(r#"{"type":"assistant","role":"assistant"}"#));
+    }
+    
+    #[test]
+    fn test_extract_json_with_nanoseconds() {
+        let input = r#"2025-09-08T19:20:30.123456789Z {"type":"system","subtype":"init"}"#;
+        let result = extract_json_from_docker_log(input);
+        assert!(result.is_some());
+    }
+    
+    #[test]
+    fn test_no_json_in_line() {
+        let input = "2025-09-08T19:20:30.123Z Starting container...";
+        let result = extract_json_from_docker_log(input);
+        assert!(result.is_none());
+    }
+}
+```
+
+#### 4.2 Parser Integration Tests
+```rust
+#[test]
+fn test_claude_json_parser_with_docker_format() {
+    let mut parser = ClaudeJsonParser::new();
+    
+    // Test system init
+    let json = r#"{"type":"system","subtype":"init","model":"claude-sonnet-4","session_id":"abc123"}"#;
+    let events = parser.parse_line(json).unwrap();
+    assert_eq!(events.len(), 1);
+    
+    // Test assistant message
+    let json = r#"{"type":"assistant","message":{"id":"msg_123","content":[{"type":"text","text":"Hello"}]}}"#;
+    let events = parser.parse_line(json).unwrap();
+    assert!(events.iter().any(|e| matches!(e, AgentEvent::Message { .. })));
+}
+```
+
+#### 4.3 End-to-End Mock Stream Test
+```rust
+#[tokio::test]
+async fn test_boss_mode_json_streaming() {
+    // Create mock bollard stream with timestamped JSON
+    let mock_logs = vec![
+        "2025-09-08T19:20:30.123Z Starting Claude CLI...",
+        r#"2025-09-08T19:20:31.456Z {"type":"system","subtype":"init","model":"claude-sonnet-4"}"#,
+        r#"2025-09-08T19:20:32.789Z {"type":"assistant","message":{"content":[{"type":"text","text":"Working..."}]}}"#,
+    ];
+    
+    // Test that these produce correct LogEntry objects with icons
+}
+```
+
+### Phase 5: Verification & Rollout (1 hour)
+
+#### 5.1 Manual Testing Steps
+1. **Build with debug logging:**
+   ```bash
+   RUST_LOG=debug cargo build --release
+   ```
+
+2. **Run Boss Mode with debug:**
+   ```bash
+   CLAUDE_BOX_PARSER_DEBUG=1 claude-box run boss "test prompt"
+   ```
+
+3. **Verify formatted output:**
+   - Should see: `📊 Session: claude-sonnet-4 | 35 tools`
+   - Should see: `💬 Working...`
+   - Should NOT see raw JSON
+
+#### 5.2 Feature Flag Implementation
+```rust
+// In Cargo.toml
+[features]
+default = []
+parser-debug = []
+
+// In code
+#[cfg(feature = "parser-debug")]
+{
+    eprintln!("[PARSER] Raw: {:?}", raw_message);
+    eprintln!("[PARSER] JSON extracted: {:?}", json_str);
+}
+```
+
+### Phase 6: Acceptance Criteria Checklist
+
+✅ **Must Have:**
+- [ ] Timestamped JSON lines are correctly detected
+- [ ] JSON is extracted without timestamp prefix
+- [ ] Claude JSON events render with icons/formatting
+- [ ] Regular log lines still display as plain text
+- [ ] No performance regression (< 5ms per line)
+
+✅ **Should Have:**
+- [ ] Debug logging toggleable via env var
+- [ ] Unit tests pass for all timestamp formats
+- [ ] Multi-line JSON handled gracefully
+- [ ] Error recovery for malformed JSON
+
+✅ **Nice to Have:**
+- [ ] Metrics on parse success/failure rates
+- [ ] Support for other agent formats (future)
+
+### Rollback Strategy
+
+If issues arise:
+1. **Quick disable:** Set env var `CLAUDE_BOX_DISABLE_JSON_PARSE=1`
+2. **Code path:** Falls back to plain text parsing
+3. **Revert commit:** Single commit can be reverted if needed
+
+### Effort Estimate
+
+- **Total:** 7-11 hours
+- **Minimal fix (Phase 1-2):** 3-5 hours  
+- **Full implementation:** 7-11 hours
+- **Risk:** Low - changes are isolated to parsing layer
+
+### Key Code Changes Summary
+
+1. **Fix string detection bug** (line 189-192 in log_streaming.rs)
+2. **Add JSON extraction function** (new function)
+3. **Fix ParserFactory** (types.rs line 129-137)
+4. **Add debug logging** (throughout)
+5. **Add comprehensive tests** (new test module)
+
+This plan provides a systematic approach to diagnose and fix the JSON parsing issue while maintaining safety through tests and rollback options.

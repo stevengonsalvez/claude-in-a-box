@@ -1,0 +1,251 @@
+Of course. Here is a comprehensive, actionable plan to fix the Docker log JSON parsing for Boss Mode.
+
+This plan prioritizes a safe, incremental approach with clear testing and verification steps, adhering to the constraints provided.
+
+### **Plan: Fix Docker Log JSON Parsing for Boss Mode**
+
+The core problem is that Docker log lines have a timestamp prefix (e.g., `2025-09-08T19:20:30.123Z { ... }`) that prevents the current JSON detection logic from working. The plan is to make the detection robust to this prefix and handle potential log line fragmentation.
+
+---
+
+### **Phase 1: Diagnostics and Test-Driven Setup**
+
+This phase focuses on adding targeted logging to confirm our assumptions and creating a unit test that reproduces the failure before we write the fix.
+
+**1.1. Add Diagnostic Logging (behind a feature flag):**
+
+*   **Goal:** See the exact raw log lines coming from Docker before any parsing is attempted.
+*   **File to Edit:** `src/docker/log_streaming.rs`
+*   **Action:** In the main log processing loop within `DockerLogStreamingManager::stream_logs`, add debug logging.
+
+    ```rust
+    // Pseudocode for src/docker/log_streaming.rs
+    
+    // Inside the loop that processes messages from the bollard stream
+    while let Some(log_result) = self.stream.next().await {
+        match log_result {
+            Ok(log_output) => {
+                let raw_message = log_output.to_string();
+    
+                // Add this diagnostic logging
+                if std::env::var("CLAUDE_BOX_PARSER_DEBUG").is_ok() {
+                    log::debug!("[Parser-Debug] Raw log line: '{}'", raw_message);
+                }
+    
+                // ... rest of the processing
+            },
+            Err(e) => { ... }
+        }
+    }
+    ```
+
+**1.2. Create a Failing Unit Test:**
+
+*   **Goal:** Create a specific, failing test that simulates the current bug. This test will pass once the fix is implemented.
+*   **File to Create/Edit:** A new test module in `src/agent_parsers/mod.rs` or a relevant existing test file.
+*   **Action:** Write a test that feeds a timestamped JSON string to the current parsing logic and asserts that it fails to produce the expected `AgentEvent`.
+
+    ```rust
+    // Pseudocode for a new test in `src/agent_parsers/mod.rs`
+    
+    #[test]
+    fn test_timestamped_json_line_fails_currently() {
+        let timestamped_line = "2025-09-08T19:20:30.123Z {\"type\":\"text\",\"text\":\"Hello\"}";
+        
+        // This simulates the current, flawed logic.
+        // We expect this to produce a PlainText event, not a structured AgentEvent.
+        let mut parser = PlainTextParser::new(); // The current fallback
+        let events = parser.parse(timestamped_line);
+    
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            AgentEvent::PlainText(text) => {
+                // Correctly identifies that the current logic treats it as plain text
+                assert_eq!(text, timestamped_line); 
+            },
+            _ => panic!("Should have been parsed as PlainText, but was not."),
+        }
+    }
+    ```
+
+---
+
+### **Phase 2: Implementation**
+
+This phase involves introducing a robust JSON extraction function and integrating it into the log streaming pipeline.
+
+**2.1. Implement a JSON Extractor Function:**
+
+*   **Goal:** Create a reusable, pure function to reliably find and extract a JSON object string from a raw log line.
+*   **File to Edit:** `src/agent_parsers/mod.rs` (or a new `src/agent_parsers/util.rs`).
+*   **Action:** Add the following function.
+
+    ```rust
+    // In src/agent_parsers/mod.rs
+    
+    /// Attempts to find the start of a JSON object ('{') and returns the substring from that point.
+    /// Returns None if '{' is not found.
+    pub fn extract_json_substring(line: &str) -> Option<&str> {
+        line.find('{').map(|start_index| &line[start_index..])
+    }
+    
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+    
+        #[test]
+        fn test_extract_json_substring() {
+            // With timestamp
+            let line1 = "2025-09-08T19:20:30.123Z {\"type\":\"text\"}";
+            assert_eq!(extract_json_substring(line1), Some("{\"type\":\"text\"}"));
+    
+            // With leading spaces
+            let line2 = "   {\"type\":\"text\"}";
+            assert_eq!(extract_json_substring(line2), Some("{\"type\":\"text\"}"));
+    
+            // No JSON
+            let line3 = "This is a normal log line.";
+            assert_eq!(extract_json_substring(line3), None);
+    
+            // Pure JSON
+            let line4 = "{\"type\":\"text\"}";
+            assert_eq!(extract_json_substring(line4), Some("{\"type\":\"text\"}"));
+        }
+    }
+    ```
+
+**2.2. Refactor Log Processing to be Stateless and Per-Line:**
+
+*   **Goal:** Change the log processing logic to decide whether to parse as JSON on a *per-line basis*, rather than choosing one parser for the entire stream. This is more robust.
+*   **File to Edit:** `src/docker/log_streaming.rs`
+*   **Action:** Modify the `DockerLogStreamingManager` to hold instances of both parsers and attempt a JSON parse first for every line.
+
+    ```rust
+    // Pseudocode for src/docker/log_streaming.rs
+    
+    use crate::agent_parsers::{claude_json::ClaudeJsonParser, plain_text::PlainTextParser, AgentParser, extract_json_substring};
+    
+    pub struct DockerLogStreamingManager {
+        // ... other fields
+        json_parser: ClaudeJsonParser,
+        text_parser: PlainTextParser,
+        // Remove the generic 'parser: Box<dyn AgentParser>'
+    }
+    
+    impl DockerLogStreamingManager {
+        pub fn new(...) -> Self {
+            Self {
+                // ...
+                json_parser: ClaudeJsonParser::new(),
+                text_parser: PlainTextParser::new(),
+            }
+        }
+    
+        // Inside the log processing loop
+        async fn process_log_message(&mut self, raw_message: &str) {
+            // 1. Attempt to extract JSON
+            if let Some(json_str) = extract_json_substring(raw_message) {
+                // 2. Attempt to parse the extracted string
+                let events = self.json_parser.parse(json_str);
+    
+                // Check if parsing was successful. `parse` should return an empty vec
+                // or a special error event for unparseable/incomplete JSON.
+                if !events.is_empty() && !matches!(events[0], AgentEvent::PlainText(_)) {
+                    // It's valid JSON, send events to the UI
+                    for event in events {
+                        self.tx.send(event).unwrap();
+                    }
+                    return; // Successfully processed as JSON
+                }
+            }
+    
+            // 3. Fallback: If not valid JSON, process as plain text.
+            let events = self.text_parser.parse(raw_message);
+            for event in events {
+                self.tx.send(event).unwrap();
+            }
+        }
+    }
+    ```
+    *Note: This design requires that `ClaudeJsonParser::parse` can handle incomplete JSON fragments. It should buffer them internally and only emit events when a full object is parsed. If it receives non-JSON, it should ideally return an empty `Vec` so the fallback can trigger.*
+
+**2.3. Enhance the JSON Parser to Handle Fragments:**
+
+*   **Goal:** Make the `ClaudeJsonParser` capable of buffering partial JSON objects.
+*   **File to Edit:** `src/agent_parsers/claude_json.rs`
+*   **Action:** Add a `buffer` field to the `ClaudeJsonParser` struct.
+
+    ```rust
+    // Pseudocode for src/agent_parsers/claude_json.rs
+    
+    pub struct ClaudeJsonParser {
+        buffer: String,
+    }
+    
+    impl AgentParser for ClaudeJsonParser {
+        fn parse(&mut self, input: &str) -> Vec<AgentEvent> {
+            self.buffer.push_str(input.trim());
+    
+            // Try to deserialize from the buffer.
+            match serde_json::from_str::<Value>(&self.buffer) {
+                Ok(value) => {
+                    // Successfully parsed a complete object.
+                    self.buffer.clear(); // Clear buffer on success
+                    // Convert `value` into one or more `AgentEvent`s
+                    // ... return vec of events
+                },
+                Err(e) if e.is_eof() => {
+                    // Incomplete JSON object, wait for more data.
+                    // Optionally add a debug log here.
+                    Vec::new() // Return no events yet
+                },
+                Err(_) => {
+                    // Invalid JSON. This is not a recoverable error for this line.
+                    let mut buffer_copy = self.buffer.clone();
+                    self.buffer.clear(); // Clear buffer on error
+                    // Return a PlainText event as a fallback for this chunk.
+                    vec![AgentEvent::PlainText(buffer_copy)]
+                }
+            }
+        }
+    }
+    ```
+
+---
+
+### **Phase 3: Testing and Verification**
+
+**3.1. Add Comprehensive Unit Tests:**
+
+*   **Goal:** Ensure all new logic is thoroughly tested.
+*   **Files to Edit:** Test modules in `claude_json.rs` and `log_streaming.rs`.
+*   **Tests to Add:**
+    1.  **`ClaudeJsonParser` Tests:**
+        *   Test with a full, valid JSON line.
+        *   Test with a partial line, then the rest of it in a second call (e.g., `parser.parse("{\"type\":"); parser.parse("\"text\"}");`). Assert events are only produced after the second call.
+        *   Test with a line that is not JSON. Assert it returns a `PlainText` event.
+        *   Test with realistic Claude JSON snippets (assistant response, tool use, etc.).
+    2.  **`DockerLogStreamingManager` Integration Test:**
+        *   Create a mock `futures::stream` that yields a mix of timestamped JSON, plain text, and fragmented JSON lines.
+        *   Assert that the receiving end of the channel gets the correct, ordered sequence of `AgentEvent`s (e.g., `AgentEvent::ToolUse`, `AgentEvent::PlainText`).
+
+**3.2. Manual Verification:**
+
+*   **Goal:** Confirm the end-to-end functionality in the running application.
+*   **Steps:**
+    1.  Set the debug flag: `export CLAUDE_BOX_PARSER_DEBUG=1`.
+    2.  Run the application: `cargo run`.
+    3.  Enter Boss Mode with a prompt that will generate both text and tool usage.
+    4.  **Expected Outcome:**
+        *   The TUI should render formatted log entries with icons (e.g., `[ASSISTANT]`, `[TOOL USE]`) instead of raw JSON.
+        *   Regular log lines (e.g., from `npm install`) should still appear as plain text.
+        *   The debug logs should show the raw lines being correctly processed.
+    5.  Unset the flag and run again to ensure logs are clean by default.
+
+---
+
+### **Rollback Strategy**
+
+*   All work will be done on the `feat/alt-headless` branch (or a new branch from it).
+*   The changes are isolated to log parsing. If major issues arise, reverting the commits on this branch will restore the previous behavior.
+*   The diagnostic logging is controlled by an environment variable, posing no risk if merged as-is.

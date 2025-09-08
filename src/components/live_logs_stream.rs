@@ -378,6 +378,7 @@ pub struct LogEntry {
     pub message: String,
     pub session_id: Option<uuid::Uuid>,
     pub parsed_data: Option<super::log_parser::ParsedLog>, // Rich parsed metadata
+    pub metadata: std::collections::HashMap<String, String>, // Additional metadata for agent events
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,6 +398,7 @@ impl LogEntry {
             message,
             session_id: None,
             parsed_data: None,
+            metadata: std::collections::HashMap::new(),
         }
     }
     
@@ -414,11 +416,17 @@ impl LogEntry {
             message,
             session_id: Some(session_id),
             parsed_data,
+            metadata: std::collections::HashMap::new(),
         }
     }
 
     pub fn with_session(mut self, session_id: uuid::Uuid) -> Self {
         self.session_id = Some(session_id);
+        self
+    }
+    
+    pub fn with_metadata(mut self, key: &str, value: &str) -> Self {
+        self.metadata.insert(key.to_string(), value.to_string());
         self
     }
 
@@ -450,6 +458,7 @@ impl LogEntry {
             message: log_line.to_string(),
             session_id,
             parsed_data: None,
+            metadata: std::collections::HashMap::new(),
         }
     }
 
@@ -549,6 +558,7 @@ impl LogEntry {
                 message,
                 session_id,
                 parsed_data: None,
+                metadata: std::collections::HashMap::new(),
             }
         } else {
             // Not valid JSON, treat as regular log line but mark as boss mode
@@ -560,6 +570,7 @@ impl LogEntry {
                 message: format!("📟 {}", log_line), // Add prefix to indicate boss mode
                 session_id,
                 parsed_data: None,
+                metadata: std::collections::HashMap::new(),
             }
         }
     }
