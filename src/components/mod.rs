@@ -9,6 +9,9 @@ pub mod git_view;
 pub mod help;
 pub mod layout;
 pub mod live_logs_stream;
+// pub mod log_formatter;  // Complex version with borrow issues, using simple version instead
+pub mod log_formatter_simple;
+pub mod log_parser;
 pub mod logs_viewer;
 pub mod new_session;
 pub mod non_git_notification;

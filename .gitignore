@@ -36,4 +36,4 @@ tests/old-scripts-backup/
 # Amazonq
 .amazonq/
 AmazonQ.md
-.claude/
+.claude/action-summaries

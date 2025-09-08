@@ -2,6 +2,7 @@
 // Streams logs from Docker containers to the live logs UI component
 
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
+use crate::components::log_parser::LogParser;
 use crate::docker::ContainerManager;
 use anyhow::{Result, anyhow};
 use bollard::container::{LogOutput, LogsOptions};
@@ -152,6 +153,7 @@ impl DockerLogStreamingManager {
         );
 
         let mut log_stream = docker.logs(&container_id, Some(options));
+        let mut log_parser = LogParser::new();
 
         // Send initial connection message
         let _ = log_sender.send((
@@ -167,11 +169,12 @@ impl DockerLogStreamingManager {
         while let Some(log_result) = log_stream.next().await {
             match log_result {
                 Ok(log_output) => {
-                    let log_entry = Self::parse_log_output(
+                    let log_entry = Self::parse_log_output_with_parser(
                         log_output,
                         &container_name,
                         session_id,
                         &session_mode,
+                        &mut log_parser,
                     );
 
                     if let Err(e) = log_sender.send((session_id, log_entry)) {
@@ -214,7 +217,47 @@ impl DockerLogStreamingManager {
         Ok(())
     }
 
-    /// Parse Docker log output into a LogEntry
+    /// Parse Docker log output with the new parser
+    fn parse_log_output_with_parser(
+        log_output: LogOutput,
+        container_name: &str,
+        session_id: Uuid,
+        _session_mode: &crate::models::SessionMode,
+        parser: &mut LogParser,
+    ) -> LogEntry {
+        let (raw_message, _is_stderr) = match log_output {
+            LogOutput::StdOut { message } => (String::from_utf8_lossy(&message).to_string(), false),
+            LogOutput::StdErr { message } => (String::from_utf8_lossy(&message).to_string(), true),
+            LogOutput::Console { message } => {
+                (String::from_utf8_lossy(&message).to_string(), false)
+            }
+            LogOutput::StdIn { message } => (String::from_utf8_lossy(&message).to_string(), false),
+        };
+
+        // Parse the log with our advanced parser
+        let parsed_log = parser.parse_log(&raw_message);
+        
+        // Convert parsed log to LogEntry
+        let level = match parsed_log.level {
+            crate::components::log_parser::LogLevel::Error |
+            crate::components::log_parser::LogLevel::Fatal => LogEntryLevel::Error,
+            crate::components::log_parser::LogLevel::Warning => LogEntryLevel::Warn,
+            crate::components::log_parser::LogLevel::Debug |
+            crate::components::log_parser::LogLevel::Trace => LogEntryLevel::Debug,
+            _ => LogEntryLevel::Info,
+        };
+        
+        // Use the clean message from parser
+        LogEntry::new_with_parsed_data(
+            level,
+            container_name.to_string(),
+            parsed_log.clean_message.clone(),
+            session_id,
+            Some(parsed_log),
+        )
+    }
+    
+    /// Legacy parse method (kept for compatibility)
     fn parse_log_output(
         log_output: LogOutput,
         container_name: &str,
