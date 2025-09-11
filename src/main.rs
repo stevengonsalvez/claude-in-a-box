@@ -13,6 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod agent_parsers;
 mod app;
 mod claude;
 mod components;

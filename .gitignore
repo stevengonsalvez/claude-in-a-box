@@ -7,6 +7,7 @@ Cargo.lock
 # IDE
 .vscode/
 .idea/
+.code/
 *.swp
 *.swo
 *~
@@ -36,4 +37,4 @@ tests/old-scripts-backup/
 # Amazonq
 .amazonq/
 AmazonQ.md
-.claude/
+.claude/action-summaries

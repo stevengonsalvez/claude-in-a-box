@@ -1,9 +1,11 @@
 // ABOUTME: Live Docker log streaming component for real-time container monitoring
 
+use super::log_formatter_simple::{FormatConfig, SimpleLogFormatter};
 use crate::app::AppState;
 use ratatui::{
     prelude::*,
     style::{Color, Style},
+    text::Line,
     widgets::{Block, Borders, Paragraph, Wrap},
 };
 
@@ -13,6 +15,7 @@ pub struct LiveLogsStreamComponent {
     max_visible_lines: usize,
     show_timestamps: bool,
     filter_level: LogLevel,
+    log_formatter: SimpleLogFormatter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,12 +48,21 @@ impl LogLevel {
 
 impl LiveLogsStreamComponent {
     pub fn new() -> Self {
+        let format_config = FormatConfig {
+            show_timestamps: true,
+            use_relative_time: true,
+            show_source_badges: true,
+            compact_mode: false,
+            max_message_length: None,
+        };
+
         Self {
             auto_scroll: true,
             scroll_offset: 0,
             max_visible_lines: 20,
             show_timestamps: true,
             filter_level: LogLevel::All,
+            log_formatter: SimpleLogFormatter::new(format_config),
         }
     }
 
@@ -97,12 +109,13 @@ impl LiveLogsStreamComponent {
             return;
         }
 
-        // Create formatted log text with proper wrapping
-        let log_text = self.create_log_text(&filtered_logs, area.width.saturating_sub(2));
-
+        // Get scroll position before borrowing self mutably
         let scroll_pos = self.get_scroll_position(&filtered_logs);
 
-        let paragraph = Paragraph::new(log_text)
+        // Create formatted log lines using the beautiful formatter
+        let log_lines = self.create_formatted_log_lines(&filtered_logs);
+
+        let paragraph = Paragraph::new(log_lines)
             .block(block)
             .wrap(Wrap { trim: false })
             .scroll((scroll_pos as u16, 0));
@@ -176,8 +189,68 @@ impl LiveLogsStreamComponent {
         format!("🔴 Live Logs{}{}{}", session_info, filter_info, count_info)
     }
 
+    fn create_formatted_log_lines(&mut self, logs: &[&LogEntry]) -> Vec<Line> {
+        let mut all_lines = Vec::new();
+
+        // Process each log entry
+        for log in logs {
+            if let Some(ref parsed_data) = log.parsed_data {
+                // Use beautiful formatter for parsed logs
+                all_lines.push(self.log_formatter.format_log(parsed_data));
+            } else {
+                // Check if this is a structured message with multiple lines
+                if log.message.contains('\n') && log.metadata.get("event_type") == Some(&"structured".to_string()) {
+                    // Split multi-line messages (like todos) into separate lines
+                    for (idx, line_str) in log.message.lines().enumerate() {
+                        if idx == 0 {
+                            // First line with timestamp and level
+                            all_lines.push(self.format_basic_log_line_with_text(log, line_str));
+                        } else {
+                            // Subsequent lines without timestamp, just indented
+                            all_lines.push(Line::from(vec![
+                                ratatui::text::Span::raw("         "), // Indent for alignment
+                                ratatui::text::Span::raw(line_str.to_string()),
+                            ]));
+                        }
+                    }
+                } else {
+                    // Single line message
+                    all_lines.push(self.format_basic_log_line(log));
+                }
+            }
+        }
+
+        all_lines
+    }
+
+    fn format_basic_log_line(&self, log: &LogEntry) -> Line {
+        self.format_basic_log_line_with_text(log, &log.message)
+    }
+
+    fn format_basic_log_line_with_text(&self, log: &LogEntry, text: &str) -> Line {
+        let timestamp_str = if self.show_timestamps {
+            format!("[{}] ", log.timestamp.format("%H:%M:%S"))
+        } else {
+            String::new()
+        };
+
+        let (level_icon, level_color) = match log.level {
+            LogEntryLevel::Debug => ("🔍", Color::DarkGray),
+            LogEntryLevel::Info => ("ℹ️", Color::Blue),
+            LogEntryLevel::Warn => ("⚠️", Color::Yellow),
+            LogEntryLevel::Error => ("❌", Color::Red),
+        };
+
+        Line::from(vec![
+            ratatui::text::Span::styled(timestamp_str, Style::default().fg(Color::DarkGray)),
+            ratatui::text::Span::styled(level_icon, Style::default().fg(level_color)),
+            ratatui::text::Span::raw(" "),
+            ratatui::text::Span::raw(text.to_string()),
+        ])
+    }
+
     fn create_log_text(&self, logs: &[&LogEntry], available_width: u16) -> String {
-        // Don't skip any logs here - let the Paragraph widget handle scrolling
+        // Legacy method kept for compatibility
         logs.iter()
             .map(|log| self.format_log_entry_wrapped(log, available_width))
             .collect::<Vec<_>>()
@@ -262,6 +335,10 @@ impl LiveLogsStreamComponent {
     /// Toggle timestamp display
     pub fn toggle_timestamps(&mut self) {
         self.show_timestamps = !self.show_timestamps;
+        // Update formatter config
+        let mut config = FormatConfig::default();
+        config.show_timestamps = self.show_timestamps;
+        self.log_formatter = SimpleLogFormatter::new(config);
     }
 
     /// Cycle through filter levels
@@ -320,6 +397,8 @@ pub struct LogEntry {
     pub source: String, // Container name or source
     pub message: String,
     pub session_id: Option<uuid::Uuid>,
+    pub parsed_data: Option<super::log_parser::ParsedLog>, // Rich parsed metadata
+    pub metadata: std::collections::HashMap<String, String>, // Additional metadata for agent events
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,11 +417,36 @@ impl LogEntry {
             source,
             message,
             session_id: None,
+            parsed_data: None,
+            metadata: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn new_with_parsed_data(
+        level: LogEntryLevel,
+        source: String,
+        message: String,
+        session_id: uuid::Uuid,
+        parsed_data: Option<super::log_parser::ParsedLog>,
+    ) -> Self {
+        Self {
+            timestamp: chrono::Utc::now(),
+            level,
+            source,
+            message,
+            session_id: Some(session_id),
+            parsed_data,
+            metadata: std::collections::HashMap::new(),
         }
     }
 
     pub fn with_session(mut self, session_id: uuid::Uuid) -> Self {
         self.session_id = Some(session_id);
+        self
+    }
+
+    pub fn with_metadata(mut self, key: &str, value: &str) -> Self {
+        self.metadata.insert(key.to_string(), value.to_string());
         self
     }
 
@@ -373,6 +477,8 @@ impl LogEntry {
             source: container_name.to_string(),
             message: log_line.to_string(),
             session_id,
+            parsed_data: None,
+            metadata: std::collections::HashMap::new(),
         }
     }
 
@@ -471,6 +577,8 @@ impl LogEntry {
                 source: "claude-boss".to_string(), // Special source for boss mode
                 message,
                 session_id,
+                parsed_data: None,
+                metadata: std::collections::HashMap::new(),
             }
         } else {
             // Not valid JSON, treat as regular log line but mark as boss mode
@@ -481,6 +589,8 @@ impl LogEntry {
                 source: format!("{}-boss", container_name),
                 message: format!("📟 {}", log_line), // Add prefix to indicate boss mode
                 session_id,
+                parsed_data: None,
+                metadata: std::collections::HashMap::new(),
             }
         }
     }
