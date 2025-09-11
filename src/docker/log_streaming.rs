@@ -545,25 +545,56 @@ impl DockerLogStreamingManager {
                 // and, if present, a separate command line for clarity.
                 let mut msg = String::new();
                 let desc = description.unwrap_or_default();
-                if !desc.is_empty() {
+
+                // Special handling for TodoWrite
+                if name == "TodoWrite" {
+                    msg.push_str("📝 TodoWrite: Updating task list");
+                    if let Some(todos_val) = input.get("todos").and_then(|t| t.as_array()) {
+                        let mut pending = 0u32;
+                        let mut in_progress = 0u32;
+                        let mut done = 0u32;
+
+                        for t in todos_val {
+                            let status = t.get("status").and_then(|x| x.as_str()).unwrap_or("pending");
+                            match status {
+                                "completed" | "done" => done += 1,
+                                "in_progress" => in_progress += 1,
+                                _ => pending += 1,
+                            }
+                        }
+
+                        msg.push_str(&format!(
+                            "\n  Σ {} tasks • {} pending • {} ⏳ • {} ☑",
+                            todos_val.len(),
+                            pending,
+                            in_progress,
+                            done
+                        ));
+                    }
+                } else if !desc.is_empty() {
                     msg.push_str(&format!("🔧 {}: {}", name, desc));
                 } else {
                     msg.push_str(&format!("🔧 {}", name));
                 }
-                if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                    if !msg.is_empty() {
-                        msg.push('\n');
+
+                // Add command/query details for non-TodoWrite tools
+                if name != "TodoWrite" {
+                    if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
+                        if !msg.is_empty() {
+                            msg.push('\n');
+                        }
+                        msg.push_str(&format!("💻 Command: {}", cmd));
+                    } else if let Some(query) = input.get("query").and_then(|v| v.as_str()) {
+                        if !msg.is_empty() {
+                            msg.push('\n');
+                        }
+                        msg.push_str(&format!("🔎 Query: {}", query));
+                    } else if desc.is_empty() {
+                        // Fall back to showing the raw input JSON if nothing else was available
+                        msg.push_str(&format!(": {}", input));
                     }
-                    msg.push_str(&format!("💻 Command: {}", cmd));
-                } else if let Some(query) = input.get("query").and_then(|v| v.as_str()) {
-                    if !msg.is_empty() {
-                        msg.push('\n');
-                    }
-                    msg.push_str(&format!("🔎 Query: {}", query));
-                } else if desc.is_empty() {
-                    // Fall back to showing the raw input JSON if nothing else was available
-                    msg.push_str(&format!(": {}", input));
                 }
+
                 LogEntry::new(LogEntryLevel::Info, container_name.to_string(), msg)
                     .with_session(session_id)
                     .with_metadata("event_type", "tool_call")
@@ -909,6 +940,36 @@ mod tests {
         assert_eq!(entry.level, LogEntryLevel::Info);
         assert_eq!(entry.message, "🤖 Claude: Hello from Claude!");
         assert_eq!(entry.source, "claude-boss");
+    }
+
+    #[test]
+    fn test_todo_write_formatting() {
+        // Test that TodoWrite tool calls are formatted nicely
+        let tool_call = crate::agent_parsers::AgentEvent::ToolCall {
+            id: "test_123".to_string(),
+            name: "TodoWrite".to_string(),
+            input: serde_json::json!({
+                "todos": [
+                    {"content": "Write tests", "status": "completed"},
+                    {"content": "Fix bugs", "status": "in_progress"},
+                    {"content": "Deploy", "status": "pending"},
+                    {"content": "Document", "status": "pending"}
+                ]
+            }),
+            description: None,
+        };
+
+        let entry = DockerLogStreamingManager::agent_event_to_log_entry(
+            tool_call,
+            "test-container",
+            uuid::Uuid::new_v4(),
+        );
+
+        assert!(entry.message.contains("📝 TodoWrite: Updating task list"));
+        assert!(entry.message.contains("Σ 4 tasks"));
+        assert!(entry.message.contains("2 pending"));
+        assert!(entry.message.contains("1 ⏳"));
+        assert!(entry.message.contains("1 ☑"));
     }
 
     #[test]

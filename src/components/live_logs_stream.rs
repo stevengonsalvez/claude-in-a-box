@@ -194,20 +194,40 @@ impl LiveLogsStreamComponent {
 
         // Process each log entry
         for log in logs {
-            let line = if let Some(ref parsed_data) = log.parsed_data {
+            if let Some(ref parsed_data) = log.parsed_data {
                 // Use beautiful formatter for parsed logs
-                self.log_formatter.format_log(parsed_data)
+                all_lines.push(self.log_formatter.format_log(parsed_data));
             } else {
-                // Fallback to simple formatting
-                self.format_basic_log_line(log)
-            };
-            all_lines.push(line);
+                // Check if this is a structured message with multiple lines
+                if log.message.contains('\n') && log.metadata.get("event_type") == Some(&"structured".to_string()) {
+                    // Split multi-line messages (like todos) into separate lines
+                    for (idx, line_str) in log.message.lines().enumerate() {
+                        if idx == 0 {
+                            // First line with timestamp and level
+                            all_lines.push(self.format_basic_log_line_with_text(log, line_str));
+                        } else {
+                            // Subsequent lines without timestamp, just indented
+                            all_lines.push(Line::from(vec![
+                                ratatui::text::Span::raw("         "), // Indent for alignment
+                                ratatui::text::Span::raw(line_str.to_string()),
+                            ]));
+                        }
+                    }
+                } else {
+                    // Single line message
+                    all_lines.push(self.format_basic_log_line(log));
+                }
+            }
         }
 
         all_lines
     }
 
     fn format_basic_log_line(&self, log: &LogEntry) -> Line {
+        self.format_basic_log_line_with_text(log, &log.message)
+    }
+
+    fn format_basic_log_line_with_text(&self, log: &LogEntry, text: &str) -> Line {
         let timestamp_str = if self.show_timestamps {
             format!("[{}] ", log.timestamp.format("%H:%M:%S"))
         } else {
@@ -225,7 +245,7 @@ impl LiveLogsStreamComponent {
             ratatui::text::Span::styled(timestamp_str, Style::default().fg(Color::DarkGray)),
             ratatui::text::Span::styled(level_icon, Style::default().fg(level_color)),
             ratatui::text::Span::raw(" "),
-            ratatui::text::Span::raw(log.message.clone()),
+            ratatui::text::Span::raw(text.to_string()),
         ])
     }
 
