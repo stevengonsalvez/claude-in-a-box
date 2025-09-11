@@ -1,7 +1,7 @@
 // ABOUTME: Live Docker log streaming component for real-time container monitoring
 
+use super::log_formatter_simple::{FormatConfig, SimpleLogFormatter};
 use crate::app::AppState;
-use super::log_formatter_simple::{SimpleLogFormatter, FormatConfig};
 use ratatui::{
     prelude::*,
     style::{Color, Style},
@@ -55,7 +55,7 @@ impl LiveLogsStreamComponent {
             compact_mode: false,
             max_message_length: None,
         };
-        
+
         Self {
             auto_scroll: true,
             scroll_offset: 0,
@@ -111,7 +111,7 @@ impl LiveLogsStreamComponent {
 
         // Get scroll position before borrowing self mutably
         let scroll_pos = self.get_scroll_position(&filtered_logs);
-        
+
         // Create formatted log lines using the beautiful formatter
         let log_lines = self.create_formatted_log_lines(&filtered_logs);
 
@@ -191,7 +191,7 @@ impl LiveLogsStreamComponent {
 
     fn create_formatted_log_lines(&mut self, logs: &[&LogEntry]) -> Vec<Line> {
         let mut all_lines = Vec::new();
-        
+
         // Process each log entry
         for log in logs {
             let line = if let Some(ref parsed_data) = log.parsed_data {
@@ -203,24 +203,24 @@ impl LiveLogsStreamComponent {
             };
             all_lines.push(line);
         }
-        
+
         all_lines
     }
-    
+
     fn format_basic_log_line(&self, log: &LogEntry) -> Line {
         let timestamp_str = if self.show_timestamps {
             format!("[{}] ", log.timestamp.format("%H:%M:%S"))
         } else {
             String::new()
         };
-        
+
         let (level_icon, level_color) = match log.level {
             LogEntryLevel::Debug => ("🔍", Color::DarkGray),
             LogEntryLevel::Info => ("ℹ️", Color::Blue),
             LogEntryLevel::Warn => ("⚠️", Color::Yellow),
             LogEntryLevel::Error => ("❌", Color::Red),
         };
-        
+
         Line::from(vec![
             ratatui::text::Span::styled(timestamp_str, Style::default().fg(Color::DarkGray)),
             ratatui::text::Span::styled(level_icon, Style::default().fg(level_color)),
@@ -228,7 +228,7 @@ impl LiveLogsStreamComponent {
             ratatui::text::Span::raw(log.message.clone()),
         ])
     }
-    
+
     fn create_log_text(&self, logs: &[&LogEntry], available_width: u16) -> String {
         // Legacy method kept for compatibility
         logs.iter()
@@ -401,7 +401,7 @@ impl LogEntry {
             metadata: std::collections::HashMap::new(),
         }
     }
-    
+
     pub fn new_with_parsed_data(
         level: LogEntryLevel,
         source: String,
@@ -424,7 +424,7 @@ impl LogEntry {
         self.session_id = Some(session_id);
         self
     }
-    
+
     pub fn with_metadata(mut self, key: &str, value: &str) -> Self {
         self.metadata.insert(key.to_string(), value.to_string());
         self

@@ -22,23 +22,23 @@ impl AgentOutputParser for PlainTextParser {
         if line.trim().is_empty() {
             return Ok(vec![]);
         }
-        
+
         // Each non-empty line becomes a message
         Ok(vec![AgentEvent::Message {
             content: line.to_string(),
             id: None,
         }])
     }
-    
+
     fn flush(&mut self) -> Vec<AgentEvent> {
         // Nothing to flush for plain text
         vec![]
     }
-    
+
     fn agent_type(&self) -> &str {
         "plain-text"
     }
-    
+
     fn reset(&mut self) {
         self.state = ParserState::default();
     }

@@ -8,13 +8,17 @@ use crate::docker::ContainerManager;
 use anyhow::{Result, anyhow};
 use bollard::container::{LogOutput, LogsOptions};
 use futures_util::StreamExt;
+use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
-use serde_json::Value;
-use serde::Deserialize;
+
+// Maximum size of the in-flight JSON buffer while waiting for a balanced object.
+// Prevents unbounded memory growth on malformed or never-terminating streams.
+const DEFAULT_JSON_BUF_LIMIT: usize = 256 * 1024; // 256 KB
 
 #[derive(Debug)]
 pub struct DockerLogStreamingManager {
@@ -157,13 +161,17 @@ impl DockerLogStreamingManager {
 
         let mut log_stream = docker.logs(&container_id, Some(options));
         let mut log_parser = LogParser::new();
-        
+
         // JSON streaming parser (used for Boss Mode, but safe to try for any session)
         let mut agent_parser: Option<Box<dyn AgentOutputParser>> = None;
         let is_boss_mode = matches!(session_mode, crate::models::SessionMode::Boss);
         // Buffer for partial JSON objects across frames
         let mut boss_json_buffer = String::new();
         let parser_debug = std::env::var("CLAUDE_BOX_PARSER_DEBUG").is_ok();
+        let buf_limit: usize = std::env::var("CLAUDE_BOX_JSON_BUF_MAX")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(DEFAULT_JSON_BUF_LIMIT);
 
         // Send initial connection message
         let _ = log_sender.send((
@@ -181,12 +189,14 @@ impl DockerLogStreamingManager {
                 Ok(log_output) => {
                     // Extract raw message
                     let raw_message = match &log_output {
-                        LogOutput::StdOut { message } | 
-                        LogOutput::StdErr { message } |
-                        LogOutput::Console { message } |
-                        LogOutput::StdIn { message } => String::from_utf8_lossy(message).to_string(),
+                        LogOutput::StdOut { message }
+                        | LogOutput::StdErr { message }
+                        | LogOutput::Console { message }
+                        | LogOutput::StdIn { message } => {
+                            String::from_utf8_lossy(message).to_string()
+                        }
                     };
-                    
+
                     // For boss mode, try to extract a JSON slice from the line
                     // Docker logs format: "2025-09-08T19:20:30.123456789Z {"type":"..."}"
                     let mut handled_as_json = false;
@@ -194,65 +204,105 @@ impl DockerLogStreamingManager {
 
                     // Prefer robust streaming JSON handling for any line that looks like JSON
                     if let Some(start) = raw_message.find('{') {
-                            let mut candidate = String::new();
-                            if !boss_json_buffer.is_empty() {
-                                candidate.push_str(&boss_json_buffer);
+                        let mut candidate = String::new();
+                        if !boss_json_buffer.is_empty() {
+                            candidate.push_str(&boss_json_buffer);
+                        }
+                        candidate.push_str(&raw_message[start..]);
+
+                        let (objects, incomplete) = Self::stream_json_objects(&candidate);
+
+                        if parser_debug {
+                            debug!(
+                                got_objects = objects.len(),
+                                incomplete,
+                                preview = %candidate.chars().take(120).collect::<String>(),
+                                mode = ?session_mode,
+                                "JSON candidate evaluated"
+                            );
+                        }
+
+                        if !objects.is_empty() {
+                            if agent_parser.is_none() {
+                                agent_parser =
+                                    Some(Box::new(crate::agent_parsers::ClaudeJsonParser::new()));
                             }
-                            candidate.push_str(&raw_message[start..]);
-
-                            let (objects, incomplete) = Self::stream_json_objects(&candidate);
-
-                            if parser_debug {
-                                debug!(
-                                    got_objects = objects.len(),
-                                    incomplete,
-                                    preview = %candidate.chars().take(120).collect::<String>(),
-                                    mode = ?session_mode,
-                                    "JSON candidate evaluated"
-                                );
-                            }
-
-                            if !objects.is_empty() {
-                                if agent_parser.is_none() {
-                                    agent_parser = Some(Box::new(crate::agent_parsers::ClaudeJsonParser::new()));
-                                }
-                                if let Some(ref mut parser) = agent_parser {
-                                    for obj in objects {
-                                        match parser.parse_line(&obj) {
-                                            Ok(events) => {
-                                                for event in events {
-                                                    let log_entry = Self::agent_event_to_log_entry(
-                                                        event,
-                                                        &container_name,
-                                                        session_id,
-                                                    );
-                                                    if let Err(e) = log_sender.send((session_id, log_entry)) {
-                                                        warn!("Failed to send log entry: {}", e);
-                                                        break;
-                                                    }
+                            if let Some(ref mut parser) = agent_parser {
+                                for obj in objects {
+                                    match parser.parse_line(&obj) {
+                                        Ok(events) => {
+                                            for event in events {
+                                                let log_entry = Self::agent_event_to_log_entry(
+                                                    event,
+                                                    &container_name,
+                                                    session_id,
+                                                );
+                                                if let Err(e) =
+                                                    log_sender.send((session_id, log_entry))
+                                                {
+                                                    warn!("Failed to send log entry: {}", e);
+                                                    break;
                                                 }
                                             }
-                                            Err(e) => {
-                                                debug!("Parser error on JSON object: {}", e);
-                                            }
+                                        }
+                                        Err(e) => {
+                                            debug!("Parser error on JSON object: {}", e);
                                         }
                                     }
                                 }
-                                handled_as_json = true;
                             }
+                            handled_as_json = true;
+                        }
 
-                            if incomplete {
-                                boss_json_buffer = candidate; // keep buffering until complete
+                        if incomplete {
+                            // Enforce a hard cap to avoid unbounded buffering
+                            if candidate.len() > buf_limit {
+                                let warn_msg = format!(
+                                    "⚠️ JSON buffer limit exceeded ({} bytes > {} bytes). Flushing as plain text.",
+                                    candidate.len(),
+                                    buf_limit
+                                );
+                                let _ = log_sender.send((
+                                    session_id,
+                                    LogEntry::new(
+                                        LogEntryLevel::Warn,
+                                        container_name.clone(),
+                                        warn_msg,
+                                    )
+                                    .with_session(session_id),
+                                ));
+
+                                // Emit a trimmed preview of the buffered content to avoid huge messages
+                                let preview = if candidate.len() > 4000 {
+                                    format!("{}... (truncated)", &candidate[..4000])
+                                } else {
+                                    candidate.clone()
+                                };
+                                let _ = log_sender.send((
+                                    session_id,
+                                    LogEntry::new(
+                                        LogEntryLevel::Info,
+                                        container_name.clone(),
+                                        preview,
+                                    )
+                                    .with_session(session_id),
+                                ));
+
+                                boss_json_buffer.clear();
                                 handled_as_json = true;
                             } else {
-                                boss_json_buffer.clear();
+                                boss_json_buffer = candidate; // keep buffering until complete
+                                handled_as_json = true;
                             }
-                        } else if !boss_json_buffer.is_empty() {
-                            // Continue buffering if we were mid-object
-                            boss_json_buffer.push_str(&raw_message);
-                            handled_as_json = true;
+                        } else {
+                            boss_json_buffer.clear();
+                        }
+                    } else if !boss_json_buffer.is_empty() {
+                        // Continue buffering if we were mid-object
+                        boss_json_buffer.push_str(&raw_message);
+                        handled_as_json = true;
                     }
-                    
+
                     // Regular parsing for non-JSON lines or when JSON parsing fails
                     if !handled_as_json {
                         let log_entry = Self::parse_log_output_with_parser(
@@ -313,7 +363,11 @@ impl DockerLogStreamingManager {
         let start = line.find('{')?;
         let slice = &line[start..];
         // Cheap sanity: must contain a closing brace sometime later
-        if slice.contains('}') { Some(slice) } else { None }
+        if slice.contains('}') {
+            Some(slice)
+        } else {
+            None
+        }
     }
 
     /// Consume one or more JSON values by brace-balance scanning; robust to whitespace and preserves exact slices.
@@ -326,11 +380,17 @@ impl DockerLogStreamingManager {
 
         while i < bytes.len() {
             // Skip whitespace
-            while i < bytes.len() && bytes[i].is_ascii_whitespace() { i += 1; }
-            if i >= bytes.len() { break; }
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i >= bytes.len() {
+                break;
+            }
             let start = i;
             let opener = bytes[i];
-            if opener != b'{' && opener != b'[' { break; }
+            if opener != b'{' && opener != b'[' {
+                break;
+            }
 
             // Balance braces/brackets, handling strings and escapes
             let mut depth = 0i32;
@@ -339,21 +399,34 @@ impl DockerLogStreamingManager {
             while i < bytes.len() {
                 let c = bytes[i] as char;
                 if in_string {
-                    if esc { esc = false; }
-                    else if c == '\\' { esc = true; }
-                    else if c == '"' { in_string = false; }
+                    if esc {
+                        esc = false;
+                    } else if c == '\\' {
+                        esc = true;
+                    } else if c == '"' {
+                        in_string = false;
+                    }
                 } else {
                     match c {
                         '"' => in_string = true,
                         '{' | '[' => depth += 1,
-                        '}' | ']' => { depth -= 1; if depth == 0 { i += 1; break; } },
+                        '}' | ']' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                i += 1;
+                                break;
+                            }
+                        }
                         _ => {}
                     }
                 }
                 i += 1;
             }
 
-            if depth != 0 { incomplete = true; break; }
+            if depth != 0 {
+                incomplete = true;
+                break;
+            }
             let end = i; // slice is [start, end)
             let slice = &input[start..end];
             // Validate JSON quickly to avoid false positives
@@ -365,7 +438,6 @@ impl DockerLogStreamingManager {
 
         (out, incomplete)
     }
-
 
     /// Parse Docker log output with the new parser
     fn parse_log_output_with_parser(
@@ -386,17 +458,17 @@ impl DockerLogStreamingManager {
 
         // Parse the log with our advanced parser
         let parsed_log = parser.parse_log(&raw_message);
-        
+
         // Convert parsed log to LogEntry
         let level = match parsed_log.level {
-            crate::components::log_parser::LogLevel::Error |
-            crate::components::log_parser::LogLevel::Fatal => LogEntryLevel::Error,
+            crate::components::log_parser::LogLevel::Error
+            | crate::components::log_parser::LogLevel::Fatal => LogEntryLevel::Error,
             crate::components::log_parser::LogLevel::Warning => LogEntryLevel::Warn,
-            crate::components::log_parser::LogLevel::Debug |
-            crate::components::log_parser::LogLevel::Trace => LogEntryLevel::Debug,
+            crate::components::log_parser::LogLevel::Debug
+            | crate::components::log_parser::LogLevel::Trace => LogEntryLevel::Debug,
             _ => LogEntryLevel::Info,
         };
-        
+
         // Use the clean message from parser
         LogEntry::new_with_parsed_data(
             level,
@@ -406,7 +478,7 @@ impl DockerLogStreamingManager {
             Some(parsed_log),
         )
     }
-    
+
     /// Convert AgentEvent to LogEntry for display
     fn agent_event_to_log_entry(
         event: crate::agent_parsers::AgentEvent,
@@ -414,43 +486,61 @@ impl DockerLogStreamingManager {
         session_id: Uuid,
     ) -> LogEntry {
         use crate::agent_parsers::AgentEvent;
-        
+
         match event {
-            AgentEvent::SessionInfo { model, tools, session_id: sid, mcp_servers } => {
+            AgentEvent::SessionInfo {
+                model,
+                tools,
+                session_id: sid,
+                mcp_servers,
+            } => {
                 let mut info = format!("📊 Session: {} | {} tools available", model, tools.len());
                 if let Some(servers) = mcp_servers {
-                    info.push_str(&format!(" | MCP: {}", servers.iter()
-                        .map(|s| format!("{} ({})", s.name, s.status))
-                        .collect::<Vec<_>>()
-                        .join(", ")));
+                    info.push_str(&format!(
+                        " | MCP: {}",
+                        servers
+                            .iter()
+                            .map(|s| format!("{} ({})", s.name, s.status))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
                 }
                 LogEntry::new(LogEntryLevel::Info, container_name.to_string(), info)
                     .with_session(session_id)
                     .with_metadata("event_type", "session_info")
                     .with_metadata("session_id", &sid)
             }
-            
-            AgentEvent::Thinking { content } => {
-                LogEntry::new(LogEntryLevel::Debug, container_name.to_string(), format!("💭 {}", content))
-                    .with_session(session_id)
-                    .with_metadata("event_type", "thinking")
-            }
-            
-            AgentEvent::Message { content, id } => {
-                LogEntry::new(LogEntryLevel::Info, container_name.to_string(), format!("💬 {}", content))
-                    .with_session(session_id)
-                    .with_metadata("event_type", "message")
-                    .with_metadata("message_id", &id.unwrap_or_default())
-            }
-            
+
+            AgentEvent::Thinking { content } => LogEntry::new(
+                LogEntryLevel::Debug,
+                container_name.to_string(),
+                format!("💭 {}", content),
+            )
+            .with_session(session_id)
+            .with_metadata("event_type", "thinking"),
+
+            AgentEvent::Message { content, id } => LogEntry::new(
+                LogEntryLevel::Info,
+                container_name.to_string(),
+                format!("💬 {}", content),
+            )
+            .with_session(session_id)
+            .with_metadata("event_type", "message")
+            .with_metadata("message_id", &id.unwrap_or_default()),
+
             AgentEvent::StreamingText { delta, message_id } => {
                 LogEntry::new(LogEntryLevel::Info, container_name.to_string(), delta)
                     .with_session(session_id)
                     .with_metadata("event_type", "streaming")
                     .with_metadata("message_id", &message_id.unwrap_or_default())
             }
-            
-            AgentEvent::ToolCall { id, name, input, description } => {
+
+            AgentEvent::ToolCall {
+                id,
+                name,
+                input,
+                description,
+            } => {
                 // Build a REPL-like message: a headline with the tool name/desc
                 // and, if present, a separate command line for clarity.
                 let mut msg = String::new();
@@ -461,10 +551,14 @@ impl DockerLogStreamingManager {
                     msg.push_str(&format!("🔧 {}", name));
                 }
                 if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                    if !msg.is_empty() { msg.push('\n'); }
+                    if !msg.is_empty() {
+                        msg.push('\n');
+                    }
                     msg.push_str(&format!("💻 Command: {}", cmd));
                 } else if let Some(query) = input.get("query").and_then(|v| v.as_str()) {
-                    if !msg.is_empty() { msg.push('\n'); }
+                    if !msg.is_empty() {
+                        msg.push('\n');
+                    }
                     msg.push_str(&format!("🔎 Query: {}", query));
                 } else if desc.is_empty() {
                     // Fall back to showing the raw input JSON if nothing else was available
@@ -476,8 +570,12 @@ impl DockerLogStreamingManager {
                     .with_metadata("tool_id", &id)
                     .with_metadata("tool_name", &name)
             }
-            
-            AgentEvent::ToolResult { tool_use_id, content, is_error } => {
+
+            AgentEvent::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
                 let (level, prefix) = if is_error {
                     (LogEntryLevel::Error, "❌")
                 } else {
@@ -487,7 +585,9 @@ impl DockerLogStreamingManager {
                 fn truncate_display(s: &str, max_chars: usize) -> String {
                     let mut out = String::with_capacity(s.len().min(max_chars));
                     for (i, ch) in s.chars().enumerate() {
-                        if i >= max_chars { break; }
+                        if i >= max_chars {
+                            break;
+                        }
                         out.push(ch);
                     }
                     if s.chars().count() > max_chars {
@@ -496,20 +596,31 @@ impl DockerLogStreamingManager {
                     out
                 }
                 let display_content = truncate_display(&content, 500);
-                LogEntry::new(level, container_name.to_string(), format!("{} Result: {}", prefix, display_content))
-                    .with_session(session_id)
-                    .with_metadata("event_type", "tool_result")
-                    .with_metadata("tool_use_id", &tool_use_id)
+                LogEntry::new(
+                    level,
+                    container_name.to_string(),
+                    format!("{} Result: {}", prefix, display_content),
+                )
+                .with_session(session_id)
+                .with_metadata("event_type", "tool_result")
+                .with_metadata("tool_use_id", &tool_use_id)
             }
-            
-            AgentEvent::Error { message, code } => {
-                LogEntry::new(LogEntryLevel::Error, container_name.to_string(), format!("❌ Error: {}", message))
-                    .with_session(session_id)
-                    .with_metadata("event_type", "error")
-                    .with_metadata("error_code", &code.unwrap_or_default())
-            }
-            
-            AgentEvent::Usage { input_tokens, output_tokens, cache_tokens, .. } => {
+
+            AgentEvent::Error { message, code } => LogEntry::new(
+                LogEntryLevel::Error,
+                container_name.to_string(),
+                format!("❌ Error: {}", message),
+            )
+            .with_session(session_id)
+            .with_metadata("event_type", "error")
+            .with_metadata("error_code", &code.unwrap_or_default()),
+
+            AgentEvent::Usage {
+                input_tokens,
+                output_tokens,
+                cache_tokens,
+                ..
+            } => {
                 let mut usage = format!("📈 Usage: {} in, {} out", input_tokens, output_tokens);
                 if let Some(cache) = cache_tokens {
                     usage.push_str(&format!(", {} cached", cache));
@@ -518,16 +629,90 @@ impl DockerLogStreamingManager {
                     .with_session(session_id)
                     .with_metadata("event_type", "usage")
             }
-            
-            AgentEvent::Custom { event_type, data } => {
-                LogEntry::new(LogEntryLevel::Info, container_name.to_string(), format!("📌 {}: {}", event_type, data))
+
+            AgentEvent::Custom { event_type, data } => LogEntry::new(
+                LogEntryLevel::Info,
+                container_name.to_string(),
+                format!("📌 {}: {}", event_type, data),
+            )
+            .with_session(session_id)
+            .with_metadata("event_type", "custom")
+            .with_metadata("custom_type", &event_type),
+
+            AgentEvent::Structured(payload) => {
+                use crate::agent_parsers::types::StructuredPayload;
+
+                let (level, icon, message) = match payload {
+                    StructuredPayload::TodoList {
+                        title,
+                        items,
+                        pending,
+                        in_progress,
+                        done,
+                    } => {
+                        // Create a proper multi-line todo list display
+                        let mut lines = Vec::new();
+
+                        // Title
+                        if let Some(t) = title {
+                            lines.push(format!("📝 {}", t));
+                        } else {
+                            lines.push("📝 Todos".to_string());
+                        }
+
+                        // Show each todo item on its own line
+                        for item in items.iter() {
+                            let icon = match item.status.as_str() {
+                                "done" | "completed" => "☑",
+                                "in_progress" | "active" => "⏳",
+                                _ => "◻︎",
+                            };
+                            lines.push(format!("  {} {}", icon, item.text));
+                        }
+
+                        // Add summary line
+                        lines.push(format!(
+                            "  Σ {} • {} pending • {} ⏳ • {} ☑",
+                            items.len(),
+                            pending,
+                            in_progress,
+                            done
+                        ));
+
+                        // Join with newlines for multi-line display
+                        let msg = lines.join("\n");
+
+                        (LogEntryLevel::Info, "📝", msg)
+                    }
+
+                    StructuredPayload::GlobResults { paths, total } => {
+                        let mut msg = format!("📂 Found {} files\n", total);
+
+                        // Show first 15 paths
+                        for path in paths.iter().take(15) {
+                            msg.push_str(&format!("  • {}\n", path));
+                        }
+
+                        if paths.len() > 15 {
+                            msg.push_str(&format!("  … +{} more", paths.len() - 15));
+                        }
+
+                        (LogEntryLevel::Info, "📂", msg)
+                    }
+
+                    StructuredPayload::PrettyJson(json_str) => {
+                        (LogEntryLevel::Info, "📋", format!("📋 Data:\n{}", json_str))
+                    }
+                };
+
+                LogEntry::new(level, container_name.to_string(), message)
                     .with_session(session_id)
-                    .with_metadata("event_type", "custom")
-                    .with_metadata("custom_type", &event_type)
+                    .with_metadata("event_type", "structured")
+                    .with_metadata("icon", icon)
             }
         }
     }
-    
+
     /// Legacy parse method (kept for compatibility)
     fn parse_log_output(
         log_output: LogOutput,
@@ -739,11 +924,8 @@ mod tests {
             description: Some("Run tests to check current status".to_string()),
         };
 
-        let entry = DockerLogStreamingManager::agent_event_to_log_entry(
-            event,
-            "container",
-            Uuid::nil(),
-        );
+        let entry =
+            DockerLogStreamingManager::agent_event_to_log_entry(event, "container", Uuid::nil());
 
         assert!(entry.message.contains("🔧 Bash: Run tests to check current status"));
         assert!(entry.message.contains("💻 Command: cargo test --quiet 2>&1 | tail -10"));

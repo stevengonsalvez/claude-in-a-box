@@ -1,9 +1,9 @@
 // ABOUTME: Advanced log parser for beautifying Docker container logs in TUI
 // Handles pattern detection, ANSI stripping, and intelligent log categorization
 
-use regex::Regex;
-use lazy_static::lazy_static;
 use chrono::{DateTime, Utc};
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::collections::HashMap;
 
 /// Parsed log entry with rich metadata
@@ -59,22 +59,22 @@ pub enum LogLevel {
 lazy_static! {
     // ANSI escape sequence remover
     static ref ANSI_REGEX: Regex = Regex::new(r"\x1B\[[0-9;]*[mGKH]").unwrap();
-    
+
     // Docker timestamp pattern (ISO 8601)
     static ref DOCKER_TIMESTAMP: Regex = Regex::new(
         r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z"
     ).unwrap();
-    
+
     // Claude session pattern [claude/session-id]
     static ref CLAUDE_SESSION: Regex = Regex::new(
         r"\[claude/([a-f0-9-]+)\]"
     ).unwrap();
-    
+
     // Claude-box tag pattern
     static ref CLAUDE_BOX_TAG: Regex = Regex::new(
         r"\[claude-box\]"
     ).unwrap();
-    
+
     // Log level patterns
     static ref LOG_LEVEL_PATTERNS: Vec<(Regex, LogLevel)> = vec![
         (Regex::new(r"(?i)\b(error|err|fail|failed|fatal)\b").unwrap(), LogLevel::Error),
@@ -84,7 +84,7 @@ lazy_static! {
         (Regex::new(r"(?i)\b(debug|dbg)\b").unwrap(), LogLevel::Debug),
         (Regex::new(r"(?i)\b(trace|tracing)\b").unwrap(), LogLevel::Trace),
     ];
-    
+
     // Category detection patterns
     static ref CATEGORY_PATTERNS: Vec<(Regex, LogCategory)> = vec![
         (Regex::new(r"(?i)(oauth|auth|token|credential|login|ssh key)").unwrap(), LogCategory::Authentication),
@@ -95,7 +95,7 @@ lazy_static! {
         (Regex::new(r"(?i)(network|http|api|connection|connected|disconnected)").unwrap(), LogCategory::Network),
         (Regex::new(r"(?i)(system|startup|shutdown|initialization)").unwrap(), LogCategory::System),
     ];
-    
+
     // Claude command patterns
     static ref CLAUDE_COMMANDS: Regex = Regex::new(
         r"claude-(ask|print|script|start|interactive|help)"
@@ -114,36 +114,36 @@ impl LogParser {
             last_category: LogCategory::Unknown,
         }
     }
-    
+
     /// Parse a raw log line into a structured format
     pub fn parse_log(&mut self, raw_line: &str) -> ParsedLog {
         // Strip ANSI codes first
         let clean_line = self.strip_ansi(raw_line);
-        
+
         // Extract timestamp if present
         let (timestamp, message) = self.extract_timestamp(&clean_line);
-        
+
         // Detect source
         let (source, message) = self.detect_source(&message);
-        
+
         // Detect category
         let category = self.detect_category(&message);
-        
+
         // Detect log level
         let level = self.detect_level(&message);
-        
+
         // Check if this is a continuation of previous log
         let is_continuation = self.is_continuation_line(&message);
-        
+
         // Extract metadata
         let metadata = self.extract_metadata(&message);
-        
+
         // Clean up the message for display
         let display_message = self.clean_message_for_display(&message);
-        
+
         // Update state
         self.last_category = category;
-        
+
         ParsedLog {
             raw_message: raw_line.to_string(),
             clean_message: display_message,
@@ -155,25 +155,25 @@ impl LogParser {
             is_continuation,
         }
     }
-    
+
     /// Strip ANSI escape sequences from text
     fn strip_ansi(&self, text: &str) -> String {
         ANSI_REGEX.replace_all(text, "").to_string()
     }
-    
+
     /// Extract Docker timestamp from log line
     fn extract_timestamp(&self, line: &str) -> (Option<DateTime<Utc>>, String) {
         if let Some(cap) = DOCKER_TIMESTAMP.find(line) {
             let timestamp_str = cap.as_str();
             let remaining = line[cap.end()..].trim().to_string();
-            
+
             if let Ok(dt) = DateTime::parse_from_rfc3339(timestamp_str) {
                 return (Some(dt.with_timezone(&Utc)), remaining);
             }
         }
         (None, line.to_string())
     }
-    
+
     /// Detect log source (claude-box, claude session, etc.)
     fn detect_source(&self, message: &str) -> (LogSource, String) {
         // Check for Claude session pattern
@@ -182,13 +182,13 @@ impl LogParser {
             let cleaned = CLAUDE_SESSION.replace(message, "").trim().to_string();
             return (LogSource::ClaudeSession(session_id), cleaned);
         }
-        
+
         // Check for claude-box tag
         if CLAUDE_BOX_TAG.is_match(message) {
             let cleaned = CLAUDE_BOX_TAG.replace(message, "").trim().to_string();
             return (LogSource::ClaudeBox, cleaned);
         }
-        
+
         // Check for docker prefix
         if message.starts_with("[docker]") || message.starts_with("docker:") {
             let cleaned = message
@@ -198,27 +198,27 @@ impl LogParser {
                 .to_string();
             return (LogSource::Docker, cleaned);
         }
-        
+
         (LogSource::Unknown, message.to_string())
     }
-    
+
     /// Detect log category based on content
     fn detect_category(&self, message: &str) -> LogCategory {
         // Check for Claude-specific patterns first
         if CLAUDE_COMMANDS.is_match(message) {
             return LogCategory::Claude;
         }
-        
+
         // Check other category patterns
         for (pattern, category) in CATEGORY_PATTERNS.iter() {
             if pattern.is_match(message) {
                 return *category;
             }
         }
-        
+
         LogCategory::Unknown
     }
-    
+
     /// Detect log level from message content
     fn detect_level(&self, message: &str) -> LogLevel {
         for (pattern, level) in LOG_LEVEL_PATTERNS.iter() {
@@ -228,61 +228,61 @@ impl LogParser {
         }
         LogLevel::Info
     }
-    
+
     /// Check if this line is a continuation of the previous log
     fn is_continuation_line(&self, message: &str) -> bool {
         // Lines starting with spaces, tabs, or certain characters are continuations
-        message.starts_with("  ") || 
-        message.starts_with("\t") || 
-        message.starts_with("   •") ||
-        message.starts_with("   -") ||
-        message.starts_with("   *")
+        message.starts_with("  ")
+            || message.starts_with("\t")
+            || message.starts_with("   •")
+            || message.starts_with("   -")
+            || message.starts_with("   *")
     }
-    
+
     /// Extract metadata from log message
     fn extract_metadata(&self, message: &str) -> HashMap<String, String> {
         let mut metadata = HashMap::new();
-        
+
         // Extract container ID if present
         if let Some(caps) = Regex::new(r"container: ([a-f0-9]{12})").unwrap().captures(message) {
             metadata.insert("container_id".to_string(), caps[1].to_string());
         }
-        
+
         // Extract port numbers
         if let Some(caps) = Regex::new(r"port[: ]+(\d+)").unwrap().captures(message) {
             metadata.insert("port".to_string(), caps[1].to_string());
         }
-        
+
         // Extract file paths
         if let Some(caps) = Regex::new(r"(/[\w/.-]+)").unwrap().captures(message) {
             metadata.insert("path".to_string(), caps[1].to_string());
         }
-        
+
         metadata
     }
-    
+
     /// Clean message for display (remove redundant tags and timestamps)
     fn clean_message_for_display(&self, message: &str) -> String {
         let mut clean = message.to_string();
-        
+
         // Remove redundant timestamps that might be embedded
         clean = Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*")
             .unwrap()
             .replace_all(&clean, "")
             .to_string();
-        
+
         // Remove duplicate container/session references
         clean = Regex::new(r"\[claude/[a-f0-9-]+\]\s*")
             .unwrap()
             .replace_all(&clean, "")
             .to_string();
-        
+
         // Remove excessive whitespace
         clean = clean.split_whitespace().collect::<Vec<_>>().join(" ");
-        
+
         clean
     }
-    
+
     /// Process multiline logs (like stack traces)
     pub fn handle_multiline(&mut self, line: &str) -> Option<ParsedLog> {
         if self.is_continuation_line(line) {
@@ -314,7 +314,7 @@ impl LogCategory {
             LogCategory::Unknown => "📝",
         }
     }
-    
+
     pub fn label(&self) -> &'static str {
         match self {
             LogCategory::System => "System",
@@ -343,7 +343,7 @@ impl LogLevel {
             LogLevel::Fatal => "💀",
         }
     }
-    
+
     pub fn color(&self) -> ratatui::style::Color {
         use ratatui::style::Color;
         match self {
@@ -361,7 +361,7 @@ impl LogLevel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_ansi_stripping() {
         let parser = LogParser::new();
@@ -369,32 +369,32 @@ mod tests {
         let clean = parser.strip_ansi(raw);
         assert_eq!(clean, "Success! Container started");
     }
-    
+
     #[test]
     fn test_source_detection() {
         let parser = LogParser::new();
-        
+
         let (source, _) = parser.detect_source("[claude-box] Starting");
         assert!(matches!(source, LogSource::ClaudeBox));
-        
+
         let (source, _) = parser.detect_source("[claude/abc123] Ready");
         assert!(matches!(source, LogSource::ClaudeSession(_)));
     }
-    
+
     #[test]
     fn test_category_detection() {
         let parser = LogParser::new();
-        
+
         assert_eq!(
             parser.detect_category("OAuth authentication successful"),
             LogCategory::Authentication
         );
-        
+
         assert_eq!(
             parser.detect_category("claude-ask 'What is 2+2?'"),
             LogCategory::Claude
         );
-        
+
         assert_eq!(
             parser.detect_category("Container environment ready"),
             LogCategory::Container

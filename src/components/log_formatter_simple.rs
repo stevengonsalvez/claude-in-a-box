@@ -1,8 +1,8 @@
 // ABOUTME: Simplified log formatter for TUI display with beautiful visual styling
 // Stateless formatting to avoid complex borrow checker issues
 
-use super::log_parser::{ParsedLog, LogCategory, LogLevel};
-use chrono::{DateTime, Utc, Duration};
+use super::log_parser::{LogCategory, LogLevel, ParsedLog};
+use chrono::{DateTime, Duration, Utc};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
@@ -37,36 +37,36 @@ impl SimpleLogFormatter {
     pub fn new(config: FormatConfig) -> Self {
         Self { config }
     }
-    
+
     /// Format a parsed log into a beautiful TUI line (stateless)
     pub fn format_log(&self, log: &ParsedLog) -> Line {
         let mut spans = Vec::new();
-        
+
         // Add timestamp
         if self.config.show_timestamps {
             spans.push(self.format_timestamp(log.timestamp.as_ref()));
             spans.push(Span::raw(" "));
         }
-        
+
         // Add category badge
         spans.push(self.format_category_badge(&log.category));
         spans.push(Span::raw(" "));
-        
+
         // Add level icon for important messages
         if !matches!(log.level, LogLevel::Info | LogLevel::Debug) {
             spans.push(Span::styled(
                 log.level.icon(),
-                Style::default().fg(log.level.color())
+                Style::default().fg(log.level.color()),
             ));
             spans.push(Span::raw(" "));
         }
-        
+
         // Add the message
         spans.push(self.format_message(&log.clean_message, log.level));
-        
+
         Line::from(spans)
     }
-    
+
     /// Format timestamp (absolute or relative)
     fn format_timestamp(&self, timestamp: Option<&DateTime<Utc>>) -> Span {
         let time_str = if let Some(ts) = timestamp {
@@ -78,18 +78,18 @@ impl SimpleLogFormatter {
         } else {
             "        ".to_string()
         };
-        
+
         Span::styled(
             format!("{:>8}", time_str),
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(Color::DarkGray),
         )
     }
-    
+
     /// Convert timestamp to relative time
     fn relative_time(&self, timestamp: &DateTime<Utc>) -> String {
         let now = Utc::now();
         let diff = now - *timestamp;
-        
+
         if diff < Duration::seconds(1) {
             "now".to_string()
         } else if diff < Duration::minutes(1) {
@@ -102,7 +102,7 @@ impl SimpleLogFormatter {
             timestamp.format("%H:%M").to_string()
         }
     }
-    
+
     /// Format category badge with background color
     fn format_category_badge(&self, category: &LogCategory) -> Span {
         let (bg_color, fg_color) = match category {
@@ -117,16 +117,13 @@ impl SimpleLogFormatter {
             LogCategory::Git => (Color::Green, Color::White),
             LogCategory::Unknown => (Color::DarkGray, Color::White),
         };
-        
+
         Span::styled(
             format!(" {} {} ", category.icon(), category.label()),
-            Style::default()
-                .bg(bg_color)
-                .fg(fg_color)
-                .add_modifier(Modifier::BOLD)
+            Style::default().bg(bg_color).fg(fg_color).add_modifier(Modifier::BOLD),
         )
     }
-    
+
     /// Format the main message content
     fn format_message(&self, message: &str, level: LogLevel) -> Span {
         let formatted = if let Some(max_len) = self.config.max_message_length {
@@ -138,19 +135,17 @@ impl SimpleLogFormatter {
         } else {
             message.to_string()
         };
-        
+
         let style = match level {
-            LogLevel::Error | LogLevel::Fatal => Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            LogLevel::Error | LogLevel::Fatal => {
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+            }
             LogLevel::Warning => Style::default().fg(Color::Yellow),
-            LogLevel::Success => Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
+            LogLevel::Success => Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
             LogLevel::Debug | LogLevel::Trace => Style::default().fg(Color::DarkGray),
             _ => Style::default(),
         };
-        
+
         Span::styled(formatted, style)
     }
 }

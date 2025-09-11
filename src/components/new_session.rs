@@ -61,6 +61,16 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
+        // Draw border around entire dialog
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title("New Session");
+        frame.render_widget(block, area);
+
+        // Inner area for content
+        let inner = Block::default().borders(Borders::ALL).inner(area);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -68,16 +78,10 @@ impl NewSessionComponent {
                 Constraint::Min(0),    // Repository list
                 Constraint::Length(3), // Instructions
             ])
-            .split(area);
+            .split(inner);
 
         // Title
         let title = Paragraph::new("Select Repository")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .title("New Session"),
-            )
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
@@ -141,6 +145,16 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
+        // Draw border around entire dialog
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title("Search Repositories");
+        frame.render_widget(block, area);
+
+        // Inner area for content
+        let inner = Block::default().borders(Borders::ALL).inner(area);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -149,16 +163,10 @@ impl NewSessionComponent {
                 Constraint::Min(0),    // Repository list
                 Constraint::Length(3), // Instructions
             ])
-            .split(area);
+            .split(inner);
 
         // Title - Use solid background to prevent text bleeding
         let title = Paragraph::new("Search Workspaces")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .title("Search Repositories"),
-            )
             .style(Style::default().fg(Color::Yellow).bg(Color::Black))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
@@ -226,6 +234,16 @@ impl NewSessionComponent {
     }
 
     fn render_branch_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        // Draw border around entire dialog
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title("New Session");
+        frame.render_widget(block, area);
+
+        // Inner area for content
+        let inner = Block::default().borders(Borders::ALL).inner(area);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -234,16 +252,10 @@ impl NewSessionComponent {
                 Constraint::Length(3), // Branch input
                 Constraint::Length(3), // Instructions
             ])
-            .split(area);
+            .split(inner);
 
         // Title
         let title = Paragraph::new("Enter Branch Name")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .title("New Session"),
-            )
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
@@ -302,6 +314,16 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
+        // Draw border around entire dialog
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title("New Session");
+        frame.render_widget(block, area);
+
+        // Inner area for content
+        let inner = Block::default().borders(Borders::ALL).inner(area);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -310,16 +332,10 @@ impl NewSessionComponent {
                 Constraint::Length(5), // Option display
                 Constraint::Length(3), // Instructions
             ])
-            .split(area);
+            .split(inner);
 
         // Title
         let title = Paragraph::new("Configure Claude Permissions")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .title("New Session"),
-            )
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
@@ -371,6 +387,16 @@ impl NewSessionComponent {
     }
 
     fn render_creating(&self, frame: &mut Frame, area: Rect) {
+        // Draw border around entire dialog
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title("New Session");
+        frame.render_widget(block, area);
+
+        // Inner area for content
+        let inner = Block::default().borders(Borders::ALL).inner(area);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -378,16 +404,10 @@ impl NewSessionComponent {
                 Constraint::Min(0),    // Progress
                 Constraint::Length(3), // Instructions
             ])
-            .split(area);
+            .split(inner);
 
         // Title
         let title = Paragraph::new("Creating Session...")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .title("New Session"),
-            )
             .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
@@ -425,6 +445,16 @@ impl NewSessionComponent {
     ) {
         use crate::models::SessionMode;
 
+        // Draw border around entire dialog
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title("New Session - Step 3: Choose Mode");
+        frame.render_widget(block, area);
+
+        // Inner area for content
+        let inner = Block::default().borders(Borders::ALL).inner(area);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -432,16 +462,10 @@ impl NewSessionComponent {
                 Constraint::Min(0),    // Mode selection
                 Constraint::Length(3), // Instructions
             ])
-            .split(area);
+            .split(inner);
 
         // Title
         let title = Paragraph::new("Select Session Mode")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .title("Step 3: Choose Mode"),
-            )
             .style(Style::default().fg(Color::Yellow).bg(Color::Black))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
@@ -539,6 +563,16 @@ impl NewSessionComponent {
     }
 
     fn render_prompt_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        // Draw border around entire dialog
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title("New Session - Step 4: Task Prompt");
+        frame.render_widget(block, area);
+
+        // Inner area for content
+        let inner = Block::default().borders(Borders::ALL).inner(area);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -547,16 +581,10 @@ impl NewSessionComponent {
                 Constraint::Min(0),    // Prompt input area
                 Constraint::Length(3), // Controls
             ])
-            .split(area);
+            .split(inner);
 
         // Title
         let title = Paragraph::new("Enter Boss Mode Prompt")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan))
-                    .title("Step 4: Task Prompt"),
-            )
             .style(Style::default().fg(Color::Yellow).bg(Color::Black))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
