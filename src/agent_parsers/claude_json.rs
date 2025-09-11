@@ -323,8 +323,8 @@ impl ClaudeJsonParser {
                 let status =
                     t.get("status").and_then(|x| x.as_str()).unwrap_or("pending").to_string();
                 match status.as_str() {
-                    "done" => done += 1,
-                    "in_progress" => in_progress += 1,
+                    "done" | "completed" => done += 1,
+                    "in_progress" | "active" => in_progress += 1,
                     _ => pending += 1,
                 }
                 items.push(TodoItem { text, status });
@@ -581,9 +581,9 @@ mod structured_parsing_tests {
         })) = event
         {
             assert_eq!(items.len(), 2);
-            assert_eq!(done, 0); // 'completed' doesn't match 'done' exactly in the current logic
-            assert_eq!(in_progress, 0); // 'active' doesn't match 'in_progress' exactly
-            assert_eq!(pending, 2); // Both get counted as pending since they don't match expected values
+            assert_eq!(done, 1); // 'completed' is now properly recognized as done
+            assert_eq!(in_progress, 1); // 'active' is now properly recognized as in_progress
+            assert_eq!(pending, 0); // No pending items since both are recognized
         }
     }
 

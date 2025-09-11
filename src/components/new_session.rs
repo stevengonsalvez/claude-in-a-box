@@ -165,9 +165,9 @@ impl NewSessionComponent {
             ])
             .split(inner);
 
-        // Title - Use solid background to prevent text bleeding
+        // Title
         let title = Paragraph::new("Search Workspaces")
-            .style(Style::default().fg(Color::Yellow).bg(Color::Black))
+            .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
 
@@ -466,7 +466,7 @@ impl NewSessionComponent {
 
         // Title
         let title = Paragraph::new("Select Session Mode")
-            .style(Style::default().fg(Color::Yellow).bg(Color::Black))
+            .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
         frame.render_widget(title, chunks[0]);
 

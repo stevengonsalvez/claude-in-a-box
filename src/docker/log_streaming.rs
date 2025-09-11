@@ -429,10 +429,8 @@ impl DockerLogStreamingManager {
             }
             let end = i; // slice is [start, end)
             let slice = &input[start..end];
-            // Validate JSON quickly to avoid false positives
-            if serde_json::from_str::<Value>(slice).is_ok() {
-                out.push(slice.to_string());
-            }
+            // Trust the brace-balanced scanner - validation happens later in the parser
+            out.push(slice.to_string());
             // Continue; next iteration will skip whitespace
         }
 
