@@ -21,6 +21,7 @@ mod config;
 mod docker;
 mod git;
 mod models;
+mod widgets;
 
 use app::{App, EventHandler};
 use components::LayoutComponent;

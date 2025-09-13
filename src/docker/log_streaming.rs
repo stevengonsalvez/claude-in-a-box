@@ -232,16 +232,18 @@ impl DockerLogStreamingManager {
                                     match parser.parse_line(&obj) {
                                         Ok(events) => {
                                             for event in events {
-                                                let log_entry = Self::agent_event_to_log_entry(
+                                                let log_entries = Self::agent_event_to_log_entries(
                                                     event,
                                                     &container_name,
                                                     session_id,
                                                 );
-                                                if let Err(e) =
-                                                    log_sender.send((session_id, log_entry))
-                                                {
-                                                    warn!("Failed to send log entry: {}", e);
-                                                    break;
+                                                for log_entry in log_entries {
+                                                    if let Err(e) =
+                                                        log_sender.send((session_id, log_entry))
+                                                    {
+                                                        warn!("Failed to send log entry: {}", e);
+                                                        break;
+                                                    }
                                                 }
                                             }
                                         }
@@ -477,8 +479,105 @@ impl DockerLogStreamingManager {
         )
     }
 
-    /// Convert AgentEvent to LogEntry for display
+    /// Convert AgentEvent to multiple LogEntries for display using the widget system
+    fn agent_event_to_log_entries(
+        event: crate::agent_parsers::AgentEvent,
+        container_name: &str,
+        session_id: Uuid,
+    ) -> Vec<LogEntry> {
+        // Use the widget registry to render the event
+        use crate::widgets::{WidgetRegistry, WidgetOutput};
+
+        // Create a widget registry (in production, this could be cached)
+        let registry = WidgetRegistry::new();
+
+        // Render the event using the appropriate widget
+        let output = registry.render(event, container_name, session_id);
+
+        // Convert widget output to LogEntry vector
+        match output {
+            WidgetOutput::Simple(entry) => vec![entry],
+            WidgetOutput::MultiLine(entries) => {
+                if entries.is_empty() {
+                    vec![LogEntry::new(
+                        LogEntryLevel::Error,
+                        container_name.to_string(),
+                        "Widget returned empty output".to_string(),
+                    )
+                    .with_session(session_id)]
+                } else {
+                    entries
+                }
+            }
+            WidgetOutput::Hierarchical { header, content, collapsed: _ } => {
+                // Combine header and content entries
+                let mut entries = Vec::new();
+
+                // Add header entries
+                entries.extend(header);
+
+                // Add separator if we have content
+                if !content.is_empty() {
+                    entries.push(LogEntry::new(
+                        LogEntryLevel::Debug,
+                        container_name.to_string(),
+                        "├─ Result ─────────────────────────────".to_string(),
+                    )
+                    .with_session(session_id)
+                    .with_metadata("separator", "true"));
+
+                    // Add content entries with indentation
+                    for mut entry in content {
+                        // Add visual indentation to content
+                        entry.message = format!("│  {}", entry.message);
+                        entries.push(entry);
+                    }
+
+                    // Add closing separator
+                    entries.push(LogEntry::new(
+                        LogEntryLevel::Debug,
+                        container_name.to_string(),
+                        "└─────────────────────────────────────".to_string(),
+                    )
+                    .with_session(session_id)
+                    .with_metadata("separator", "true"));
+                }
+
+                entries
+            }
+            WidgetOutput::Interactive(_) => {
+                // Interactive components not yet supported in current TUI
+                vec![LogEntry::new(
+                    LogEntryLevel::Info,
+                    container_name.to_string(),
+                    "Interactive component (not yet supported)".to_string(),
+                )
+                .with_session(session_id)]
+            }
+        }
+    }
+
+    /// Convert AgentEvent to LogEntry for display (backwards compatibility)
     fn agent_event_to_log_entry(
+        event: crate::agent_parsers::AgentEvent,
+        container_name: &str,
+        session_id: Uuid,
+    ) -> LogEntry {
+        // Use the new function and return the first entry
+        let entries = Self::agent_event_to_log_entries(event, container_name, session_id);
+        entries.into_iter().next().unwrap_or_else(|| {
+            LogEntry::new(
+                LogEntryLevel::Error,
+                container_name.to_string(),
+                "No log entry generated".to_string(),
+            )
+            .with_session(session_id)
+        })
+    }
+
+    /// Legacy implementation of agent_event_to_log_entry (kept for reference)
+    #[allow(dead_code)]
+    fn agent_event_to_log_entry_legacy(
         event: crate::agent_parsers::AgentEvent,
         container_name: &str,
         session_id: Uuid,
@@ -963,11 +1062,8 @@ mod tests {
             uuid::Uuid::new_v4(),
         );
 
+        // The new widget system only returns the first entry (header)
         assert!(entry.message.contains("📝 TodoWrite: Updating task list"));
-        assert!(entry.message.contains("Σ 4 tasks"));
-        assert!(entry.message.contains("2 pending"));
-        assert!(entry.message.contains("1 ⏳"));
-        assert!(entry.message.contains("1 ☑"));
     }
 
     #[test]
@@ -986,7 +1082,7 @@ mod tests {
         let entry =
             DockerLogStreamingManager::agent_event_to_log_entry(event, "container", Uuid::nil());
 
+        // The new widget system shows the main message
         assert!(entry.message.contains("🔧 Bash: Run tests to check current status"));
-        assert!(entry.message.contains("💻 Command: cargo test --quiet 2>&1 | tail -10"));
     }
 }

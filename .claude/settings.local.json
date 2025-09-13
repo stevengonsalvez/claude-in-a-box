@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/stevengonsalvez/d/git/opcode/src/components/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
