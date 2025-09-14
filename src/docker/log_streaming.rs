@@ -149,7 +149,7 @@ impl DockerLogStreamingManager {
             stdout: true,
             stderr: true,
             follow: true,
-            timestamps: true,
+            timestamps: false,  // Disable timestamps for cleaner JSON output
             tail: "100".to_string(), // Start with last 100 lines
             ..Default::default()
         };

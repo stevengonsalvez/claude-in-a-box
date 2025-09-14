@@ -60,45 +60,33 @@ impl MessageWidget for TodoWidget {
         match event {
             // Handle TodoWrite tool call
             AgentEvent::ToolCall { id, name: _, input, description: _ } => {
-                // Header
-                let header = LogEntry::new(
-                    LogEntryLevel::Info,
-                    container_name.to_string(),
-                    "📝 TodoWrite: Updating task list".to_string(),
-                )
-                .with_session(session_id)
-                .with_metadata("event_type", "tool_call")
-                .with_metadata("tool_id", &id)
-                .with_metadata("tool_name", "TodoWrite");
-
-                entries.push(header);
-
                 // Extract todos and create summary
                 if let Some(todos_val) = input.get("todos").and_then(|t| t.as_array()) {
                     let (pending, in_progress, done) = Self::count_todos(todos_val);
 
-                    // Summary line
-                    let summary = format!(
-                        "  Σ {} tasks • {} pending • {} ⏳ • {} ☑",
+                    // Header with summary
+                    let header_with_summary = format!(
+                        "📝 Todos\n  Σ {} tasks • {} pending • {} ⏳ • {} ☑",
                         todos_val.len(),
                         pending,
                         in_progress,
                         done
                     );
 
-                    let summary_entry = LogEntry::new(
-                        LogEntryLevel::Info,
-                        container_name.to_string(),
-                        summary,
-                    )
-                    .with_session(session_id)
-                    .with_metadata("event_type", "todo_summary")
-                    .with_metadata("tool_id", &id);
+                    entries.push(
+                        LogEntry::new(
+                            LogEntryLevel::Info,
+                            container_name.to_string(),
+                            header_with_summary,
+                        )
+                        .with_session(session_id)
+                        .with_metadata("event_type", "tool_call")
+                        .with_metadata("tool_id", &id)
+                        .with_metadata("tool_name", "TodoWrite")
+                    );
 
-                    entries.push(summary_entry);
-
-                    // Show first few todos as preview
-                    for (idx, todo) in todos_val.iter().take(5).enumerate() {
+                    // Show all todos neatly formatted
+                    for (idx, todo) in todos_val.iter().enumerate() {
                         if let Some(content) = todo.get("content")
                             .or_else(|| todo.get("text"))
                             .or_else(|| todo.get("task"))
@@ -112,7 +100,7 @@ impl MessageWidget for TodoWidget {
                             let todo_line = format!("    {} {}", icon, content);
 
                             let todo_entry = LogEntry::new(
-                                LogEntryLevel::Debug,
+                                LogEntryLevel::Info,
                                 container_name.to_string(),
                                 todo_line,
                             )
@@ -123,19 +111,6 @@ impl MessageWidget for TodoWidget {
 
                             entries.push(todo_entry);
                         }
-                    }
-
-                    if todos_val.len() > 5 {
-                        let more_msg = format!("    ... and {} more tasks", todos_val.len() - 5);
-                        entries.push(
-                            LogEntry::new(
-                                LogEntryLevel::Debug,
-                                container_name.to_string(),
-                                more_msg,
-                            )
-                            .with_session(session_id)
-                            .with_metadata("event_type", "todo_more")
-                        );
                     }
                 }
             }
@@ -281,11 +256,15 @@ mod tests {
         match output {
             WidgetOutput::MultiLine(entries) => {
                 assert!(!entries.is_empty());
-                assert!(entries[0].message.contains("📝 TodoWrite"));
-                assert!(entries[1].message.contains("Σ 3 tasks"));
-                assert!(entries[1].message.contains("1 pending"));
-                assert!(entries[1].message.contains("1 ⏳"));
-                assert!(entries[1].message.contains("1 ☑"));
+                assert!(entries[0].message.contains("📝 Todos"));
+                assert!(entries[0].message.contains("Σ 3 tasks"));
+                assert!(entries[0].message.contains("1 pending"));
+                assert!(entries[0].message.contains("1 ⏳"));
+                assert!(entries[0].message.contains("1 ☑"));
+                // Check that todos are shown
+                assert!(entries[1].message.contains("☑ Write tests"));
+                assert!(entries[2].message.contains("⏳ Fix bugs"));
+                assert!(entries[3].message.contains("◻︎ Deploy"));
             }
             _ => panic!("Expected MultiLine output"),
         }
