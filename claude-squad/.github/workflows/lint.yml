@@ -1,0 +1,48 @@
+name: Lint
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/lint.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/lint.yml'
+
+jobs:
+  golangci:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: false
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.60.1
+          args: --timeout=3m --out-format=line-number --fast --max-issues-per-linter=0 --max-same-issues=0
+          skip-cache: false
+          only-new-issues: true
+
+      - name: Check formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "The following files are not formatted correctly:"
+            gofmt -l .
+            echo "Fix these issues"
+            gofmt -d .
+            exit 1
+          fi
