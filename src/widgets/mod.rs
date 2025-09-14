@@ -21,6 +21,11 @@ pub mod webfetch_widget;
 pub mod thinking_widget;
 pub mod result_parser;
 pub mod syntax_highlighter;
+pub mod message_router;
+pub mod multiedit_widget;
+pub mod mcp_widget;
+pub mod ls_result_widget;
+pub mod system_reminder_widget;
 
 pub use bash_widget::BashWidget;
 pub use edit_widget::EditWidget;
@@ -34,6 +39,11 @@ pub use task_widget::TaskWidget;
 pub use websearch_widget::WebSearchWidget;
 pub use webfetch_widget::WebFetchWidget;
 pub use thinking_widget::ThinkingWidget;
+pub use message_router::MessageRouter;
+pub use multiedit_widget::MultiEditWidget;
+pub use mcp_widget::McpWidget;
+pub use ls_result_widget::LsResultWidget;
+pub use system_reminder_widget::SystemReminderWidget;
 
 /// Output from widget rendering
 #[derive(Debug, Clone)]
@@ -177,6 +187,17 @@ pub mod helpers {
     pub fn format_command(cmd: &str) -> String {
         // Add syntax highlighting hints in the future
         cmd.to_string()
+    }
+
+    /// Add a blank line separator for visual spacing
+    pub fn create_separator(container_name: &str, session_id: Uuid) -> LogEntry {
+        LogEntry::new(
+            LogEntryLevel::Debug,
+            container_name.to_string(),
+            String::new(),  // Empty line for spacing
+        )
+        .with_session(session_id)
+        .with_metadata("event_type", "separator")
     }
 }
 

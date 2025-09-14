@@ -57,7 +57,7 @@ impl MessageWidget for DefaultWidget {
                 LogEntry::new(
                     LogEntryLevel::Info,
                     container_name.to_string(),
-                    format!("💬 {}", content),
+                    format!("Claude: {}", content),
                 )
                 .with_session(session_id)
                 .with_metadata("event_type", "message")
@@ -237,7 +237,7 @@ mod tests {
 
         match output {
             WidgetOutput::Simple(entry) => {
-                assert_eq!(entry.message, "💬 Hello, world!");
+                assert_eq!(entry.message, "Claude: Hello, world!");
                 assert_eq!(entry.level, LogEntryLevel::Info);
             }
             _ => panic!("Expected Simple output"),

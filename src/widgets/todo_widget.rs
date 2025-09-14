@@ -112,6 +112,9 @@ impl MessageWidget for TodoWidget {
                             entries.push(todo_entry);
                         }
                     }
+
+                    // Add spacing after todo list
+                    entries.push(helpers::create_separator(container_name, session_id));
                 }
             }
 

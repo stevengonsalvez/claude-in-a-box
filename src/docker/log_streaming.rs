@@ -249,6 +249,8 @@ impl DockerLogStreamingManager {
                                         }
                                         Err(e) => {
                                             debug!("Parser error on JSON object: {}", e);
+                                            // Don't show raw JSON to user on parse error
+                                            // This prevents JSON from appearing in the TUI
                                         }
                                     }
                                 }
@@ -485,14 +487,14 @@ impl DockerLogStreamingManager {
         container_name: &str,
         session_id: Uuid,
     ) -> Vec<LogEntry> {
-        // Use the widget registry to render the event
-        use crate::widgets::{WidgetRegistry, WidgetOutput};
+        // Use the message router to render the event
+        use crate::widgets::{MessageRouter, WidgetOutput};
 
-        // Create a widget registry (in production, this could be cached)
-        let registry = WidgetRegistry::new();
+        // Create a message router (in production, this could be cached)
+        let router = MessageRouter::new();
 
         // Render the event using the appropriate widget
-        let output = registry.render(event, container_name, session_id);
+        let output = router.route_event(event, container_name, session_id);
 
         // Convert widget output to LogEntry vector
         match output {
