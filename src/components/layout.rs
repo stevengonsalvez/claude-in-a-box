@@ -173,19 +173,20 @@ impl LayoutComponent {
                             // Branch info
                             status_parts.push(format!("🌿 {}", session.branch_name));
 
-                            // Container info
-                            if let Some(container_id) = &session.container_id {
-                                let short_id = &container_id[..8.min(container_id.len())];
-                                let status_icon = match session.status {
-                                    crate::models::SessionStatus::Running => "🟢",
-                                    crate::models::SessionStatus::Stopped => "🔴",
-                                    crate::models::SessionStatus::Error(_) => "❌",
-                                };
-                                status_parts.push(format!(
-                                    "{} {} ({})",
-                                    status_icon, session.name, short_id
-                                ));
-                            }
+                            // Tmux session info
+                            let tmux_name = &session.tmux_session_name;
+                            let status_icon = match session.status {
+                                crate::models::SessionStatus::Created => "⚪",
+                                crate::models::SessionStatus::Running => "🟢",
+                                crate::models::SessionStatus::Attached => "🔵",
+                                crate::models::SessionStatus::Detached => "🟡",
+                                crate::models::SessionStatus::Stopped => "🔴",
+                                crate::models::SessionStatus::Error(_) => "❌",
+                            };
+                            status_parts.push(format!(
+                                "{} {} ({})",
+                                status_icon, session.name, tmux_name
+                            ));
                         }
                     }
                 }

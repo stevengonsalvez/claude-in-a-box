@@ -91,7 +91,10 @@ impl SessionListComponent {
                         Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                     } else {
                         match session.status {
+                            SessionStatus::Created => Style::default().fg(Color::Blue),
                             SessionStatus::Running => Style::default().fg(Color::Green),
+                            SessionStatus::Attached => Style::default().fg(Color::Cyan),
+                            SessionStatus::Detached => Style::default().fg(Color::Yellow),
                             SessionStatus::Stopped => Style::default().fg(Color::Gray),
                             SessionStatus::Error(_) => Style::default().fg(Color::Red),
                         }

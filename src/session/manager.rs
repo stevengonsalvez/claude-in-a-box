@@ -19,7 +19,7 @@ impl SessionManager {
         Self {
             sessions: HashMap::new(),
             tmux_sessions: HashMap::new(),
-            worktree_manager: WorktreeManager::new(),
+            worktree_manager: WorktreeManager::new().expect("Failed to create WorktreeManager"),
         }
     }
 
@@ -32,8 +32,9 @@ impl SessionManager {
         let session_id = Uuid::new_v4();
 
         // Create git worktree
-        let worktree_path = self.worktree_manager
-            .create_worktree(workspace_path, branch_name, &session_name)?;
+        let worktree_info = self.worktree_manager
+            .create_worktree(session_id, std::path::Path::new(workspace_path), branch_name, None)?;
+        let worktree_path = worktree_info.path.to_string_lossy().to_string();
 
         // Optional environment variables - Claude CLI uses host config
         let mut env_vars = HashMap::new();
@@ -133,8 +134,8 @@ impl SessionManager {
         }
 
         // Clean up worktree
-        if let Some(session) = self.sessions.get(&session_id) {
-            self.worktree_manager.remove_worktree(&session.worktree_path)?;
+        if let Some(_session) = self.sessions.get(&session_id) {
+            self.worktree_manager.remove_worktree(session_id)?;
         }
 
         // Remove from sessions map

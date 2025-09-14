@@ -44,7 +44,10 @@ impl LogsViewerComponent {
             session.name,
             session.status.indicator(),
             match &session.status {
+                crate::models::SessionStatus::Created => "Created",
                 crate::models::SessionStatus::Running => "Running",
+                crate::models::SessionStatus::Attached => "Attached",
+                crate::models::SessionStatus::Detached => "Detached",
                 crate::models::SessionStatus::Stopped => "Stopped",
                 crate::models::SessionStatus::Error(err) => err,
             },
@@ -109,16 +112,21 @@ impl LogsViewerComponent {
 
     fn get_mock_logs(&self, session: &crate::models::Session) -> Vec<ListItem> {
         match session.status {
+            crate::models::SessionStatus::Created => vec![
+                ListItem::new("Session created, preparing tmux...")
+                    .style(Style::default().fg(Color::Blue)),
+                ListItem::new("Waiting to start...").style(Style::default().fg(Color::Gray)),
+            ],
             crate::models::SessionStatus::Running => vec![
                 ListItem::new("Starting Claude Code environment...")
                     .style(Style::default().fg(Color::Blue)),
-                ListItem::new("Loading MCP servers...").style(Style::default().fg(Color::Blue)),
-                ListItem::new("✓ Connected to container claude-abc123")
+                ListItem::new("Loading configuration...").style(Style::default().fg(Color::Blue)),
+                ListItem::new("✓ Connected to tmux session")
                     .style(Style::default().fg(Color::Green)),
                 ListItem::new("✓ Workspace mounted: /workspace")
                     .style(Style::default().fg(Color::Green)),
                 ListItem::new("✓ Git worktree ready").style(Style::default().fg(Color::Green)),
-                ListItem::new("Ready! Attached to container.")
+                ListItem::new("Ready! Session running.")
                     .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 ListItem::new("").style(Style::default()),
                 ListItem::new("> claude help").style(Style::default().fg(Color::Yellow)),
@@ -127,17 +135,27 @@ impl LogsViewerComponent {
                 ListItem::new("  list     List files in workspace").style(Style::default()),
                 ListItem::new("  run      Execute command").style(Style::default()),
             ],
+            crate::models::SessionStatus::Attached => vec![
+                ListItem::new("Attached to tmux session")
+                    .style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                ListItem::new("Press Ctrl+Q to detach").style(Style::default().fg(Color::Yellow)),
+            ],
+            crate::models::SessionStatus::Detached => vec![
+                ListItem::new("Session detached but still running")
+                    .style(Style::default().fg(Color::Yellow)),
+                ListItem::new("Press 'a' to reattach").style(Style::default().fg(Color::Gray)),
+            ],
             crate::models::SessionStatus::Stopped => vec![
-                ListItem::new("Container stopped").style(Style::default().fg(Color::Gray)),
+                ListItem::new("Session stopped").style(Style::default().fg(Color::Gray)),
                 ListItem::new("Last active: 2 minutes ago").style(Style::default().fg(Color::Gray)),
             ],
             crate::models::SessionStatus::Error(ref err) => vec![
                 ListItem::new("Starting Claude Code environment...")
                     .style(Style::default().fg(Color::Blue)),
-                ListItem::new("Loading MCP servers...").style(Style::default().fg(Color::Blue)),
+                ListItem::new("Loading configuration...").style(Style::default().fg(Color::Blue)),
                 ListItem::new(format!("✗ Error: {}", err))
                     .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-                ListItem::new("Container failed to start").style(Style::default().fg(Color::Red)),
+                ListItem::new("Session failed to start").style(Style::default().fg(Color::Red)),
             ],
         }
     }
