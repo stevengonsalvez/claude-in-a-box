@@ -8,11 +8,52 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub mod container;
+// pub mod container;  // Removed - using tmux instead of containers
 pub mod mcp;
 pub mod mcp_init;
 
-pub use container::{ContainerTemplate, ContainerTemplateConfig};
+// Stub types for container compatibility - will be removed in full refactor
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerTemplate {
+    pub name: String,
+    pub description: String,
+}
+
+impl ContainerTemplate {
+    pub fn claude_dev_default() -> Self {
+        Self {
+            name: "claude-dev".to_string(),
+            description: "Claude development environment".to_string(),
+        }
+    }
+    
+    pub fn node_default() -> Self {
+        Self {
+            name: "node".to_string(),
+            description: "Node.js environment".to_string(),
+        }
+    }
+    
+    pub fn python_default() -> Self {
+        Self {
+            name: "python".to_string(),
+            description: "Python environment".to_string(),
+        }
+    }
+    
+    pub fn rust_default() -> Self {
+        Self {
+            name: "rust".to_string(),
+            description: "Rust environment".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerTemplateConfig {
+    pub template: String,
+}
+
 pub use mcp::{McpInitStrategy, McpServerConfig};
 pub use mcp_init::{McpInitResult, McpInitializer, apply_mcp_init_result};
 

@@ -1,7 +1,9 @@
-// ABOUTME: Session data model representing a Claude Code container instance with git worktree
+// ABOUTME: Session model for host-based tmux sessions
+// Manages tmux sessions running directly on the host machine
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,7 +20,10 @@ impl Default for SessionMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionStatus {
+    Created,
     Running,
+    Attached,
+    Detached,
     Stopped,
     Error(String),
 }
@@ -26,14 +31,17 @@ pub enum SessionStatus {
 impl SessionStatus {
     pub fn indicator(&self) -> &'static str {
         match self {
+            SessionStatus::Created => "○",
             SessionStatus::Running => "●",
-            SessionStatus::Stopped => "⏸",
+            SessionStatus::Attached => "▶",
+            SessionStatus::Detached => "⏸",
+            SessionStatus::Stopped => "□",
             SessionStatus::Error(_) => "✗",
         }
     }
 
     pub fn is_running(&self) -> bool {
-        matches!(self, SessionStatus::Running)
+        matches!(self, SessionStatus::Running | SessionStatus::Attached | SessionStatus::Detached)
     }
 }
 
@@ -42,16 +50,26 @@ pub struct Session {
     pub id: Uuid,
     pub name: String,
     pub workspace_path: String,
+    pub worktree_path: String,  // Git worktree location
     pub branch_name: String,
-    pub container_id: Option<String>,
+
+    // Tmux session info (replaces container_id)
+    pub tmux_session_name: String,
+    pub tmux_pid: Option<u32>,
+
     pub status: SessionStatus,
     pub created_at: DateTime<Utc>,
     pub last_accessed: DateTime<Utc>,
     pub git_changes: GitChanges,
     pub recent_logs: Option<String>,
+    
+    // Session configuration
     pub skip_permissions: bool, // Whether to use --dangerously-skip-permissions flag
     pub mode: SessionMode,      // Interactive or Boss mode
     pub boss_prompt: Option<String>, // The prompt for boss mode execution
+    
+    // Optional environment variables for the session
+    pub environment_vars: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -89,14 +107,18 @@ impl Session {
     ) -> Self {
         let now = Utc::now();
         let branch_name = format!("claude/{}", name.replace(' ', "-").to_lowercase());
+        let tmux_session_name = format!("ciab_{}", name.replace(' ', "_").replace('.', "_"));
+        let worktree_path = format!("{}/.worktrees/{}", workspace_path, branch_name);
 
         Self {
             id: Uuid::new_v4(),
             name,
-            workspace_path,
+            workspace_path: workspace_path.clone(),
+            worktree_path,
             branch_name,
-            container_id: None,
-            status: SessionStatus::Stopped,
+            tmux_session_name,
+            tmux_pid: None,
+            status: SessionStatus::Created,
             created_at: now,
             last_accessed: now,
             git_changes: GitChanges::default(),
@@ -104,6 +126,7 @@ impl Session {
             skip_permissions,
             mode,
             boss_prompt,
+            environment_vars: HashMap::new(),
         }
     }
 
@@ -116,8 +139,8 @@ impl Session {
         self.update_last_accessed();
     }
 
-    pub fn set_container_id(&mut self, container_id: Option<String>) {
-        self.container_id = container_id;
+    pub fn set_tmux_pid(&mut self, pid: Option<u32>) {
+        self.tmux_pid = pid;
         self.update_last_accessed();
     }
 }
