@@ -7,6 +7,9 @@ use crate::app::{
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tracing::info;
 
+// Layout configuration - sessions pane width as percentage of terminal width
+const SESSIONS_PANE_WIDTH_PERCENTAGE: f32 = 0.4;
+
 #[derive(Debug, Clone)]
 pub enum AppEvent {
     Quit,
@@ -132,7 +135,7 @@ impl EventHandler {
                 // Determine which pane was clicked based on terminal dimensions
                 // The layout splits at 40% for sessions, 60% for logs
                 let term_width = crossterm::terminal::size().unwrap_or((80, 24)).0;
-                let split_point = (term_width as f32 * 0.4) as u16;
+                let split_point = (term_width as f32 * SESSIONS_PANE_WIDTH_PERCENTAGE) as u16;
 
                 // Check if we're in the main view (not in overlays)
                 if state.current_view == View::SessionList && !state.help_visible {

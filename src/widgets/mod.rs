@@ -6,6 +6,7 @@ use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
 use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
+use crossterm::terminal;
 
 pub mod bash_widget;
 pub mod edit_widget;
@@ -205,6 +206,31 @@ pub mod helpers {
         .with_session(session_id)
         .with_metadata("event_type", "separator")
     }
+
+    /// Generate a dynamic separator line based on terminal width
+    pub fn create_dynamic_separator(label: &str, min_width: usize) -> String {
+        // Try to get terminal width, fallback to 80 if unable
+        let terminal_width = terminal::size()
+            .map(|(width, _)| width as usize)
+            .unwrap_or(80);
+
+        // Ensure we have a minimum width to work with
+        let effective_width = terminal_width.max(min_width);
+
+        // Calculate available space for dashes
+        // "╰─ " (3 chars) + label + " " (1 char) + remaining dashes
+        let prefix = "╰─ ";
+        let suffix = " ";
+        let fixed_chars = prefix.len() + label.len() + suffix.len();
+
+        if effective_width <= fixed_chars {
+            // If terminal is too narrow, just return basic separator
+            format!("{}{}", prefix, label)
+        } else {
+            let dash_count = effective_width - fixed_chars;
+            format!("{}{}{}{}", prefix, label, suffix, "─".repeat(dash_count))
+        }
+    }
 }
 
 impl Default for WidgetRegistry {
@@ -222,11 +248,12 @@ impl WidgetOutput {
             WidgetOutput::Hierarchical { header, content, collapsed } => {
                 let mut entries = header;
                 if !collapsed && !content.is_empty() {
-                    // Add visual separator and content box
+                    // Add visual separator and content box with dynamic width
+                    let separator_line = helpers::create_dynamic_separator("Result", 50);
                     entries.push(LogEntry::new(
                         LogEntryLevel::Debug,
                         String::new(),
-                        "╰─ Result ─────────────────────────────────────".to_string(),
+                        separator_line,
                     ));
 
                     // Indent content entries with visual box guides

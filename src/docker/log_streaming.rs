@@ -174,6 +174,10 @@ impl DockerLogStreamingManager {
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_JSON_BUF_LIMIT);
 
+        // Create MessageRouter once for the entire stream to maintain state across events
+        use crate::widgets::MessageRouter;
+        let mut message_router = MessageRouter::new();
+
         // Send initial connection message
         let _ = log_sender.send((
             session_id,
@@ -237,6 +241,7 @@ impl DockerLogStreamingManager {
                                                     event,
                                                     &container_name,
                                                     session_id,
+                                                    &mut message_router,
                                                 );
                                                 for log_entry in log_entries {
                                                     if let Err(e) =
@@ -487,15 +492,13 @@ impl DockerLogStreamingManager {
         event: crate::agent_parsers::AgentEvent,
         container_name: &str,
         session_id: Uuid,
+        message_router: &mut crate::widgets::MessageRouter,
     ) -> Vec<LogEntry> {
         // Use the message router to render the event
-        use crate::widgets::{MessageRouter, WidgetOutput};
-
-        // Create a message router (in production, this could be cached)
-        let mut router = MessageRouter::new();
+        use crate::widgets::WidgetOutput;
 
         // Render the event using the appropriate widget
-        let output = router.route_event(event, container_name, session_id);
+        let output = message_router.route_event(event, container_name, session_id);
 
         // Convert widget output to LogEntry vector using the proper to_log_entries method
         let entries = output.to_log_entries();
@@ -510,8 +513,10 @@ impl DockerLogStreamingManager {
         container_name: &str,
         session_id: Uuid,
     ) -> LogEntry {
+        // Create a temporary router for backwards compatibility (used only in tests)
+        let mut temp_router = crate::widgets::MessageRouter::new();
         // Use the new function and return the first entry
-        let entries = Self::agent_event_to_log_entries(event, container_name, session_id);
+        let entries = Self::agent_event_to_log_entries(event, container_name, session_id, &mut temp_router);
         entries.into_iter().next().unwrap_or_else(|| {
             LogEntry::new(
                 LogEntryLevel::Error,
@@ -1007,8 +1012,12 @@ mod tests {
             uuid::Uuid::new_v4(),
         );
 
-        // The new widget system only returns the first entry (header)
-        assert!(entry.message.contains("📝 TodoWrite: Updating task list"));
+        // The new widget system produces a cleaner todo summary format
+        assert!(entry.message.contains("📝 Todos"));
+        assert!(entry.message.contains("Σ 4 tasks"));
+        assert!(entry.message.contains("2 pending"));
+        assert!(entry.message.contains("1 ⏳"));
+        assert!(entry.message.contains("1 ☑"));
     }
 
     #[test]
@@ -1027,7 +1036,7 @@ mod tests {
         let entry =
             DockerLogStreamingManager::agent_event_to_log_entry(event, "container", Uuid::nil());
 
-        // The new widget system shows the main message
-        assert!(entry.message.contains("🔧 Bash: Run tests to check current status"));
+        // The new widget system produces a cleaner format without the emoji
+        assert!(entry.message.contains("Bash: Run tests to check current status"));
     }
 }
