@@ -25,6 +25,7 @@ Thumbs.db
 
 # Claude Box specific
 .claude-box/
+.claude/
 worktrees/
 
 # Testing
