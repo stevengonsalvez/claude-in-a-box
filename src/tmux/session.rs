@@ -276,10 +276,11 @@ impl TmuxSession {
         self.ptmx
     }
 
-    /// Resize the PTY window
-    pub fn resize(&self, cols: u16, rows: u16) -> Result<(), TmuxError> {
-        // For now, tmux will handle its own resize
-        // We could send resize commands to tmux if needed
+    /// Resize the tmux window
+    pub fn resize(&self, _cols: u16, _rows: u16) -> Result<(), TmuxError> {
+        // Terminal resize is handled automatically by tmux when attached
+        // The tmux session will resize based on the terminal dimensions
+        // when attached, so no explicit resize is needed here
         Ok(())
     }
 }

@@ -2,5 +2,7 @@
 // Provides session lifecycle management and persistence
 
 pub mod manager;
+pub mod persistence;
 
 pub use manager::SessionManager;
+pub use persistence::SessionPersistence;

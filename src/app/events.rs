@@ -233,6 +233,19 @@ impl EventHandler {
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
+            KeyCode::Enter => {
+                // Handle Enter key in session list to attach to session
+                match state.focused_pane {
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Enter pressed in Sessions pane, attaching to session");
+                        Some(AppEvent::AttachSession)
+                    }
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("Enter pressed in LiveLogs pane, no action");
+                        None
+                    }
+                }
+            }
             KeyCode::Char('e') => Some(AppEvent::RestartSession),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Char('x') => Some(AppEvent::CleanupOrphaned),

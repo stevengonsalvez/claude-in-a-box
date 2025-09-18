@@ -1472,15 +1472,16 @@ impl AppState {
         self.workspaces.get(workspace_idx)?.sessions.get(session_idx)
     }
 
-    /// Attach to a container session using docker exec with proper terminal handling
+    /// Attach to a tmux session with proper terminal handling
     pub async fn attach_to_container(
         &mut self,
-        _session_id: Uuid,
+        session_id: Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // TODO: Implement tmux attachment
+        // Use the new tmux attachment method
+        self.attach_to_session(session_id)?;
         Ok(())
         /*
-        // use crate::docker::ContainerManager;  // Removed - using tmux
+        // Old Docker code - removed
         return Err("Docker operations not supported - using tmux instead".into());
 
         // Find the session to get container ID
@@ -1618,15 +1619,15 @@ impl AppState {
         None
     }
 
-    /// Fetch container logs for a session
+    /// Fetch logs from tmux pane for a session
     pub async fn fetch_container_logs(
         &mut self,
         session_id: Uuid,
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        // use crate::docker::ContainerManager;  // Removed - using tmux
-        return Err("Docker operations not supported - using tmux instead".into());
+        // Use tmux pane capture instead of Docker logs
+        return self.fetch_tmux_logs(session_id).await;
 
-        // Find the session to get container ID
+        // Old Docker code - kept for reference
         let container_id = self
             .workspaces
             .iter()
