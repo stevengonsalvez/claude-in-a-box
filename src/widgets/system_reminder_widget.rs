@@ -1,9 +1,8 @@
 // ABOUTME: Widget for rendering system reminder messages
 // Displays important system notifications and reminders in a highlighted format
 
-use crate::agent_parsers::{AgentEvent, types::StructuredPayload};
-use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
-use serde_json::Value;
+use crate::agent_parsers::AgentEvent;
+use crate::components::live_logs_stream::LogEntryLevel;
 use uuid::Uuid;
 
 use super::{MessageWidget, WidgetOutput, helpers};
@@ -73,42 +72,36 @@ impl SystemReminderWidget {
 
 impl MessageWidget for SystemReminderWidget {
     fn can_handle(&self, event: &AgentEvent) -> bool {
-        // Check if this is a system reminder
-        if event.event_type == "system_reminder" {
-            return true;
-        }
-
-        // Also check for system reminders embedded in tool results
-        if event.event_type == "tool_result" {
-            if let Some(ref payload) = event.payload {
-                if let Some(content) = payload.data.get("content").and_then(|v| v.as_str()) {
-                    return content.contains("<system-reminder>");
-                }
+        match event {
+            // Check if this is a custom system reminder event
+            AgentEvent::Custom { event_type, .. } => {
+                event_type == "system_reminder"
             }
+            // Check for system reminders embedded in tool results
+            AgentEvent::ToolResult { content, .. } => {
+                content.contains("<system-reminder>")
+            }
+            _ => false,
         }
-
-        false
     }
 
     fn render(&self, event: AgentEvent, container_name: &str, session_id: Uuid) -> WidgetOutput {
         let mut entries = Vec::new();
 
-        // Extract reminder content
-        let reminder_content = if let Some(ref payload) = event.payload {
-            if event.event_type == "system_reminder" {
+        // Extract reminder content based on event type
+        let reminder_content = match event {
+            AgentEvent::Custom { event_type, data } if event_type == "system_reminder" => {
                 // Direct system reminder event
-                payload.data.get("message")
-                    .or_else(|| payload.data.get("content"))
+                data.get("message")
+                    .or_else(|| data.get("content"))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
-            } else {
-                // Embedded in tool result
-                payload.data.get("content")
-                    .and_then(|v| v.as_str())
-                    .and_then(Self::extract_reminder_content)
             }
-        } else {
-            None
+            AgentEvent::ToolResult { content, .. } => {
+                // Embedded in tool result
+                Self::extract_reminder_content(&content)
+            }
+            _ => None,
         };
 
         if let Some(message) = reminder_content {

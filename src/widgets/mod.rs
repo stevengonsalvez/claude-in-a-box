@@ -26,6 +26,9 @@ pub mod multiedit_widget;
 pub mod mcp_widget;
 pub mod ls_result_widget;
 pub mod system_reminder_widget;
+pub mod tool_result_store;
+pub mod unified_message;
+pub mod reminder_filter;
 
 pub use bash_widget::BashWidget;
 pub use edit_widget::EditWidget;
@@ -44,6 +47,9 @@ pub use multiedit_widget::MultiEditWidget;
 pub use mcp_widget::McpWidget;
 pub use ls_result_widget::LsResultWidget;
 pub use system_reminder_widget::SystemReminderWidget;
+pub use tool_result_store::ToolResultStore;
+pub use unified_message::{UnifiedMessage, MessageType, ContentBlock};
+pub use reminder_filter::ReminderFilter;
 
 /// Output from widget rendering
 #[derive(Debug, Clone)]
@@ -204,5 +210,46 @@ pub mod helpers {
 impl Default for WidgetRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl WidgetOutput {
+    /// Convert widget output to log entries for display
+    pub fn to_log_entries(self) -> Vec<LogEntry> {
+        match self {
+            WidgetOutput::Simple(entry) => vec![entry],
+            WidgetOutput::MultiLine(entries) => entries,
+            WidgetOutput::Hierarchical { header, content, collapsed } => {
+                let mut entries = header;
+                if !collapsed && !content.is_empty() {
+                    // Add visual separator and content box
+                    entries.push(LogEntry::new(
+                        LogEntryLevel::Debug,
+                        String::new(),
+                        "╰─ Result ─────────────────────────────────────".to_string(),
+                    ));
+
+                    // Indent content entries with visual box guides
+                    for (i, entry) in content.iter().enumerate() {
+                        let mut indented = entry.clone();
+
+                        // Use consistent indentation for content
+                        if i == 0 {
+                            indented.message = format!("   ╭─ {}", entry.message);
+                        } else if i == content.len() - 1 {
+                            indented.message = format!("   ╰─ {}", entry.message);
+                        } else {
+                            indented.message = format!("   │  {}", entry.message);
+                        }
+                        entries.push(indented);
+                    }
+                }
+                entries
+            }
+            WidgetOutput::Interactive(component) => {
+                // For now, just return the base entry
+                vec![component.base_entry]
+            }
+        }
     }
 }

@@ -280,7 +280,48 @@ async fn run_tui_loop(
                         }
                     }
                 }
-                Event::Mouse(_) => {}
+                Event::Mouse(mouse_event) => {
+                    use crossterm::event::{MouseEventKind, MouseButton};
+                    use crate::app::events::AppEvent;
+
+                    match mouse_event.kind {
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            // Convert coordinates to pane focus
+                            let (col, row) = (mouse_event.column, mouse_event.row);
+                            if let Some(app_event) = EventHandler::handle_mouse_event(
+                                AppEvent::MouseClick { x: col, y: row },
+                                &mut app.state
+                            ) {
+                                EventHandler::process_event(app_event, &mut app.state);
+                            }
+                        }
+                        MouseEventKind::ScrollDown => {
+                            EventHandler::process_event(AppEvent::ScrollLogsDown, &mut app.state);
+                        }
+                        MouseEventKind::ScrollUp => {
+                            EventHandler::process_event(AppEvent::ScrollLogsUp, &mut app.state);
+                        }
+                        MouseEventKind::Drag(MouseButton::Left) => {
+                            let (col, row) = (mouse_event.column, mouse_event.row);
+                            if let Some(app_event) = EventHandler::handle_mouse_event(
+                                AppEvent::MouseDragging { x: col, y: row },
+                                &mut app.state
+                            ) {
+                                EventHandler::process_event(app_event, &mut app.state);
+                            }
+                        }
+                        MouseEventKind::Up(MouseButton::Left) => {
+                            let (col, row) = (mouse_event.column, mouse_event.row);
+                            if let Some(app_event) = EventHandler::handle_mouse_event(
+                                AppEvent::MouseDragEnd { x: col, y: row },
+                                &mut app.state
+                            ) {
+                                EventHandler::process_event(app_event, &mut app.state);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 Event::Resize(_, _) => {}
                 Event::FocusGained => {}
                 Event::FocusLost => {}

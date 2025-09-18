@@ -29,9 +29,9 @@ impl MessageWidget for BashWidget {
 
             // Header line with tool name and description
             if !desc.is_empty() {
-                main_msg.push_str(&format!("🔧 Bash: {}", desc));
+                main_msg.push_str(&format!("Bash: {}", desc));
             } else {
-                main_msg.push_str("🔧 Bash");
+                main_msg.push_str("Bash");
             }
 
             // Create the header entry
@@ -55,7 +55,7 @@ impl MessageWidget for BashWidget {
                 let cmd_entry = LogEntry::new(
                     LogEntryLevel::Info,
                     container_name.to_string(),
-                    format!("  💻 {}", formatted_cmd),
+                    formatted_cmd,
                 )
                 .with_session(session_id)
                 .with_metadata("event_type", "bash_command")
@@ -113,8 +113,7 @@ impl MessageWidget for BashWidget {
 
     fn render_with_result(&self, event: AgentEvent, result: Option<ToolResult>, container_name: &str, session_id: Uuid) -> WidgetOutput {
         if let AgentEvent::ToolCall { id, name: _, input, description } = event {
-            let mut header_entries = Vec::new();
-            let mut content_entries = Vec::new();
+            let mut entries = Vec::new();
 
             // Build the main header message
             let mut main_msg = String::new();
@@ -122,9 +121,9 @@ impl MessageWidget for BashWidget {
 
             // Header line with tool name and description
             if !desc.is_empty() {
-                main_msg.push_str(&format!("🔧 Bash: {}", desc));
+                main_msg.push_str(&format!("Bash: {}", desc));
             } else {
-                main_msg.push_str("🔧 Bash");
+                main_msg.push_str("Bash");
             }
 
             // Create the header entry
@@ -138,13 +137,13 @@ impl MessageWidget for BashWidget {
             .with_metadata("tool_id", &id)
             .with_metadata("tool_name", "Bash");
 
-            header_entries.push(header_entry);
+            entries.push(header_entry);
 
             // Extract and format the command
             if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
                 let formatted_cmd = format_bash_command(cmd);
 
-                // Add command line as part of header
+                // Add command line
                 let cmd_entry = LogEntry::new(
                     LogEntryLevel::Info,
                     container_name.to_string(),
@@ -154,70 +153,46 @@ impl MessageWidget for BashWidget {
                 .with_metadata("event_type", "bash_command")
                 .with_metadata("tool_id", &id);
 
-                header_entries.push(cmd_entry);
+                entries.push(cmd_entry);
             }
 
             // Process result if available
             if let Some(tool_result) = result {
                 // Extract result content
                 if let Some(content_str) = result_parser::format_tool_result(&tool_result.content) {
-                    // Check if the content looks like markdown
-                    let is_markdown = content_str.contains('#') ||
-                                     content_str.contains('*') ||
-                                     content_str.contains('`') ||
-                                     content_str.contains('\n');
-
-                    if is_markdown {
-                        // Parse as markdown
-                        let parsed_entries = result_parser::parse_markdown_to_logs(
-                            &content_str,
-                            container_name,
-                            session_id,
-                            if tool_result.is_error { LogEntryLevel::Error } else { LogEntryLevel::Info },
-                        );
-                        content_entries.extend(parsed_entries);
+                    let level = if tool_result.is_error {
+                        LogEntryLevel::Error
                     } else {
-                        // Simple text output
-                        let level = if tool_result.is_error {
-                            LogEntryLevel::Error
-                        } else {
-                            LogEntryLevel::Info
-                        };
+                        LogEntryLevel::Info
+                    };
 
-                        for line in content_str.lines() {
-                            content_entries.push(
-                                LogEntry::new(
-                                    level,
-                                    container_name.to_string(),
-                                    line.to_string(),
-                                )
-                                .with_session(session_id)
-                                .with_metadata("bash_output", "true")
-                            );
-                        }
+                    // Process each line with simple indentation
+                    for line in content_str.lines() {
+                        entries.push(
+                            LogEntry::new(
+                                level,
+                                container_name.to_string(),
+                                format!("  {}", line),
+                            )
+                            .with_session(session_id)
+                            .with_metadata("bash_output", "true")
+                        );
                     }
                 } else if tool_result.is_error {
                     // Error with no content
-                    content_entries.push(
+                    entries.push(
                         LogEntry::new(
                             LogEntryLevel::Error,
                             container_name.to_string(),
-                            "❌ Command failed with no output".to_string(),
+                            "  Command failed with no output".to_string(),
                         )
                         .with_session(session_id)
                     );
                 }
-
-                // Return hierarchical output
-                WidgetOutput::Hierarchical {
-                    header: header_entries,
-                    content: content_entries,
-                    collapsed: false,
-                }
-            } else {
-                // No result yet, just return the header
-                WidgetOutput::MultiLine(header_entries)
             }
+
+            // Return simple MultiLine output
+            WidgetOutput::MultiLine(entries)
         } else {
             // Should not happen if can_handle works correctly
             WidgetOutput::Simple(
@@ -237,37 +212,9 @@ impl MessageWidget for BashWidget {
     }
 }
 
-/// Format a bash command with syntax highlighting hints
+/// Format a bash command with simple indentation
 fn format_bash_command(cmd: &str) -> String {
-    // In the future, we could add ANSI color codes or other formatting
-    // For now, just handle common patterns
-
-    // Check for common command patterns
-    if cmd.starts_with("cd ") {
-        format!("📁 {}", cmd)
-    } else if cmd.starts_with("ls") || cmd.starts_with("ll") {
-        format!("📂 {}", cmd)
-    } else if cmd.starts_with("git ") {
-        format!("🔀 {}", cmd)
-    } else if cmd.starts_with("npm ") || cmd.starts_with("yarn ") || cmd.starts_with("pnpm ") {
-        format!("📦 {}", cmd)
-    } else if cmd.starts_with("cargo ") {
-        format!("🦀 {}", cmd)
-    } else if cmd.starts_with("python ") || cmd.starts_with("pip ") {
-        format!("🐍 {}", cmd)
-    } else if cmd.starts_with("docker ") {
-        format!("🐳 {}", cmd)
-    } else if cmd.starts_with("kubectl ") || cmd.starts_with("k8s ") {
-        format!("☸️  {}", cmd)
-    } else if cmd.contains("test") {
-        format!("🧪 {}", cmd)
-    } else if cmd.contains("build") {
-        format!("🔨 {}", cmd)
-    } else if cmd.contains("deploy") {
-        format!("🚀 {}", cmd)
-    } else {
-        format!("$ {}", cmd)
-    }
+    format!("  {}", cmd)
 }
 
 #[cfg(test)]
@@ -314,10 +261,10 @@ mod tests {
         match output {
             WidgetOutput::MultiLine(entries) => {
                 assert!(!entries.is_empty());
-                assert!(entries[0].message.contains("🔧 Bash: Running tests"));
+                assert!(entries[0].message.contains("Bash: Running tests"));
                 if entries.len() > 1 {
-                    // The command is formatted with spaces
-                    assert!(entries[1].message.contains("💻") && entries[1].message.contains("cargo test --quiet"));
+                    // The command is formatted with simple indentation
+                    assert!(entries[1].message.contains("  cargo test --quiet"));
                 }
             }
             _ => panic!("Expected MultiLine output"),

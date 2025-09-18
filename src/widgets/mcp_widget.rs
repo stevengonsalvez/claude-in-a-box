@@ -1,7 +1,7 @@
 // ABOUTME: Widget for rendering Model Context Protocol (MCP) tool calls
 // Handles MCP server interactions and displays their results
 
-use crate::agent_parsers::{AgentEvent, types::StructuredPayload};
+use crate::agent_parsers::AgentEvent;
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
 use serde_json::Value;
 use uuid::Uuid;
@@ -56,27 +56,15 @@ impl McpWidget {
 
 impl MessageWidget for McpWidget {
     fn can_handle(&self, event: &AgentEvent) -> bool {
-        // Check if this is an MCP tool use (starts with "mcp__")
-        if event.event_type == "tool_use" {
-            if let Some(ref payload) = event.payload {
-                if let Some(name) = payload.data.get("name").and_then(|v| v.as_str()) {
-                    return name.starts_with("mcp__");
-                }
-            }
-        }
-        false
+        // Check if this is an MCP tool call (starts with "mcp__")
+        matches!(event, AgentEvent::ToolCall { name, .. } if name.starts_with("mcp__"))
     }
 
     fn render(&self, event: AgentEvent, container_name: &str, session_id: Uuid) -> WidgetOutput {
-        let mut entries = Vec::new();
+        if let AgentEvent::ToolCall { id: _, name, input, description: _ } = event {
+            let mut entries = Vec::new();
 
-        // Extract tool name and input from the event
-        if let Some(ref payload) = event.payload {
-            let tool_name = payload.data.get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-
-            let (server, method, _full_name) = Self::parse_mcp_tool_name(tool_name);
+            let (server, method, _full_name) = Self::parse_mcp_tool_name(&name);
 
             // Header with MCP icon
             entries.push(helpers::create_log_entry(
@@ -88,40 +76,41 @@ impl MessageWidget for McpWidget {
             ));
 
             // Show input parameters if available
-            if let Some(input) = payload.data.get("input") {
-                entries.push(helpers::create_log_entry(
-                    LogEntryLevel::Debug,
-                    container_name,
-                    "   Parameters:".to_string(),
-                    session_id,
-                    "mcp",
-                ));
-
-                let formatted_lines = Self::format_mcp_input(input);
-                for line in formatted_lines {
-                    entries.push(helpers::create_log_entry(
-                        LogEntryLevel::Debug,
-                        container_name,
-                        line,
-                        session_id,
-                        "mcp",
-                    ));
-                }
-            }
-        } else {
             entries.push(helpers::create_log_entry(
-                LogEntryLevel::Info,
+                LogEntryLevel::Debug,
                 container_name,
-                "🔌 MCP Tool".to_string(),
+                "   Parameters:".to_string(),
                 session_id,
                 "mcp",
             ));
+
+            let formatted_lines = Self::format_mcp_input(&input);
+            for line in formatted_lines {
+                entries.push(helpers::create_log_entry(
+                    LogEntryLevel::Debug,
+                    container_name,
+                    line,
+                    session_id,
+                    "mcp",
+                ));
+            }
+
+            // Add separator for visual clarity
+            entries.push(helpers::create_separator(container_name, session_id));
+
+            WidgetOutput::MultiLine(entries)
+        } else {
+            // Should not happen if can_handle works correctly
+            WidgetOutput::Simple(
+                helpers::create_log_entry(
+                    LogEntryLevel::Error,
+                    container_name,
+                    "Invalid event for McpWidget".to_string(),
+                    session_id,
+                    "error",
+                )
+            )
         }
-
-        // Add separator for visual clarity
-        entries.push(helpers::create_separator(container_name, session_id));
-
-        WidgetOutput::MultiLine(entries)
     }
 
     fn render_with_result(
@@ -131,19 +120,46 @@ impl MessageWidget for McpWidget {
         container_name: &str,
         session_id: Uuid,
     ) -> WidgetOutput {
-        let mut entries = Vec::new();
+        if let AgentEvent::ToolCall { id: _, name, input, description: _ } = event {
+            let mut entries = Vec::new();
 
-        // First render the tool call
-        let tool_output = self.render(event.clone(), container_name, session_id);
-        match tool_output {
-            WidgetOutput::MultiLine(tool_entries) => entries.extend(tool_entries),
-            WidgetOutput::Simple(entry) => entries.push(entry),
-            _ => {}
-        }
+            let (server, method, _full_name) = Self::parse_mcp_tool_name(&name);
 
-        // Then render the result if available
-        if let Some(tool_result) = result {
-            if tool_result.is_error {
+            // Header with MCP icon
+            entries.push(helpers::create_log_entry(
+                LogEntryLevel::Info,
+                container_name,
+                format!("🔌 MCP: {}::{}", server, method),
+                session_id,
+                "mcp",
+            ));
+
+            // Show input parameters if available
+            entries.push(helpers::create_log_entry(
+                LogEntryLevel::Debug,
+                container_name,
+                "   Parameters:".to_string(),
+                session_id,
+                "mcp",
+            ));
+
+            let formatted_lines = Self::format_mcp_input(&input);
+            for line in formatted_lines {
+                entries.push(helpers::create_log_entry(
+                    LogEntryLevel::Debug,
+                    container_name,
+                    line,
+                    session_id,
+                    "mcp",
+                ));
+            }
+
+            // Add separator for visual clarity
+            entries.push(helpers::create_separator(container_name, session_id));
+
+            // Then render the result if available
+            if let Some(tool_result) = result {
+                if tool_result.is_error {
                 entries.push(helpers::create_log_entry(
                     LogEntryLevel::Error,
                     container_name,
@@ -269,9 +285,21 @@ impl MessageWidget for McpWidget {
                     }
                 }
             }
-        }
+            }
 
-        WidgetOutput::MultiLine(entries)
+            WidgetOutput::MultiLine(entries)
+        } else {
+            // Should not happen if can_handle works correctly
+            WidgetOutput::Simple(
+                helpers::create_log_entry(
+                    LogEntryLevel::Error,
+                    container_name,
+                    "Invalid event for McpWidget".to_string(),
+                    session_id,
+                    "error",
+                )
+            )
+        }
     }
 
     fn name(&self) -> &'static str {
@@ -282,5 +310,59 @@ impl MessageWidget for McpWidget {
 impl Default for McpWidget {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_mcp_widget_can_handle() {
+        let widget = McpWidget::new();
+
+        // Test MCP tool call
+        let mcp_event = AgentEvent::ToolCall {
+            id: "test".to_string(),
+            name: "mcp__sequential-thinking__sequentialthinking".to_string(),
+            input: json!({}),
+            description: None,
+        };
+        assert!(widget.can_handle(&mcp_event), "Should handle MCP tool calls");
+
+        // Test non-MCP tool call
+        let other_event = AgentEvent::ToolCall {
+            id: "test".to_string(),
+            name: "Bash".to_string(),
+            input: json!({}),
+            description: None,
+        };
+        assert!(!widget.can_handle(&other_event), "Should not handle non-MCP tool calls");
+    }
+
+    #[test]
+    fn test_mcp_widget_render() {
+        let widget = McpWidget::new();
+        let event = AgentEvent::ToolCall {
+            id: "mcp_123".to_string(),
+            name: "mcp__sequential-thinking__sequentialthinking".to_string(),
+            input: json!({
+                "prompt": "Test prompt",
+                "context": "Test context"
+            }),
+            description: Some("Sequential thinking".to_string()),
+        };
+
+        let output = widget.render(event, "test-container", Uuid::nil());
+
+        match output {
+            WidgetOutput::MultiLine(entries) => {
+                assert!(!entries.is_empty());
+                // Check that the header contains the MCP icon and parsed server/method
+                assert!(entries[0].message.contains("🔌 MCP: sequential-thinking::sequentialthinking"));
+            }
+            _ => panic!("Expected MultiLine output"),
+        }
     }
 }

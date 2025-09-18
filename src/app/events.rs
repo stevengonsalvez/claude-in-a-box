@@ -37,6 +37,11 @@ pub enum AppEvent {
     ScrollLogsDown,
     ScrollLogsToTop,
     ScrollLogsToBottom,
+    // Mouse events
+    MouseClick { x: u16, y: u16 },
+    MouseDragStart { x: u16, y: u16 },
+    MouseDragEnd { x: u16, y: u16 },
+    MouseDragging { x: u16, y: u16 },
     // New session creation events
     NewSessionCancel,
     NewSessionNextRepo,
@@ -120,6 +125,66 @@ pub enum AppEvent {
 pub struct EventHandler;
 
 impl EventHandler {
+    /// Handle mouse events and convert to appropriate app events
+    pub fn handle_mouse_event(event: AppEvent, state: &mut AppState) -> Option<AppEvent> {
+        match event {
+            AppEvent::MouseClick { x, y } => {
+                // Determine which pane was clicked based on terminal dimensions
+                // The layout splits at 40% for sessions, 60% for logs
+                let term_width = crossterm::terminal::size().unwrap_or((80, 24)).0;
+                let split_point = (term_width as f32 * 0.4) as u16;
+
+                // Check if we're in the main view (not in overlays)
+                if state.current_view == View::SessionList && !state.help_visible {
+                    if x < split_point {
+                        // Clicked in sessions pane
+                        if state.focused_pane != crate::app::state::FocusedPane::Sessions {
+                            Some(AppEvent::SwitchPaneFocus)
+                        } else {
+                            None
+                        }
+                    } else {
+                        // Clicked in logs pane
+                        if state.focused_pane != crate::app::state::FocusedPane::LiveLogs {
+                            Some(AppEvent::SwitchPaneFocus)
+                        } else {
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+            AppEvent::MouseDragStart { x, y } => {
+                // Start text selection in logs pane
+                if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
+                    // This will be handled in Phase 2
+                    None
+                } else {
+                    None
+                }
+            }
+            AppEvent::MouseDragging { x, y } => {
+                // Update selection during drag
+                if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
+                    // This will be handled in Phase 2
+                    None
+                } else {
+                    None
+                }
+            }
+            AppEvent::MouseDragEnd { x, y } => {
+                // Finalize text selection
+                if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
+                    // This will be handled in Phase 2
+                    None
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
     /// Get text from system clipboard
     fn get_clipboard_text() -> Result<String, Box<dyn std::error::Error>> {
         use arboard::Clipboard;
@@ -1181,6 +1246,13 @@ impl EventHandler {
                 state.current_view = crate::app::state::View::SessionList;
                 state.git_view_state = None;
                 tracing::info!("Returned to session list after successful commit");
+            }
+            // Mouse events are handled directly in the main event loop
+            AppEvent::MouseClick { .. } |
+            AppEvent::MouseDragStart { .. } |
+            AppEvent::MouseDragEnd { .. } |
+            AppEvent::MouseDragging { .. } => {
+                // These are processed by handle_mouse_event
             }
         }
     }

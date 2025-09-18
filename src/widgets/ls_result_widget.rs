@@ -1,12 +1,11 @@
 // ABOUTME: Widget for rendering directory listing (ls) results
 // Displays directory trees and file listings in a structured format
 
-use crate::agent_parsers::{AgentEvent, types::StructuredPayload};
+use crate::agent_parsers::AgentEvent;
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
-use serde_json::Value;
 use uuid::Uuid;
 
-use super::{MessageWidget, WidgetOutput, ToolResult, helpers};
+use super::{MessageWidget, WidgetOutput, helpers};
 
 pub struct LsResultWidget;
 
@@ -67,12 +66,8 @@ impl LsResultWidget {
 impl MessageWidget for LsResultWidget {
     fn can_handle(&self, event: &AgentEvent) -> bool {
         // This widget handles tool results that look like LS output
-        if event.event_type == "tool_result" {
-            if let Some(ref payload) = event.payload {
-                if let Some(content) = payload.data.get("content").and_then(|v| v.as_str()) {
-                    return Self::is_ls_result(content);
-                }
-            }
+        if let AgentEvent::ToolResult { content, .. } = event {
+            return Self::is_ls_result(content);
         }
         false
     }
@@ -81,31 +76,29 @@ impl MessageWidget for LsResultWidget {
         let mut entries = Vec::new();
 
         // Extract content from the event
-        if let Some(ref payload) = event.payload {
-            if let Some(content) = payload.data.get("content").and_then(|v| v.as_str()) {
-                // Header
-                entries.push(helpers::create_log_entry(
-                    LogEntryLevel::Info,
-                    container_name,
-                    "📁 Directory Contents:".to_string(),
-                    session_id,
-                    "ls_result",
-                ));
+        if let AgentEvent::ToolResult { content, .. } = event {
+            // Header
+            entries.push(helpers::create_log_entry(
+                LogEntryLevel::Info,
+                container_name,
+                "📁 Directory Contents:".to_string(),
+                session_id,
+                "ls_result",
+            ));
 
-                // Format and display the tree
-                let formatted_lines = Self::format_tree_output(content);
-                for line in formatted_lines {
-                    if line.is_empty() {
-                        entries.push(helpers::create_separator(container_name, session_id));
-                    } else {
-                        entries.push(helpers::create_log_entry(
-                            LogEntryLevel::Debug,
-                            container_name,
-                            line,
-                            session_id,
-                            "ls_result",
-                        ));
-                    }
+            // Format and display the tree
+            let formatted_lines = Self::format_tree_output(&content);
+            for line in formatted_lines {
+                if line.is_empty() {
+                    entries.push(helpers::create_separator(container_name, session_id));
+                } else {
+                    entries.push(helpers::create_log_entry(
+                        LogEntryLevel::Debug,
+                        container_name,
+                        line,
+                        session_id,
+                        "ls_result",
+                    ));
                 }
             }
         }

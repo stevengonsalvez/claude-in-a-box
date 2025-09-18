@@ -19,114 +19,111 @@ impl MultiEditWidget {
 impl MessageWidget for MultiEditWidget {
     fn can_handle(&self, event: &AgentEvent) -> bool {
         // Check if this is a multiedit tool use
-        if event.event_type == "tool_use" {
-            if let Some(ref payload) = event.payload {
-                if let Some(name) = payload.data.get("name").and_then(|v| v.as_str()) {
-                    return name.to_lowercase() == "multiedit";
-                }
-            }
-        }
-        false
+        matches!(event,
+            AgentEvent::ToolCall { name, .. } if name.to_lowercase() == "multiedit"
+        )
     }
 
     fn render(&self, event: AgentEvent, container_name: &str, session_id: Uuid) -> WidgetOutput {
         let mut entries = Vec::new();
 
-        // Extract file path and edits from the event
-        if let Some(ref payload) = event.payload {
-            let file_path = payload.data.get("input")
-                .and_then(|input| input.get("file_path"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("<unknown file>");
+        match event {
+            AgentEvent::ToolCall { id: _, name: _, input, description: _ } => {
+                // Extract file path and edits from the input
+                let file_path = input.get("file_path")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("<unknown file>");
 
-            let edits = payload.data.get("input")
-                .and_then(|input| input.get("edits"))
-                .and_then(|v| v.as_array());
+                let edits = input.get("edits")
+                    .and_then(|v| v.as_array());
 
-            // Header
-            entries.push(helpers::create_log_entry(
-                LogEntryLevel::Info,
-                container_name,
-                format!("📝 MultiEdit: {}", file_path),
-                session_id,
-                "multiedit",
-            ));
-
-            // Display each edit
-            if let Some(edits_array) = edits {
+                // Header
                 entries.push(helpers::create_log_entry(
-                    LogEntryLevel::Debug,
+                    LogEntryLevel::Info,
                     container_name,
-                    format!("   Applying {} edits:", edits_array.len()),
+                    format!("📝 MultiEdit: {}", file_path),
                     session_id,
                     "multiedit",
                 ));
 
-                for (idx, edit) in edits_array.iter().enumerate() {
-                    let old_string = edit.get("old_string")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("<unknown>");
-                    let new_string = edit.get("new_string")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("<unknown>");
-                    let replace_all = edit.get("replace_all")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-
-                    // Edit number
+                // Display each edit
+                if let Some(edits_array) = edits {
                     entries.push(helpers::create_log_entry(
                         LogEntryLevel::Debug,
                         container_name,
-                        format!("   Edit {}{}:", idx + 1, if replace_all { " (replace all)" } else { "" }),
+                        format!("   Applying {} edits:", edits_array.len()),
                         session_id,
                         "multiedit",
                     ));
 
-                    // Show old string (truncated if too long)
-                    let old_display = if old_string.len() > 100 {
-                        format!("{}...", &old_string[..100])
-                    } else {
-                        old_string.to_string()
-                    };
-                    entries.push(helpers::create_log_entry(
-                        LogEntryLevel::Debug,
-                        container_name,
-                        format!("      - {}", old_display),
-                        session_id,
-                        "multiedit",
-                    ));
+                    for (idx, edit) in edits_array.iter().enumerate() {
+                        let old_string = edit.get("old_string")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("<unknown>");
+                        let new_string = edit.get("new_string")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("<unknown>");
+                        let replace_all = edit.get("replace_all")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
 
-                    // Show new string (truncated if too long)
-                    let new_display = if new_string.len() > 100 {
-                        format!("{}...", &new_string[..100])
-                    } else {
-                        new_string.to_string()
-                    };
+                        // Edit number
+                        entries.push(helpers::create_log_entry(
+                            LogEntryLevel::Debug,
+                            container_name,
+                            format!("   Edit {}{}:", idx + 1, if replace_all { " (replace all)" } else { "" }),
+                            session_id,
+                            "multiedit",
+                        ));
+
+                        // Show old string (truncated if too long)
+                        let old_display = if old_string.len() > 100 {
+                            format!("{}...", &old_string[..100])
+                        } else {
+                            old_string.to_string()
+                        };
+                        entries.push(helpers::create_log_entry(
+                            LogEntryLevel::Debug,
+                            container_name,
+                            format!("      - {}", old_display),
+                            session_id,
+                            "multiedit",
+                        ));
+
+                        // Show new string (truncated if too long)
+                        let new_display = if new_string.len() > 100 {
+                            format!("{}...", &new_string[..100])
+                        } else {
+                            new_string.to_string()
+                        };
+                        entries.push(helpers::create_log_entry(
+                            LogEntryLevel::Debug,
+                            container_name,
+                            format!("      + {}", new_display),
+                            session_id,
+                            "multiedit",
+                        ));
+                    }
+                } else {
                     entries.push(helpers::create_log_entry(
                         LogEntryLevel::Debug,
                         container_name,
-                        format!("      + {}", new_display),
+                        "   No edits found".to_string(),
                         session_id,
                         "multiedit",
                     ));
                 }
-            } else {
+            }
+            _ => {
+                // Should not happen if can_handle works correctly
                 entries.push(helpers::create_log_entry(
-                    LogEntryLevel::Debug,
+                    LogEntryLevel::Info,
                     container_name,
-                    "   No edits found".to_string(),
+                    "📝 MultiEdit".to_string(),
                     session_id,
                     "multiedit",
                 ));
             }
-        } else {
-            entries.push(helpers::create_log_entry(
-                LogEntryLevel::Info,
-                container_name,
-                "📝 MultiEdit".to_string(),
-                session_id,
-                "multiedit",
-            ));
         }
 
         // Add separator for visual clarity
