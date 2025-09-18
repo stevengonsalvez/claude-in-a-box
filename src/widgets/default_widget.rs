@@ -129,13 +129,7 @@ impl MessageWidget for DefaultWidget {
             }
 
             AgentEvent::Usage { input_tokens, output_tokens, cache_tokens, .. } => {
-                let mut usage = format!("📈 Usage: {} in, {} out", input_tokens, output_tokens);
-                if let Some(cache) = cache_tokens {
-                    usage.push_str(&format!(", {} cached", cache));
-                }
-                LogEntry::new(LogEntryLevel::Debug, container_name.to_string(), usage)
-                    .with_session(session_id)
-                    .with_metadata("event_type", "usage")
+                return WidgetOutput::MultiLine(vec![]);
             }
 
             AgentEvent::Custom { event_type, data } => {

@@ -5,6 +5,7 @@ use crate::agent_parsers::{AgentOutputParser, ParserFactory};
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
 use crate::components::log_parser::LogParser;
 use crate::docker::ContainerManager;
+use crate::widgets::WidgetOutput;
 use anyhow::{Result, anyhow};
 use bollard::container::{LogOutput, LogsOptions};
 use futures_util::StreamExt;
@@ -491,72 +492,16 @@ impl DockerLogStreamingManager {
         use crate::widgets::{MessageRouter, WidgetOutput};
 
         // Create a message router (in production, this could be cached)
-        let router = MessageRouter::new();
+        let mut router = MessageRouter::new();
 
         // Render the event using the appropriate widget
         let output = router.route_event(event, container_name, session_id);
 
-        // Convert widget output to LogEntry vector
-        match output {
-            WidgetOutput::Simple(entry) => vec![entry],
-            WidgetOutput::MultiLine(entries) => {
-                if entries.is_empty() {
-                    vec![LogEntry::new(
-                        LogEntryLevel::Error,
-                        container_name.to_string(),
-                        "Widget returned empty output".to_string(),
-                    )
-                    .with_session(session_id)]
-                } else {
-                    entries
-                }
-            }
-            WidgetOutput::Hierarchical { header, content, collapsed: _ } => {
-                // Combine header and content entries
-                let mut entries = Vec::new();
+        // Convert widget output to LogEntry vector using the proper to_log_entries method
+        let entries = output.to_log_entries();
 
-                // Add header entries
-                entries.extend(header);
-
-                // Add separator if we have content
-                if !content.is_empty() {
-                    entries.push(LogEntry::new(
-                        LogEntryLevel::Debug,
-                        container_name.to_string(),
-                        "├─ Result ─────────────────────────────".to_string(),
-                    )
-                    .with_session(session_id)
-                    .with_metadata("separator", "true"));
-
-                    // Add content entries with indentation
-                    for mut entry in content {
-                        // Add visual indentation to content
-                        entry.message = format!("│  {}", entry.message);
-                        entries.push(entry);
-                    }
-
-                    // Add closing separator
-                    entries.push(LogEntry::new(
-                        LogEntryLevel::Debug,
-                        container_name.to_string(),
-                        "└─────────────────────────────────────".to_string(),
-                    )
-                    .with_session(session_id)
-                    .with_metadata("separator", "true"));
-                }
-
-                entries
-            }
-            WidgetOutput::Interactive(_) => {
-                // Interactive components not yet supported in current TUI
-                vec![LogEntry::new(
-                    LogEntryLevel::Info,
-                    container_name.to_string(),
-                    "Interactive component (not yet supported)".to_string(),
-                )
-                .with_session(session_id)]
-            }
-        }
+        // Return entries as-is, even if empty (for filtered events)
+        entries
     }
 
     /// Convert AgentEvent to LogEntry for display (backwards compatibility)
@@ -751,13 +696,11 @@ impl DockerLogStreamingManager {
                 cache_tokens,
                 ..
             } => {
-                let mut usage = format!("📈 Usage: {} in, {} out", input_tokens, output_tokens);
-                if let Some(cache) = cache_tokens {
-                    usage.push_str(&format!(", {} cached", cache));
-                }
-                LogEntry::new(LogEntryLevel::Debug, container_name.to_string(), usage)
-                    .with_session(session_id)
-                    .with_metadata("event_type", "usage")
+                return LogEntry::new(
+                    LogEntryLevel::Debug,
+                    container_name.to_string(),
+                    "".to_string()
+                ).with_session(session_id);
             }
 
             AgentEvent::Custom { event_type, data } => LogEntry::new(
