@@ -10,14 +10,21 @@ use std::io::{self, stdout};
 impl super::AppState {
     /// Attach to a tmux session
     pub fn attach_to_session(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
-        // Find the session
-        let tmux_session_name = self.workspaces
+        // Try to find session in workspaces first
+        let session_info = self.workspaces
             .iter()
             .flat_map(|w| &w.sessions)
             .find(|s| s.id == session_id)
-            .and_then(|s| Some(s.tmux_session_name.clone()));
+            .map(|s| (s.tmux_session_name.clone(), s.name.clone()));
 
-        if let Some(session_name) = tmux_session_name {
+        // If not found in workspaces, check SessionManager
+        let session_info = session_info.or_else(|| {
+            self.session_manager
+                .get_session(session_id)
+                .map(|s| (s.tmux_session_name.clone(), s.name.clone()))
+        });
+
+        if let Some((session_name, _display_name)) = session_info {
             // Update session status
             if let Some(session) = self.workspaces
                 .iter_mut()
@@ -67,18 +74,25 @@ impl super::AppState {
 
             Ok(())
         } else {
-            Err("Session not found".into())
+            Err(format!("Session {} not found in workspaces or SessionManager", session_id).into())
         }
     }
 
     /// Get logs from a tmux session using pane capture
     pub async fn fetch_tmux_logs(&mut self, session_id: Uuid) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        // Find the tmux session name
+        // Try to find session in workspaces first
         let tmux_session_name = self.workspaces
             .iter()
             .flat_map(|w| &w.sessions)
             .find(|s| s.id == session_id)
-            .and_then(|s| Some(s.tmux_session_name.clone()));
+            .map(|s| s.tmux_session_name.clone());
+
+        // If not found in workspaces, check SessionManager
+        let tmux_session_name = tmux_session_name.or_else(|| {
+            self.session_manager
+                .get_session(session_id)
+                .map(|s| s.tmux_session_name.clone())
+        });
 
         if let Some(session_name) = tmux_session_name {
             // Capture pane content
@@ -125,11 +139,19 @@ impl super::AppState {
 
     /// Kill a tmux session
     pub async fn kill_tmux_session(&mut self, session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+        // Try to find session in workspaces first
         let tmux_session_name = self.workspaces
             .iter()
             .flat_map(|w| &w.sessions)
             .find(|s| s.id == session_id)
-            .and_then(|s| Some(s.tmux_session_name.clone()));
+            .map(|s| s.tmux_session_name.clone());
+
+        // If not found in workspaces, check SessionManager
+        let tmux_session_name = tmux_session_name.or_else(|| {
+            self.session_manager
+                .get_session(session_id)
+                .map(|s| s.tmux_session_name.clone())
+        });
 
         if let Some(session_name) = tmux_session_name {
             Command::new("tmux")

@@ -16,6 +16,7 @@ pub mod logs_viewer;
 pub mod new_session;
 pub mod non_git_notification;
 pub mod session_list;
+pub mod split_screen;
 
 pub use attached_terminal::AttachedTerminalComponent;
 pub use auth_setup::AuthSetupComponent;
@@ -29,3 +30,4 @@ pub use logs_viewer::LogsViewerComponent;
 pub use new_session::NewSessionComponent;
 pub use non_git_notification::NonGitNotificationComponent;
 pub use session_list::SessionListComponent;
+pub use split_screen::SplitScreenComponent;

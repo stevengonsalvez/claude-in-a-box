@@ -20,14 +20,23 @@ pub struct PersistedSession {
     pub last_accessed: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug)]
 pub struct SessionPersistence {
-    storage_path: PathBuf,
+    pub storage_path: PathBuf,
+}
+
+impl Default for SessionPersistence {
+    fn default() -> Self {
+        Self {
+            storage_path: std::env::temp_dir().join(".claude-in-a-box").join("sessions"),
+        }
+    }
 }
 
 impl SessionPersistence {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let home = std::env::var("HOME")?;
-        let storage_path = PathBuf::from(home).join(".claude-box").join("sessions");
+        let storage_path = PathBuf::from(home).join(".claude-in-a-box").join("sessions");
         
         // Ensure directory exists
         fs::create_dir_all(&storage_path)?;

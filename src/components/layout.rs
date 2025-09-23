@@ -9,7 +9,7 @@ use ratatui::{
 use super::{
     AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
     ConfirmationDialogComponent, HelpComponent, LiveLogsStreamComponent, LogsViewerComponent,
-    NewSessionComponent, NonGitNotificationComponent, SessionListComponent,
+    NewSessionComponent, NonGitNotificationComponent, SessionListComponent, SplitScreenComponent,
 };
 use crate::app::{AppState, state::View};
 
@@ -24,6 +24,7 @@ pub struct LayoutComponent {
     non_git_notification: NonGitNotificationComponent,
     attached_terminal: AttachedTerminalComponent,
     auth_setup: AuthSetupComponent,
+    split_screen: SplitScreenComponent,
 }
 
 impl LayoutComponent {
@@ -39,6 +40,7 @@ impl LayoutComponent {
             non_git_notification: NonGitNotificationComponent::new(),
             attached_terminal: AttachedTerminalComponent::new(),
             auth_setup: AuthSetupComponent::new(),
+            split_screen: SplitScreenComponent::new(),
         }
     }
 
@@ -67,6 +69,12 @@ impl LayoutComponent {
             if let Some(ref git_state) = state.git_view_state {
                 crate::components::GitViewComponent::render(frame, frame.size(), git_state);
             }
+            return;
+        }
+
+        // Special handling for split-screen view (full screen)
+        if state.current_view == View::SplitScreen {
+            self.split_screen.render(frame, frame.size(), state);
             return;
         }
 

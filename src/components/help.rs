@@ -39,6 +39,10 @@ impl HelpComponent {
             ListItem::new("  x          Cleanup orphaned containers"),
             ListItem::new("  f          Refresh workspaces"),
             ListItem::new(""),
+            ListItem::new("Tmux Session Control:")
+                .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ListItem::new("  Ctrl+Q     Detach from tmux session"),
+            ListItem::new(""),
             ListItem::new("Git Actions:")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ListItem::new("  g          Show git view"),
@@ -47,6 +51,7 @@ impl HelpComponent {
             ListItem::new("Views:")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ListItem::new("  Tab        Switch between views"),
+            ListItem::new("  v          Toggle split-screen mode"),
             ListItem::new(""),
             ListItem::new("General:")
                 .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),

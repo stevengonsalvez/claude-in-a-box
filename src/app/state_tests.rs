@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::{AppState, NewSessionState, NewSessionStep};
+    use crate::app::state::{AppState, NewSessionState, NewSessionStep, View};
     use crate::models::SessionMode;
     use std::path::PathBuf;
 
@@ -298,5 +298,60 @@ mod tests {
 
         // Should not crash and should not add any notifications since git_view_state is None
         assert_eq!(state.notifications.len(), 0);
+    }
+
+    /// Test split-screen view toggle behavior
+    #[test]
+    fn test_split_screen_toggle() {
+        let mut state = AppState::new();
+
+        // Initially should be in SessionList view
+        assert_eq!(state.current_view, View::SessionList);
+
+        // Toggle to split-screen mode
+        state.toggle_split_screen();
+        assert_eq!(state.current_view, View::SplitScreen);
+
+        // Toggle back to session list
+        state.toggle_split_screen();
+        assert_eq!(state.current_view, View::SessionList);
+    }
+
+    /// Test split-screen view only toggles from and to SessionList view
+    #[test]
+    fn test_split_screen_only_toggles_from_session_list() {
+        let mut state = AppState::new();
+
+        // Switch to Help view first
+        state.current_view = View::Help;
+
+        // Toggle split-screen should not work from Help view
+        state.toggle_split_screen();
+        assert_eq!(state.current_view, View::Help);
+
+        // Switch to Terminal view
+        state.current_view = View::Terminal;
+
+        // Toggle split-screen should not work from Terminal view
+        state.toggle_split_screen();
+        assert_eq!(state.current_view, View::Terminal);
+    }
+
+    /// Test split-screen toggle via event handling
+    #[test]
+    fn test_split_screen_toggle_via_event() {
+        use crate::app::events::{AppEvent, EventHandler};
+        let mut state = AppState::new();
+
+        // Initially should be in SessionList view
+        assert_eq!(state.current_view, View::SessionList);
+
+        // Process ToggleSplitScreen event
+        EventHandler::process_event(AppEvent::ToggleSplitScreen, &mut state);
+        assert_eq!(state.current_view, View::SplitScreen);
+
+        // Process another ToggleSplitScreen event
+        EventHandler::process_event(AppEvent::ToggleSplitScreen, &mut state);
+        assert_eq!(state.current_view, View::SessionList);
     }
 }

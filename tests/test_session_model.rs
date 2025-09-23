@@ -10,8 +10,8 @@ fn test_session_creation() {
     assert_eq!(session.name, "test-session");
     assert_eq!(session.workspace_path, "/path/to/workspace");
     assert_eq!(session.branch_name, "claude/test-session");
-    assert!(matches!(session.status, SessionStatus::Stopped));
-    assert_eq!(session.container_id, None);
+    assert!(matches!(session.status, SessionStatus::Created));
+    assert_eq!(session.tmux_session_name, "ciab_test-session");
     assert_eq!(session.git_changes.total(), 0);
 }
 
@@ -26,8 +26,11 @@ fn test_session_branch_name_formatting() {
 
 #[test]
 fn test_session_status_indicator() {
+    assert_eq!(SessionStatus::Created.indicator(), "○");
     assert_eq!(SessionStatus::Running.indicator(), "●");
-    assert_eq!(SessionStatus::Stopped.indicator(), "⏸");
+    assert_eq!(SessionStatus::Attached.indicator(), "▶");
+    assert_eq!(SessionStatus::Detached.indicator(), "⏸");
+    assert_eq!(SessionStatus::Stopped.indicator(), "□");
     assert_eq!(SessionStatus::Error("test".to_string()).indicator(), "✗");
 }
 

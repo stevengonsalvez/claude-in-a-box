@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::tmux::error::TmuxError;
 
+#[derive(Debug)]
 pub struct TmuxSession {
     pub name: String,
     pub worktree_path: String,
@@ -48,8 +49,8 @@ impl TmuxSession {
     ) -> Result<Self, TmuxError> {
         Self::check_tmux_installed()?;
 
-        // Sanitize session name
-        let session_name = format!("ciab_{}", name.replace(' ', "_").replace('.', "_"));
+        // Sanitize session name using the centralized function
+        let session_name = format!("ciab_{}", crate::models::Session::sanitize_tmux_name(name));
 
         // Check if session already exists
         let check = Command::new("tmux")
@@ -159,11 +160,13 @@ impl TmuxSession {
             )))?;
 
         let (detach_tx, detach_rx) = oneshot::channel();
-        self.attach_ctx = Some(detach_tx);
 
         // Get raw file descriptors for I/O
         let master = pty_pair.master;
-        
+
+        // Use tokio's mpsc for internal detach signaling
+        let (internal_detach_tx, mut internal_detach_rx) = tokio::sync::mpsc::channel(1);
+
         // Input forwarding task
         let session_name = self.name.clone();
         let input_task = tokio::spawn(async move {
@@ -190,15 +193,28 @@ impl TmuxSession {
                                         .args(&["detach-client", "-t", &session_name])
                                         .output()
                                         .await;
+
+                                    // Signal detach internally
+                                    let _ = internal_detach_tx.send(()).await;
                                     break;
                                 }
 
-                                // Forward input to tmux (would need master.write_all in real impl)
+                                // Forward input to tmux using portable-pty
+                                // TODO: Implement actual PTY I/O forwarding
+                                // In a full implementation, this would write to master
                             }
                         }
                     }
                 }
             }
+        });
+
+        // Detach monitoring task
+        let detach_monitor = tokio::spawn(async move {
+            // Wait for internal detach signal
+            let _ = internal_detach_rx.recv().await;
+            // Forward to external receiver
+            let _ = detach_tx.send(());
         });
 
         // Output forwarding task
@@ -211,6 +227,7 @@ impl TmuxSession {
         self.attached = true;
         self.input_task = Some(input_task);
         self.output_task = Some(output_task);
+        self.attach_ctx = None; // Will be set by detach monitor if needed
 
         // Return receiver for detach signal
         Ok(detach_rx)
@@ -274,6 +291,21 @@ impl TmuxSession {
     /// Get the master PTY file descriptor
     pub fn get_master_fd(&self) -> Option<RawFd> {
         self.ptmx
+    }
+
+    /// Check if session is currently attached
+    pub fn is_attached(&self) -> bool {
+        self.attached
+    }
+
+    /// Check if input task is running
+    pub fn has_input_task(&self) -> bool {
+        self.input_task.is_some()
+    }
+
+    /// Check if output task is running
+    pub fn has_output_task(&self) -> bool {
+        self.output_task.is_some()
     }
 
     /// Resize the tmux window

@@ -94,6 +94,25 @@ impl GitChanges {
 }
 
 impl Session {
+    /// Sanitize a name for use as a tmux session name
+    /// Replaces all special characters that tmux doesn't handle well
+    pub fn sanitize_tmux_name(name: &str) -> String {
+        name.replace(' ', "_")
+            .replace('.', "_")
+            .replace('/', "_")
+            .replace('\\', "_")
+            .replace(':', "_")
+            .replace(';', "_")
+            .replace('|', "_")
+            .replace('&', "_")
+            .replace('(', "_")
+            .replace(')', "_")
+            .replace('<', "_")
+            .replace('>', "_")
+            .replace('"', "_")
+            .replace('\'', "_")
+    }
+
     pub fn new(name: String, workspace_path: String) -> Self {
         Self::new_with_options(name, workspace_path, false, SessionMode::Interactive, None)
     }
@@ -107,7 +126,7 @@ impl Session {
     ) -> Self {
         let now = Utc::now();
         let branch_name = format!("claude/{}", name.replace(' ', "-").to_lowercase());
-        let tmux_session_name = format!("ciab_{}", name.replace(' ', "_").replace('.', "_"));
+        let tmux_session_name = format!("ciab_{}", Self::sanitize_tmux_name(&name));
         let worktree_path = format!("{}/.worktrees/{}", workspace_path, branch_name);
 
         Self {

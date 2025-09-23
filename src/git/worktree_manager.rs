@@ -34,6 +34,7 @@ pub struct WorktreeInfo {
     pub commit_hash: Option<String>,
 }
 
+#[derive(Debug)]
 pub struct WorktreeManager {
     base_worktree_dir: PathBuf,
 }

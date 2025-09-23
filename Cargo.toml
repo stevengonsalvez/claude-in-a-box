@@ -8,6 +8,7 @@ license = "MIT"
 repository = "https://github.com/your-org/claude-box"
 keywords = ["claude", "tmux", "tui", "development", "terminal"]
 categories = ["command-line-utilities", "development-tools"]
+default-run = "claude-box"
 
 [dependencies]
 # Core

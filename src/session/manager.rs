@@ -4,14 +4,18 @@
 use crate::tmux::TmuxSession;
 use crate::git::WorktreeManager;
 use crate::models::{Session, SessionStatus};
+use crate::session::persistence::SessionPersistence;
 use std::collections::HashMap;
 use std::process::Command;
 use uuid::Uuid;
+use tracing::warn;
 
+#[derive(Debug)]
 pub struct SessionManager {
     sessions: HashMap<Uuid, Session>,
     tmux_sessions: HashMap<Uuid, TmuxSession>,
     worktree_manager: WorktreeManager,
+    persistence: SessionPersistence,
 }
 
 impl SessionManager {
@@ -20,6 +24,10 @@ impl SessionManager {
             sessions: HashMap::new(),
             tmux_sessions: HashMap::new(),
             worktree_manager: WorktreeManager::new().expect("Failed to create WorktreeManager"),
+            persistence: SessionPersistence::new().unwrap_or_else(|e| {
+                warn!("Failed to create SessionPersistence: {}", e);
+                SessionPersistence::default()
+            }),
         }
     }
 
@@ -30,6 +38,16 @@ impl SessionManager {
         session_name: &str,
     ) -> Result<Uuid, Box<dyn std::error::Error>> {
         let session_id = Uuid::new_v4();
+        self.create_session_with_id(session_id, workspace_path, branch_name, session_name).await
+    }
+
+    pub async fn create_session_with_id(
+        &mut self,
+        session_id: Uuid,
+        workspace_path: &str,
+        branch_name: &str,
+        session_name: &str,
+    ) -> Result<Uuid, Box<dyn std::error::Error>> {
 
         // Create git worktree
         let worktree_info = self.worktree_manager
@@ -81,6 +99,11 @@ impl SessionManager {
             boss_prompt: None,
         };
 
+        // Save to persistence after successful creation
+        if let Err(e) = self.persistence.save_session(&session) {
+            warn!("Failed to persist session: {}", e);
+        }
+
         self.sessions.insert(session_id, session);
         self.tmux_sessions.insert(session_id, tmux_session);
 
@@ -115,15 +138,32 @@ impl SessionManager {
     }
 
     pub async fn restore_sessions(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Find existing CIAB tmux sessions
-        let existing_sessions = TmuxSession::list_sessions().await?;
+        use tracing::info;
+        info!("Restoring sessions from persistence");
 
-        for session_name in existing_sessions {
-            // Try to restore session metadata from disk or recreate
-            println!("Found existing tmux session: {}", session_name);
-            // TODO: Implement session restoration logic
+        let restored_sessions = self.persistence.restore_sessions()?;
+        let tmux_sessions = TmuxSession::list_sessions().await?;
+
+        for mut session in restored_sessions {
+            // Check if tmux session still exists
+            if tmux_sessions.contains(&session.tmux_session_name) {
+                // Update status based on current tmux state
+                session.status = SessionStatus::Detached; // Default to detached
+
+                // Check if attached
+                if let Ok(output) = Command::new("tmux")
+                    .args(&["list-clients", "-t", &session.tmux_session_name])
+                    .output() {
+                    if output.status.success() && !output.stdout.is_empty() {
+                        session.status = SessionStatus::Attached;
+                    }
+                }
+
+                self.sessions.insert(session.id, session);
+            }
         }
 
+        info!("Restored {} sessions", self.sessions.len());
         Ok(())
     }
 
