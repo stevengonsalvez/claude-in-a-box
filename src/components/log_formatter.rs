@@ -21,7 +21,7 @@ pub struct FormatConfig {
 impl Default for FormatConfig {
     fn default() -> Self {
         Self {
-            show_timestamps: true,
+            show_timestamps: false,
             use_relative_time: true,
             show_source_badges: true,
             compact_mode: false,

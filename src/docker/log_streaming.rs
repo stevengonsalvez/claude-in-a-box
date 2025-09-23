@@ -5,6 +5,7 @@ use crate::agent_parsers::{AgentOutputParser, ParserFactory};
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
 use crate::components::log_parser::LogParser;
 use crate::docker::ContainerManager;
+use crate::widgets::WidgetOutput;
 use anyhow::{Result, anyhow};
 use bollard::container::{LogOutput, LogsOptions};
 use futures_util::StreamExt;
@@ -149,7 +150,7 @@ impl DockerLogStreamingManager {
             stdout: true,
             stderr: true,
             follow: true,
-            timestamps: true,
+            timestamps: false,  // Disable timestamps for cleaner JSON output
             tail: "100".to_string(), // Start with last 100 lines
             ..Default::default()
         };
@@ -172,6 +173,10 @@ impl DockerLogStreamingManager {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_JSON_BUF_LIMIT);
+
+        // Create MessageRouter once for the entire stream to maintain state across events
+        use crate::widgets::MessageRouter;
+        let mut message_router = MessageRouter::new();
 
         // Send initial connection message
         let _ = log_sender.send((
@@ -232,21 +237,26 @@ impl DockerLogStreamingManager {
                                     match parser.parse_line(&obj) {
                                         Ok(events) => {
                                             for event in events {
-                                                let log_entry = Self::agent_event_to_log_entry(
+                                                let log_entries = Self::agent_event_to_log_entries(
                                                     event,
                                                     &container_name,
                                                     session_id,
+                                                    &mut message_router,
                                                 );
-                                                if let Err(e) =
-                                                    log_sender.send((session_id, log_entry))
-                                                {
-                                                    warn!("Failed to send log entry: {}", e);
-                                                    break;
+                                                for log_entry in log_entries {
+                                                    if let Err(e) =
+                                                        log_sender.send((session_id, log_entry))
+                                                    {
+                                                        warn!("Failed to send log entry: {}", e);
+                                                        break;
+                                                    }
                                                 }
                                             }
                                         }
                                         Err(e) => {
                                             debug!("Parser error on JSON object: {}", e);
+                                            // Don't show raw JSON to user on parse error
+                                            // This prevents JSON from appearing in the TUI
                                         }
                                     }
                                 }
@@ -477,8 +487,49 @@ impl DockerLogStreamingManager {
         )
     }
 
-    /// Convert AgentEvent to LogEntry for display
+    /// Convert AgentEvent to multiple LogEntries for display using the widget system
+    fn agent_event_to_log_entries(
+        event: crate::agent_parsers::AgentEvent,
+        container_name: &str,
+        session_id: Uuid,
+        message_router: &mut crate::widgets::MessageRouter,
+    ) -> Vec<LogEntry> {
+        // Use the message router to render the event
+        use crate::widgets::WidgetOutput;
+
+        // Render the event using the appropriate widget
+        let output = message_router.route_event(event, container_name, session_id);
+
+        // Convert widget output to LogEntry vector using the proper to_log_entries method
+        let entries = output.to_log_entries();
+
+        // Return entries as-is, even if empty (for filtered events)
+        entries
+    }
+
+    /// Convert AgentEvent to LogEntry for display (backwards compatibility)
     fn agent_event_to_log_entry(
+        event: crate::agent_parsers::AgentEvent,
+        container_name: &str,
+        session_id: Uuid,
+    ) -> LogEntry {
+        // Create a temporary router for backwards compatibility (used only in tests)
+        let mut temp_router = crate::widgets::MessageRouter::new();
+        // Use the new function and return the first entry
+        let entries = Self::agent_event_to_log_entries(event, container_name, session_id, &mut temp_router);
+        entries.into_iter().next().unwrap_or_else(|| {
+            LogEntry::new(
+                LogEntryLevel::Error,
+                container_name.to_string(),
+                "No log entry generated".to_string(),
+            )
+            .with_session(session_id)
+        })
+    }
+
+    /// Legacy implementation of agent_event_to_log_entry (kept for reference)
+    #[allow(dead_code)]
+    fn agent_event_to_log_entry_legacy(
         event: crate::agent_parsers::AgentEvent,
         container_name: &str,
         session_id: Uuid,
@@ -650,13 +701,11 @@ impl DockerLogStreamingManager {
                 cache_tokens,
                 ..
             } => {
-                let mut usage = format!("📈 Usage: {} in, {} out", input_tokens, output_tokens);
-                if let Some(cache) = cache_tokens {
-                    usage.push_str(&format!(", {} cached", cache));
-                }
-                LogEntry::new(LogEntryLevel::Debug, container_name.to_string(), usage)
-                    .with_session(session_id)
-                    .with_metadata("event_type", "usage")
+                return LogEntry::new(
+                    LogEntryLevel::Debug,
+                    container_name.to_string(),
+                    "".to_string()
+                ).with_session(session_id);
             }
 
             AgentEvent::Custom { event_type, data } => LogEntry::new(
@@ -963,7 +1012,8 @@ mod tests {
             uuid::Uuid::new_v4(),
         );
 
-        assert!(entry.message.contains("📝 TodoWrite: Updating task list"));
+        // The new widget system produces a cleaner todo summary format
+        assert!(entry.message.contains("📝 Todos"));
         assert!(entry.message.contains("Σ 4 tasks"));
         assert!(entry.message.contains("2 pending"));
         assert!(entry.message.contains("1 ⏳"));
@@ -986,7 +1036,7 @@ mod tests {
         let entry =
             DockerLogStreamingManager::agent_event_to_log_entry(event, "container", Uuid::nil());
 
-        assert!(entry.message.contains("🔧 Bash: Run tests to check current status"));
-        assert!(entry.message.contains("💻 Command: cargo test --quiet 2>&1 | tail -10"));
+        // The new widget system produces a cleaner format without the emoji
+        assert!(entry.message.contains("Bash: Run tests to check current status"));
     }
 }

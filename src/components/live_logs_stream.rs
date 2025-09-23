@@ -49,7 +49,7 @@ impl LogLevel {
 impl LiveLogsStreamComponent {
     pub fn new() -> Self {
         let format_config = FormatConfig {
-            show_timestamps: true,
+            show_timestamps: false,
             use_relative_time: true,
             show_source_badges: true,
             compact_mode: false,
@@ -60,7 +60,7 @@ impl LiveLogsStreamComponent {
             auto_scroll: true,
             scroll_offset: 0,
             max_visible_lines: 20,
-            show_timestamps: true,
+            show_timestamps: false,
             filter_level: LogLevel::All,
             log_formatter: SimpleLogFormatter::new(format_config),
         }
