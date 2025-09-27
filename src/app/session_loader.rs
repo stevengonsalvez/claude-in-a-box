@@ -28,6 +28,23 @@ impl SessionLoader {
         })
     }
 
+    /// Extract repository name from tmux session name for orphaned sessions
+    /// This helps display meaningful workspace names instead of showing username
+    fn extract_repo_name_from_tmux_session(tmux_name: &str) -> Option<String> {
+        // Remove ciab_ prefix if present
+        let name_part = tmux_name.strip_prefix("ciab_").unwrap_or(tmux_name);
+
+        // Look for known repository patterns
+        if name_part.contains("claude_in_a_box") || name_part.contains("claude-in-a-box") {
+            return Some("claude-in-a-box".to_string());
+        }
+
+        // Could add more patterns for other repositories as needed
+        // For now, only handle claude-in-a-box explicitly
+
+        None
+    }
+
     /// Load all active sessions from tmux and worktrees
     pub async fn load_active_sessions(&self) -> Result<Vec<Workspace>> {
         info!("Loading active sessions from tmux");
@@ -134,14 +151,21 @@ impl SessionLoader {
             Some(session)
         } else {
             // Tmux session without matching worktree - create minimal session
-            // Use home directory as workspace path for orphaned sessions instead of /tmp
-            let home_dir = dirs::home_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| "/".to_string()); // Ultimate fallback to root if home_dir fails
+            // Try to infer repository name from tmux session name first
+            let workspace_path = if let Some(inferred_repo) = Self::extract_repo_name_from_tmux_session(tmux_name) {
+                // Use inferred repository name as a synthetic workspace path
+                // This will make the workspace name display as the repository name instead of username
+                format!("/synthetic/{}", inferred_repo)
+            } else {
+                // Fall back to home directory if no repository can be inferred
+                dirs::home_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "/".to_string())
+            };
 
             let mut session = Session::new(
                 name_without_prefix.to_string(),
-                home_dir // Default workspace for orphan tmux sessions
+                workspace_path
             );
             session.tmux_session_name = tmux_name.to_string();
             session.status = SessionStatus::Running;
