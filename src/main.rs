@@ -18,9 +18,11 @@ mod app;
 mod claude;
 mod components;
 mod config;
-mod docker;
+// mod docker;  // Removed - using tmux instead
 mod git;
 mod models;
+mod tmux;
+mod session;
 
 use app::{App, EventHandler};
 use components::LayoutComponent;

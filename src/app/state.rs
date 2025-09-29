@@ -6,16 +6,97 @@ use crate::claude::types::ClaudeStreamingEvent;
 use crate::claude::{ClaudeApiClient, ClaudeMessage};
 use crate::components::fuzzy_file_finder::FuzzyFileFinderState;
 use crate::components::live_logs_stream::LogEntry;
-use crate::docker::LogStreamingCoordinator;
+// use crate::docker::LogStreamingCoordinator;  // Removed - using tmux instead
 use crate::models::{Session, Workspace};
+use crate::session::SessionManager;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use anyhow;
 use chrono;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 use uuid::Uuid;
+
+// Stub types for backward compatibility during refactor
+#[derive(Debug, Clone)]
+struct SessionRequest {
+    session_id: uuid::Uuid,
+    workspace_name: String,
+    workspace_path: std::path::PathBuf,
+    branch_name: String,
+    base_branch: Option<String>,
+    container_config: Option<String>,
+    skip_permissions: bool,
+    mode: crate::models::SessionMode,
+    boss_prompt: Option<String>,
+}
+
+struct SessionLifecycleManager;
+
+impl SessionLifecycleManager {
+    async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self)
+    }
+    
+    async fn create_session(&mut self, _request: SessionRequest) -> Result<Session, Box<dyn std::error::Error>> {
+        Err("SessionLifecycleManager not implemented - use SessionManager instead".into())
+    }
+    
+    async fn ensure_session_restored(&mut self, _request: SessionRequest) -> Result<Session, Box<dyn std::error::Error>> {
+        Err("SessionLifecycleManager not implemented - use SessionManager instead".into())
+    }
+    
+    async fn create_session_with_existing_worktree(&mut self, _request: SessionRequest, _worktree_path: std::path::PathBuf) -> Result<Session, Box<dyn std::error::Error>> {
+        Err("SessionLifecycleManager not implemented - use SessionManager instead".into())
+    }
+    
+    async fn create_session_with_logs(&mut self, _request: SessionRequest, _log_sender: mpsc::UnboundedSender<String>) -> Result<Session, Box<dyn std::error::Error>> {
+        Err("SessionLifecycleManager not implemented - use SessionManager instead".into())
+    }
+    
+    async fn remove_session(&mut self, _session_id: Uuid) -> Result<(), Box<dyn std::error::Error>> {
+        Err("SessionLifecycleManager not implemented - use SessionManager instead".into())
+    }
+}
+
+struct ContainerManager;
+
+impl ContainerManager {
+    async fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(Self)
+    }
+    
+    async fn stop_container(&self, _container: &mut SessionContainer) -> Result<(), Box<dyn std::error::Error>> {
+        Err("Docker operations not supported - using tmux instead".into())
+    }
+    
+    async fn remove_container(&self, _container_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        Err("Docker operations not supported - using tmux instead".into())
+    }
+    
+    async fn get_container_logs(&self, _container_id: &str, _since: Option<chrono::DateTime<chrono::Utc>>) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        Err("Docker operations not supported - using tmux instead".into())
+    }
+    
+    async fn tail_logs(&self, _container_id: &str, _since: Option<chrono::DateTime<chrono::Utc>>) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        Err("Docker operations not supported - using tmux instead".into())
+    }
+    
+    async fn list_claude_containers(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        Ok(Vec::new())
+    }
+    
+    async fn remove_container_by_id(&self, _container_id: &str) -> Result<(), Box<dyn std::error::Error>> {
+        Err("Docker operations not supported - using tmux instead".into())
+    }
+}
+
+// Stub type for backward compatibility
+struct SessionContainer {
+    pub id: String,
+}
 
 /// Text editor with cursor support for boss mode prompts
 #[derive(Debug, Clone)]
@@ -397,6 +478,7 @@ pub enum View {
     AuthSetup,  // New view for authentication setup
     ClaudeChat, // Claude chat popup overlay
     GitView,    // Git status and diff view
+    SplitScreen, // Split-screen mode with session list and tmux content
 }
 
 #[derive(Debug, Clone)]
@@ -541,8 +623,10 @@ pub struct AppState {
     pub live_logs: HashMap<Uuid, Vec<LogEntry>>,
     // Claude API client manager (when initialized)
     pub claude_manager: Option<ClaudeChatManager>,
-    // Docker log streaming coordinator
-    pub log_streaming_coordinator: Option<LogStreamingCoordinator>,
+    // Session management for tmux sessions
+    pub session_manager: SessionManager,
+    // Docker log streaming coordinator - removed, using tmux instead
+    // pub log_streaming_coordinator: Option<LogStreamingCoordinator>,
     // Channel sender for log streaming
     pub log_sender: Option<mpsc::UnboundedSender<(Uuid, LogEntry)>>,
     // Git view state
@@ -678,7 +762,8 @@ impl Default for AppState {
             claude_chat_state: None,
             live_logs: HashMap::new(),
             claude_manager: None,
-            log_streaming_coordinator: None,
+            session_manager: SessionManager::new(),
+            // log_streaming_coordinator removed - using tmux
             log_sender: None,
             git_view_state: None,
             notifications: Vec::new(),
@@ -694,6 +779,18 @@ impl Default for AppState {
 impl AppState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Create a session using the SessionManager
+    pub async fn create_session_via_manager(
+        &mut self,
+        workspace_path: &str,
+        branch_name: &str,
+        session_name: &str,
+    ) -> Result<Uuid, Box<dyn std::error::Error>> {
+        self.session_manager
+            .create_session(workspace_path, branch_name, session_name)
+            .await
     }
 
     /// Initialize Claude integration if authentication is available
@@ -802,8 +899,11 @@ impl AppState {
     /// Start log streaming for a session when it becomes active
     pub async fn start_log_streaming_for_session(
         &mut self,
-        session_id: Uuid,
+        _session_id: Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO: Implement tmux pane capture streaming
+        Ok(())
+        /*
         if let Some(coordinator) = &mut self.log_streaming_coordinator {
             // Find the session to get container info
             let session_info = self
@@ -812,13 +912,11 @@ impl AppState {
                 .flat_map(|w| &w.sessions)
                 .find(|s| s.id == session_id)
                 .and_then(|s| {
-                    s.container_id.clone().map(|container_id| {
-                        (
-                            container_id,
-                            format!("{}-{}", s.name, s.branch_name),
-                            s.mode.clone(),
-                        )
-                    })
+                    Some((
+                        s.tmux_session_name.clone(),
+                        format!("{}-{}", s.name, s.branch_name),
+                        s.mode.clone(),
+                    ))
                 });
 
             if let Some((container_id, container_name, session_mode)) = session_info {
@@ -832,18 +930,23 @@ impl AppState {
             }
         }
         Ok(())
+        */
     }
 
     /// Stop log streaming for a session when it becomes inactive
     pub async fn stop_log_streaming_for_session(
         &mut self,
-        session_id: Uuid,
+        _session_id: Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // TODO: Implement tmux pane capture stopping
+        Ok(())
+        /*
         if let Some(coordinator) = &mut self.log_streaming_coordinator {
             info!("Stopping log streaming for session {}", session_id);
             coordinator.stop_streaming(session_id).await?;
         }
         Ok(())
+        */
     }
 
     /// Clear live logs for a session
@@ -1386,12 +1489,17 @@ impl AppState {
         self.workspaces.get(workspace_idx)?.sessions.get(session_idx)
     }
 
-    /// Attach to a container session using docker exec with proper terminal handling
+    /// Attach to a tmux session with proper terminal handling
     pub async fn attach_to_container(
         &mut self,
         session_id: Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::docker::ContainerManager;
+        // Use the new tmux attachment method
+        self.attach_to_session(session_id)?;
+        Ok(())
+        /*
+        // Old Docker code - removed
+        return Err("Docker operations not supported - using tmux instead".into());
 
         // Find the session to get container ID
         let container_id = self
@@ -1399,7 +1507,7 @@ impl AppState {
             .iter()
             .flat_map(|w| &w.sessions)
             .find(|s| s.id == session_id)
-            .and_then(|s| s.container_id.as_ref())
+            .map(|s| &s.tmux_session_name)
             .cloned();
 
         if let Some(container_id) = container_id {
@@ -1456,6 +1564,7 @@ impl AppState {
             );
             Err("No container associated with this session".into())
         }
+        */
     }
 
     /// Kill the container for a session (force stop and cleanup)
@@ -1463,7 +1572,8 @@ impl AppState {
         &mut self,
         session_id: Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::docker::ContainerManager;
+        // use crate::docker::ContainerManager;  // Removed - using tmux
+        return Err("Docker operations not supported - using tmux instead".into());
 
         // Find the session to get container ID
         let container_id = self
@@ -1471,7 +1581,7 @@ impl AppState {
             .iter()
             .flat_map(|w| &w.sessions)
             .find(|s| s.id == session_id)
-            .and_then(|s| s.container_id.as_ref())
+            .map(|s| &s.tmux_session_name)
             .cloned();
 
         if let Some(container_id) = container_id {
@@ -1496,7 +1606,7 @@ impl AppState {
                 }
 
                 // Force remove the container
-                if let Err(e) = container_manager.remove_container(&mut session_container).await {
+                if let Err(e) = container_manager.remove_container(&session_container.id).await {
                     error!("Failed to remove container: {}", e);
                     return Err(format!("Failed to remove container: {}", e).into());
                 }
@@ -1518,34 +1628,34 @@ impl AppState {
     }
 
     /// Helper method to find a session container by session ID
+    // Stub for backward compatibility - returns None since we're using tmux
     fn find_session_container_mut(
         &mut self,
         _session_id: Uuid,
-    ) -> Option<&mut crate::docker::SessionContainer> {
-        // This is a simplified approach - in a real implementation you'd need to track
-        // SessionContainer objects separately or modify the Session model to include them
-        None // Placeholder - would need container tracking
+    ) -> Option<&mut SessionContainer> {
+        None
     }
 
-    /// Fetch container logs for a session
+    /// Fetch logs from tmux pane for a session
     pub async fn fetch_container_logs(
         &mut self,
         session_id: Uuid,
     ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-        use crate::docker::ContainerManager;
+        // Use tmux pane capture instead of Docker logs
+        return self.fetch_tmux_logs(session_id).await;
 
-        // Find the session to get container ID
+        // Old Docker code - kept for reference
         let container_id = self
             .workspaces
             .iter()
             .flat_map(|w| &w.sessions)
             .find(|s| s.id == session_id)
-            .and_then(|s| s.container_id.as_ref())
+            .map(|s| &s.tmux_session_name)
             .cloned();
 
         if let Some(container_id) = container_id {
             let container_manager = ContainerManager::new().await?;
-            let logs = container_manager.get_container_logs(&container_id, Some(50)).await?;
+            let logs = container_manager.get_container_logs(&container_id, None).await?;
 
             // Update the logs cache
             self.logs.insert(session_id, logs.clone());
@@ -1566,7 +1676,8 @@ impl AppState {
         &mut self,
         session_id: Uuid,
     ) -> Result<String, Box<dyn std::error::Error>> {
-        use crate::docker::ContainerManager;
+        // use crate::docker::ContainerManager;  // Removed - using tmux
+        return Err("Docker operations not supported - using tmux instead".into());
 
         // Find the session to get container ID and update recent_logs
         let container_id = self
@@ -1575,14 +1686,14 @@ impl AppState {
             .flat_map(|w| &mut w.sessions)
             .find(|s| s.id == session_id)
             .and_then(|s| {
-                let id = s.container_id.clone();
+                let id = Some(s.tmux_session_name.clone());
                 // We'll update recent_logs after fetching
                 id
             });
 
         if let Some(container_id) = container_id {
             let container_manager = ContainerManager::new().await?;
-            let logs = container_manager.tail_logs(&container_id, 20).await?;
+            let logs = container_manager.tail_logs(&container_id, None).await?;
 
             // Update the session's recent_logs field
             if let Some(session) = self
@@ -1591,10 +1702,10 @@ impl AppState {
                 .flat_map(|w| &mut w.sessions)
                 .find(|s| s.id == session_id)
             {
-                session.recent_logs = Some(logs.clone());
+                session.recent_logs = Some(logs.join("\n"));
             }
 
-            Ok(logs)
+            Ok(logs.join("\n"))
         } else {
             Ok("No container associated with this session".to_string())
         }
@@ -2350,7 +2461,8 @@ impl AppState {
         mode: crate::models::SessionMode,
         boss_prompt: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
+        // use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};  // Removed
+        return Err("Docker operations not supported - using tmux instead".into());
         use std::path::PathBuf;
 
         info!(
@@ -2438,7 +2550,7 @@ impl AppState {
                     commit_hash: None, // We don't track this for existing worktrees
                 };
 
-                manager.create_session_with_existing_worktree(request, worktree_info).await
+                manager.create_session_with_existing_worktree(request, worktree_path.clone()).await
             } else {
                 info!("Worktree path no longer exists, creating fresh session");
 
@@ -2446,7 +2558,7 @@ impl AppState {
                     logs.push("Worktree not found, creating fresh session...".to_string());
                 }
 
-                manager.create_session_with_logs(request, Some(log_sender.clone())).await
+                manager.create_session_with_logs(request, log_sender.clone()).await
             }
         } else {
             info!("No existing worktree info found, creating fresh session");
@@ -2455,7 +2567,7 @@ impl AppState {
                 logs.push("Creating fresh session...".to_string());
             }
 
-            manager.create_session_with_logs(request, Some(log_sender.clone())).await
+            manager.create_session_with_logs(request, log_sender.clone()).await
         };
 
         // Wait a moment for logs to be collected
@@ -2481,7 +2593,7 @@ impl AppState {
         Ok(())
     }
 
-    async fn create_session_with_logs(
+    pub async fn create_session_with_logs(
         &mut self,
         repo_path: &std::path::Path,
         branch_name: &str,
@@ -2490,130 +2602,55 @@ impl AppState {
         mode: crate::models::SessionMode,
         boss_prompt: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
-
-        // Create a channel for build logs
-        let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
-
         // Initialize logs for this session
         self.logs.insert(session_id, vec!["Starting session creation...".to_string()]);
 
-        // Create a shared vector for logs
-        let session_logs = Arc::new(Mutex::new(Vec::new()));
-        let logs_clone = session_logs.clone();
+        // Generate session name from path and timestamp
+        let session_name = format!("{}_{}",
+            repo_path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("session"),
+            chrono::Utc::now().format("%Y%m%d_%H%M%S"));
 
-        // Spawn a task to collect logs
-        let session_id_clone = session_id;
-        tokio::spawn(async move {
-            while let Some(log_message) = log_receiver.recv().await {
-                if let Ok(mut logs) = logs_clone.lock() {
-                    logs.push(log_message.clone());
-                }
-                info!(
-                    "Build log for session {}: {}",
-                    session_id_clone, log_message
-                );
-            }
-        });
+        // Create session using SessionManager with specific ID
+        let created_session_id = self.session_manager
+            .create_session_with_id(
+                session_id,
+                &repo_path.to_string_lossy(),
+                branch_name,
+                &session_name,
+            )
+            .await?;
 
-        let workspace_name =
-            repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
-
-        let request = SessionRequest {
-            session_id,
-            workspace_name,
-            workspace_path: repo_path.to_path_buf(),
-            branch_name: branch_name.to_string(),
-            base_branch: None,
-            container_config: None,
-            skip_permissions,
-            mode,
-            boss_prompt,
-        };
-
-        // Add initial log message
-        if let Some(session_logs) = self.logs.get_mut(&session_id) {
-            session_logs.push("Creating worktree...".to_string());
-        }
-
-        let mut manager = SessionLifecycleManager::new().await?;
-
-        // Pass the log sender to the session lifecycle manager
-        let result = manager.create_session_with_logs(request, Some(log_sender)).await;
-
-        // Wait a moment for logs to be collected
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-        // Transfer collected logs to our main logs HashMap
-        if let Ok(collected_logs) = session_logs.lock() {
-            if let Some(logs) = self.logs.get_mut(&session_id) {
-                logs.extend(collected_logs.clone());
-            }
-        }
-
-        // Add completion log based on result
+        // Add session to logs
         if let Some(logs) = self.logs.get_mut(&session_id) {
-            match &result {
-                Ok(_) => logs.push("Session created successfully!".to_string()),
-                Err(e) => logs.push(format!("Session creation failed: {}", e)),
-            }
+            logs.push("Session created successfully".to_string());
+            logs.push(format!("Session ID: {}", created_session_id));
+            logs.push(format!("Tmux session: {}",
+                self.session_manager.get_session(created_session_id)
+                    .map(|s| &s.tmux_session_name)
+                    .unwrap_or(&"unknown".to_string())));
         }
 
-        result.map(|_| ())?;
         Ok(())
     }
 
     /// Clean up orphaned containers (containers without worktrees)
     pub async fn cleanup_orphaned_containers(&mut self) -> anyhow::Result<usize> {
-        use crate::docker::ContainerManager;
+        // use crate::docker::ContainerManager;  // Removed - using tmux
+        return Err(anyhow::anyhow!("Docker operations not supported - using tmux instead"));
 
         info!("Starting cleanup of orphaned containers");
 
-        let container_manager = ContainerManager::new().await?;
-        let containers = container_manager.list_claude_containers().await?;
+        let container_manager = ContainerManager::new().await.map_err(|e| anyhow::anyhow!("{}", e))?;
+        let containers = container_manager.list_claude_containers().await.map_err(|e| anyhow::anyhow!("{}", e))?;
 
         let mut cleaned_up = 0;
 
-        for container in containers {
-            if let Some(session_id_str) =
-                container.labels.as_ref().and_then(|labels| labels.get("claude-session-id"))
-            {
-                if let Ok(session_id) = uuid::Uuid::parse_str(session_id_str) {
-                    // Check if worktree exists for this session
-                    let worktree_manager = crate::git::WorktreeManager::new()?;
-                    match worktree_manager.get_worktree_info(session_id) {
-                        Ok(_) => {
-                            // Worktree exists, container is not orphaned
-                            continue;
-                        }
-                        Err(_) => {
-                            // Worktree missing, this is an orphaned container
-                            info!(
-                                "Found orphaned container for session {}, removing it",
-                                session_id
-                            );
-
-                            if let Some(container_id) = &container.id {
-                                // Remove the orphaned container (this will stop it first)
-                                if let Err(e) =
-                                    container_manager.remove_container_by_id(container_id).await
-                                {
-                                    warn!(
-                                        "Failed to remove orphaned container {}: {}",
-                                        container_id, e
-                                    );
-                                } else {
-                                    cleaned_up += 1;
-                                    info!(
-                                        "Successfully removed orphaned container {}",
-                                        container_id
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        // Skip container processing since we're using tmux
+        for _container_name in containers {
+            // Container operations not supported with tmux
+            // All container cleanup logic removed for tmux refactor
         }
 
         if cleaned_up > 0 {
@@ -2635,81 +2672,30 @@ impl AppState {
     }
 
     async fn delete_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
-        use crate::docker::{ContainerManager, SessionLifecycleManager};
         use crate::git::WorktreeManager;
 
         info!("Deleting session: {}", session_id);
 
-        // Log workspace count before deletion
-        let workspace_count_before = self.workspaces.len();
-        let session_count_before: usize = self.workspaces.iter().map(|w| w.sessions.len()).sum();
-        info!(
-            "Before deletion: {} workspaces, {} sessions",
-            workspace_count_before, session_count_before
-        );
-
-        // First, try to find and remove the container directly
-        // This ensures we clean up containers even if they're not in the lifecycle manager
-        let container_name = format!("claude-session-{}", session_id);
-        let container_manager = ContainerManager::new().await?;
-
-        info!("Looking for container: {}", container_name);
-        if let Ok(containers) = container_manager.list_claude_containers().await {
-            for container in containers {
-                if let Some(names) = &container.names {
-                    if names.iter().any(|n| n.trim_start_matches('/') == container_name) {
-                        info!("Found container for session {}, removing it", session_id);
-                        if let Some(container_id) = &container.id {
-                            match container_manager.remove_container_by_id(container_id).await {
-                                Ok(_) => info!("Successfully removed container {}", container_id),
-                                Err(e) => {
-                                    warn!("Failed to remove container {}: {}", container_id, e)
-                                }
-                            }
-                        }
-                        break;
-                    }
-                }
-            }
+        // Kill tmux session using existing method
+        if let Err(e) = self.kill_tmux_session(session_id).await {
+            warn!("Failed to kill tmux session: {}", e);
         }
 
-        // Create session lifecycle manager
-        let mut manager = SessionLifecycleManager::new().await?;
-
-        // Try to remove the session through lifecycle manager (this will handle worktree)
-        match manager.remove_session(session_id).await {
-            Ok(_) => {
-                info!("Session removed through lifecycle manager");
-            }
-            Err(e) => {
-                warn!("Session not found in lifecycle manager: {}", e);
-                info!("Attempting to remove orphaned worktree directly");
-
-                // If session not found in lifecycle manager, it's likely an orphaned worktree
-                // Remove the worktree directly
-                let worktree_manager = WorktreeManager::new()?;
-                if let Err(worktree_err) = worktree_manager.remove_worktree(session_id) {
-                    warn!("Failed to remove worktree: {}", worktree_err);
-                } else {
-                    info!("Successfully removed orphaned worktree");
-                }
-            }
+        // Remove worktree
+        let worktree_manager = WorktreeManager::new()?;
+        if let Err(e) = worktree_manager.remove_worktree(session_id) {
+            warn!("Failed to remove worktree: {}", e);
         }
 
-        // Reload workspaces to ensure UI reflects the actual state
-        self.load_real_workspaces().await;
-        // Force UI refresh to show updated session list immediately
+        // Remove from UI state
+        for workspace in &mut self.workspaces {
+            workspace.sessions.retain(|s| s.id != session_id);
+        }
+
+        // Mark UI for refresh (no need to reload all workspaces)
         self.ui_needs_refresh = true;
 
-        // Log workspace count after deletion
-        let workspace_count_after = self.workspaces.len();
-        let session_count_after: usize = self.workspaces.iter().map(|w| w.sessions.len()).sum();
-        info!(
-            "After deletion: {} workspaces, {} sessions",
-            workspace_count_after, session_count_after
-        );
-
-        info!("Successfully deleted session: {}", session_id);
+        info!("Session {} deleted successfully", session_id);
         Ok(())
     }
 
@@ -2764,10 +2750,10 @@ impl AppState {
                     self.ui_needs_refresh = true;
                 }
                 AsyncAction::AttachToContainer(session_id) => {
-                    info!("Attaching to container for session {}", session_id);
+                    info!("Attaching to tmux session {}", session_id);
                     if let Err(e) = self.attach_to_container(session_id).await {
                         error!(
-                            "Failed to attach to container for session {}: {}",
+                            "Failed to attach to tmux session for session {}: {}",
                             session_id, e
                         );
                     }
@@ -3205,6 +3191,21 @@ impl AppState {
         }
     }
 
+    /// Toggle between SplitScreen and SessionList view
+    pub fn toggle_split_screen(&mut self) {
+        match self.current_view {
+            View::SessionList => {
+                self.current_view = View::SplitScreen;
+            }
+            View::SplitScreen => {
+                self.current_view = View::SessionList;
+            }
+            _ => {
+                // Only allow toggle from SessionList and SplitScreen views
+            }
+        }
+    }
+
     pub fn git_commit_and_push(&mut self) {
         let result = if let Some(git_state) = self.git_view_state.as_mut() {
             git_state.commit_and_push()
@@ -3385,18 +3386,18 @@ impl App {
     }
 
     pub async fn init(&mut self) {
-        // Initialize log streaming coordinator
-        let (mut coordinator, log_sender) = LogStreamingCoordinator::new();
+        // Initialize log streaming coordinator - removed, using tmux instead
+        // let (mut coordinator, log_sender) = LogStreamingCoordinator::new();
 
         // Initialize the streaming manager inside the coordinator
-        if let Err(e) = coordinator.init_manager(log_sender.clone()) {
-            warn!("Failed to initialize log streaming manager: {}", e);
-        } else {
-            info!("Log streaming coordinator initialized successfully");
-        }
+        // if let Err(e) = coordinator.init_manager(log_sender.clone()) {
+        //     warn!("Failed to initialize log streaming manager: {}", e);
+        // } else {
+        //     info!("Log streaming coordinator initialized successfully");
+        // }
 
-        self.state.log_streaming_coordinator = Some(coordinator);
-        self.state.log_sender = Some(log_sender);
+        // self.state.log_streaming_coordinator = Some(coordinator);
+        // self.state.log_sender = Some(log_sender);
 
         // Try to refresh OAuth tokens if they're expired (before checking first-time setup)
         let home_dir = dirs::home_dir();
@@ -3430,6 +3431,11 @@ impl App {
                 warn!("Failed to initialize Claude integration: {}", e);
             }
 
+            // Restore persisted sessions
+            if let Err(e) = self.state.session_manager.restore_sessions().await {
+                warn!("Failed to restore sessions: {}", e);
+            }
+
             self.state.check_current_directory_status();
             self.state.load_real_workspaces().await;
 
@@ -3445,6 +3451,9 @@ impl App {
 
     /// Initialize log streaming for all running sessions
     async fn init_log_streaming_for_sessions(&mut self) -> anyhow::Result<()> {
+        // Log streaming not needed with tmux - we can directly read from tmux panes
+        return Ok(());
+        /*
         if let Some(coordinator) = &mut self.state.log_streaming_coordinator {
             // Collect session info for streaming
             let sessions: Vec<(Uuid, String, String, crate::models::SessionMode)> = self
@@ -3488,6 +3497,7 @@ impl App {
                 }
             }
         }
+        */
         Ok(())
     }
 
@@ -3546,12 +3556,15 @@ impl App {
 
         // Process incoming log entries (non-blocking)
         let mut log_entries = Vec::new();
+        // Log streaming coordinator removed - using tmux pane capture instead
+        /*
         if let Some(coordinator) = &mut self.state.log_streaming_coordinator {
             // Collect all available log entries without blocking
             while let Some((session_id, log_entry)) = coordinator.try_next_log() {
                 log_entries.push((session_id, log_entry));
             }
         }
+        */
 
         // Add log entries to the state
         for (session_id, log_entry) in log_entries {

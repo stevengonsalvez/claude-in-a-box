@@ -9,7 +9,36 @@ use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
 use super::mcp::{McpInitStrategy, McpServerConfig, generate_mcp_config_json};
-use crate::docker::ContainerConfig;
+// use crate::docker::ContainerConfig;  // Removed - using tmux instead
+
+// Stub type for container compatibility - will be removed in full refactor
+#[derive(Debug, Clone)]
+pub struct ContainerConfig {
+    pub name: String,
+    pub environment: HashMap<String, String>,
+    pub volumes: Vec<String>,
+    pub files: Vec<(String, String)>,
+}
+
+impl ContainerConfig {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            environment: HashMap::new(),
+            volumes: Vec::new(),
+            files: Vec::new(),
+        }
+    }
+    
+    pub fn with_volume(mut self, volume: String) -> Self {
+        self.volumes.push(volume);
+        self
+    }
+    
+    pub fn add_file(&mut self, path: String, content: String) {
+        self.files.push((path, content));
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct McpInitializer {
@@ -332,16 +361,16 @@ impl McpInitializer {
 pub fn apply_mcp_init_result(container_config: &mut ContainerConfig, mcp_result: &McpInitResult) {
     // Add environment variables
     for (key, value) in &mcp_result.environment {
-        container_config.environment_vars.insert(key.clone(), value.clone());
+        container_config.environment.insert(key.clone(), value.clone());
     }
 
-    // Add volume mounts
+    // Add volume mounts - disabled for tmux refactor
     for volume in &mcp_result.volumes {
-        *container_config = container_config.clone().with_volume(
-            volume.host_path.clone(),
-            volume.container_path.clone(),
-            volume.read_only,
-        );
+        // Volume mounting not supported with tmux
+        let _volume_str = format!("{}:{}", 
+            volume.host_path.display(), 
+            volume.container_path);
+        *container_config = container_config.clone().with_volume(_volume_str);
     }
 }
 

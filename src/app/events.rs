@@ -17,6 +17,7 @@ pub enum AppEvent {
     ToggleHelp,
     RefreshWorkspaces, // Manual refresh of workspace data
     ToggleClaudeChat,  // Toggle Claude chat visibility
+    ToggleSplitScreen, // Toggle split-screen mode
     NewSession,        // Create session in current directory
     SearchWorkspace,   // Search all workspaces
     AttachSession,
@@ -233,11 +234,25 @@ impl EventHandler {
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachSession),
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
+            KeyCode::Enter => {
+                // Handle Enter key in session list to attach to session
+                match state.focused_pane {
+                    FocusedPane::Sessions => {
+                        tracing::debug!("Enter pressed in Sessions pane, attaching to session");
+                        Some(AppEvent::AttachSession)
+                    }
+                    FocusedPane::LiveLogs => {
+                        tracing::debug!("Enter pressed in LiveLogs pane, no action");
+                        None
+                    }
+                }
+            }
             KeyCode::Char('e') => Some(AppEvent::RestartSession),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Char('x') => Some(AppEvent::CleanupOrphaned),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
             KeyCode::Char('p') => Some(AppEvent::QuickCommitStart), // Start quick commit dialog
+            KeyCode::Char('v') => Some(AppEvent::ToggleSplitScreen), // Toggle split-screen mode
 
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
@@ -729,6 +744,7 @@ impl EventHandler {
             AppEvent::Quit => state.quit(),
             AppEvent::ToggleHelp => state.toggle_help(),
             AppEvent::ToggleClaudeChat => state.toggle_claude_chat(),
+            AppEvent::ToggleSplitScreen => state.toggle_split_screen(),
             AppEvent::RefreshWorkspaces => {
                 // Mark for async processing to reload workspace data
                 state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);

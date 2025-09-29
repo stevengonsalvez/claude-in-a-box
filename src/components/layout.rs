@@ -9,7 +9,7 @@ use ratatui::{
 use super::{
     AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
     ConfirmationDialogComponent, HelpComponent, LiveLogsStreamComponent, LogsViewerComponent,
-    NewSessionComponent, NonGitNotificationComponent, SessionListComponent,
+    NewSessionComponent, NonGitNotificationComponent, SessionListComponent, SplitScreenComponent,
 };
 use crate::app::{AppState, state::View};
 
@@ -24,6 +24,7 @@ pub struct LayoutComponent {
     non_git_notification: NonGitNotificationComponent,
     attached_terminal: AttachedTerminalComponent,
     auth_setup: AuthSetupComponent,
+    split_screen: SplitScreenComponent,
 }
 
 impl LayoutComponent {
@@ -39,6 +40,7 @@ impl LayoutComponent {
             non_git_notification: NonGitNotificationComponent::new(),
             attached_terminal: AttachedTerminalComponent::new(),
             auth_setup: AuthSetupComponent::new(),
+            split_screen: SplitScreenComponent::new(),
         }
     }
 
@@ -67,6 +69,12 @@ impl LayoutComponent {
             if let Some(ref git_state) = state.git_view_state {
                 crate::components::GitViewComponent::render(frame, frame.size(), git_state);
             }
+            return;
+        }
+
+        // Special handling for split-screen view (full screen)
+        if state.current_view == View::SplitScreen {
+            self.split_screen.render(frame, frame.size(), state);
             return;
         }
 
@@ -173,19 +181,20 @@ impl LayoutComponent {
                             // Branch info
                             status_parts.push(format!("🌿 {}", session.branch_name));
 
-                            // Container info
-                            if let Some(container_id) = &session.container_id {
-                                let short_id = &container_id[..8.min(container_id.len())];
-                                let status_icon = match session.status {
-                                    crate::models::SessionStatus::Running => "🟢",
-                                    crate::models::SessionStatus::Stopped => "🔴",
-                                    crate::models::SessionStatus::Error(_) => "❌",
-                                };
-                                status_parts.push(format!(
-                                    "{} {} ({})",
-                                    status_icon, session.name, short_id
-                                ));
-                            }
+                            // Tmux session info
+                            let tmux_name = &session.tmux_session_name;
+                            let status_icon = match session.status {
+                                crate::models::SessionStatus::Created => "⚪",
+                                crate::models::SessionStatus::Running => "🟢",
+                                crate::models::SessionStatus::Attached => "🔵",
+                                crate::models::SessionStatus::Detached => "🟡",
+                                crate::models::SessionStatus::Stopped => "🔴",
+                                crate::models::SessionStatus::Error(_) => "❌",
+                            };
+                            status_parts.push(format!(
+                                "{} {} ({})",
+                                status_icon, session.name, tmux_name
+                            ));
                         }
                     }
                 }

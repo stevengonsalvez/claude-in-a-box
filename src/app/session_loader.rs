@@ -1,232 +1,190 @@
-// ABOUTME: Session loader that queries Docker containers and worktrees to load active sessions
+// ABOUTME: Session loader that queries tmux sessions and worktrees to load active sessions
 // Groups sessions by their source repository for display
 
 use crate::config::AppConfig;
-use crate::docker::ContainerManager;
 use crate::git::WorktreeManager;
 use crate::models::{Session, SessionStatus, Workspace};
+use crate::tmux::TmuxSession;
 use anyhow::Result;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub struct SessionLoader {
-    container_manager: ContainerManager,
     worktree_manager: WorktreeManager,
     config: AppConfig,
 }
 
 impl SessionLoader {
     pub async fn new() -> Result<Self> {
-        let container_manager = ContainerManager::new().await?;
         let worktree_manager = WorktreeManager::new()?;
         let config = AppConfig::load()?;
 
         Ok(Self {
-            container_manager,
             worktree_manager,
             config,
         })
     }
 
-    /// Load all active sessions from Docker containers and worktrees
+    /// Extract repository name from tmux session name for orphaned sessions
+    /// This helps display meaningful workspace names instead of showing username
+    fn extract_repo_name_from_tmux_session(tmux_name: &str) -> Option<String> {
+        // Remove ciab_ prefix if present
+        let name_part = tmux_name.strip_prefix("ciab_").unwrap_or(tmux_name);
+
+        // Look for known repository patterns
+        if name_part.contains("claude_in_a_box") || name_part.contains("claude-in-a-box") {
+            return Some("claude-in-a-box".to_string());
+        }
+
+        // Could add more patterns for other repositories as needed
+        // For now, only handle claude-in-a-box explicitly
+
+        None
+    }
+
+    /// Load all active sessions from tmux and worktrees
     pub async fn load_active_sessions(&self) -> Result<Vec<Workspace>> {
-        info!("Loading active sessions from Docker containers");
+        info!("Loading active sessions from tmux");
 
-        // Get all Claude-managed containers
-        let containers = self.container_manager.list_claude_containers().await?;
-        info!("Found {} Claude-managed containers", containers.len());
+        // Get list of running tmux sessions
+        let tmux_sessions = TmuxSession::list_sessions().await.unwrap_or_default();
+        info!("Found {} tmux sessions", tmux_sessions.len());
 
-        // Group sessions by their source repository
-        let mut workspace_map: HashMap<PathBuf, Workspace> = HashMap::new();
+        // Load all worktrees
+        let worktrees_list = self.worktree_manager.list_all_worktrees()
+            .unwrap_or_default();
 
-        for container in containers {
-            // Extract session ID from container labels
-            let session_id = container
-                .labels
-                .as_ref()
-                .and_then(|labels| labels.get("claude-session-id"))
-                .and_then(|id| Uuid::parse_str(id).ok());
+        // Convert to HashMap for easier lookup
+        let worktrees: HashMap<Uuid, crate::git::WorktreeInfo> = worktrees_list
+            .into_iter()
+            .collect();
 
-            if let Some(session_id) = session_id {
-                debug!("Processing container for session {}", session_id);
+        // Group sessions by source repository
+        let mut workspace_map: HashMap<String, Vec<Session>> = HashMap::new();
 
-                // Get worktree information for this session
-                match self.worktree_manager.get_worktree_info(session_id) {
-                    Ok(worktree_info) => {
-                        // Create session from container and worktree info
-                        let mut session = Session::new(
-                            worktree_info.branch_name.clone(),
-                            worktree_info.path.to_string_lossy().to_string(), // Use worktree path, not source repo
-                        );
-                        session.id = session_id;
-                        session.container_id = container.id;
-                        session.branch_name = worktree_info.branch_name.clone();
-
-                        // Set session status based on container state
-                        let state = container.state.as_deref().unwrap_or("unknown");
-                        session.set_status(match state {
-                            "running" => SessionStatus::Running,
-                            "paused" => SessionStatus::Stopped,
-                            "exited" | "dead" => SessionStatus::Stopped,
-                            _ => {
-                                SessionStatus::Error(format!("Unknown container state: {}", state))
-                            }
-                        });
-
-                        // Get workspace name from source repo
-                        let workspace_name = worktree_info
-                            .source_repository
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-
-                        // Add session to appropriate workspace
-                        let workspace = workspace_map
-                            .entry(worktree_info.source_repository.clone())
-                            .or_insert_with(|| {
-                                Workspace::new(
-                                    workspace_name,
-                                    worktree_info.source_repository.clone(),
-                                )
-                            });
-
-                        workspace.add_session(session);
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to get worktree info for session {}: {}",
-                            session_id, e
-                        );
-
-                        // Container exists but worktree is missing - this is an orphaned container
-                        // We have a few options:
-                        // 1. Clean up the orphaned container
-                        // 2. Create a session marked as having missing worktree
-                        // 3. Ignore it
-
-                        // For now, let's create a session marked as having issues
-                        // so the user can see it and decide what to do
-
-                        info!(
-                            "Creating session entry for orphaned container {}",
-                            session_id
-                        );
-
-                        // Create a session with error status indicating missing worktree
-                        let mut session = Session::new(
-                            format!(
-                                "orphaned-{}",
-                                session_id.to_string().split('-').next().unwrap_or("session")
-                            ),
-                            format!("Missing worktree for session {}", session_id),
-                        );
-                        session.id = session_id;
-                        session.container_id = container.id.clone();
-                        session.set_status(SessionStatus::Error(
-                            "Worktree missing - container orphaned".to_string(),
-                        ));
-
-                        // Try to determine the original workspace from container labels or name
-                        let workspace_name = container
-                            .names
-                            .as_ref()
-                            .and_then(|names| names.first())
-                            .and_then(|name| name.strip_prefix('/'))
-                            .and_then(|name| name.split('-').next())
-                            .unwrap_or("unknown")
-                            .to_string();
-
-                        // Create or find workspace for orphaned session
-                        let workspace = workspace_map
-                            .entry(std::path::PathBuf::from(format!(
-                                "/unknown/{}",
-                                workspace_name
-                            )))
-                            .or_insert_with(|| {
-                                // Create a placeholder workspace for orphaned sessions
-                                Workspace::new(
-                                    workspace_name.clone(),
-                                    std::path::PathBuf::from(format!(
-                                        "/unknown/{}",
-                                        workspace_name
-                                    )),
-                                )
-                            });
-
-                        workspace.add_session(session);
-
-                        info!(
-                            "Added orphaned session {} to workspace {}",
-                            session_id, workspace_name
-                        );
-                    }
-                }
-            } else {
-                warn!(
-                    "Container {} has no session ID label",
-                    container.id.unwrap_or_default()
-                );
+        // Process tmux sessions
+        for tmux_name in &tmux_sessions {
+            // Extract session info from tmux name (format: ciab_workspace_timestamp)
+            if let Some(session) = self.create_session_from_tmux(&tmux_name, &worktrees).await {
+                let workspace_key = session.workspace_path.clone();
+                workspace_map.entry(workspace_key)
+                    .or_insert_with(Vec::new)
+                    .push(session);
             }
         }
 
-        // Also check for worktrees without containers (orphaned worktrees)
-        match self.worktree_manager.list_all_worktrees() {
-            Ok(worktree_list) => {
-                for (session_id, worktree_info) in worktree_list {
-                    // Check if we already processed this session from containers
-                    let already_processed = workspace_map
-                        .values()
-                        .any(|w| w.sessions.iter().any(|s| s.id == session_id));
+        // Also add orphaned worktrees as stopped sessions
+        for (id, worktree_info) in &worktrees {
+            let worktree_name_part = crate::models::Session::sanitize_tmux_name(&worktree_info.branch_name);
+            let has_tmux = tmux_sessions.iter().any(|t| t.contains(&worktree_name_part));
 
-                    if !already_processed {
-                        debug!("Found orphaned worktree for session {}", session_id);
-
-                        // Create session for orphaned worktree
-                        let mut session = Session::new(
-                            worktree_info.branch_name.clone(),
-                            worktree_info.path.to_string_lossy().to_string(), // Use worktree path, not source repo
-                        );
-                        session.id = session_id;
-                        session.branch_name = worktree_info.branch_name.clone();
-                        session.set_status(SessionStatus::Stopped); // No container = stopped
-
-                        let workspace_name = worktree_info
-                            .source_repository
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-
-                        let workspace = workspace_map
-                            .entry(worktree_info.source_repository.clone())
-                            .or_insert_with(|| {
-                                Workspace::new(
-                                    workspace_name,
-                                    worktree_info.source_repository.clone(),
-                                )
-                            });
-
-                        workspace.add_session(session);
-                    }
+            if !has_tmux {
+                if let Some(session) = self.create_session_from_worktree(*id, worktree_info).await {
+                    let workspace_key = session.workspace_path.clone();
+                    workspace_map.entry(workspace_key)
+                        .or_insert_with(Vec::new)
+                        .push(session);
                 }
-            }
-            Err(e) => {
-                warn!("Failed to list worktrees: {}", e);
             }
         }
 
-        // Convert map to sorted vector
-        let mut workspaces: Vec<Workspace> = workspace_map.into_values().collect();
-        workspaces.sort_by(|a, b| a.name.cmp(&b.name));
+        // Convert to workspace format
+        let workspaces: Vec<Workspace> = workspace_map
+            .into_iter()
+            .map(|(path, sessions)| {
+                let name = Path::new(&path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                Workspace {
+                    name,
+                    path: PathBuf::from(path),
+                    sessions,
+                }
+            })
+            .collect();
 
         info!(
-            "Loaded {} workspaces with active sessions",
-            workspaces.len()
+            "Loaded {} workspaces with {} total sessions",
+            workspaces.len(),
+            workspaces.iter().map(|w| w.sessions.len()).sum::<usize>()
         );
         Ok(workspaces)
+    }
+
+    async fn create_session_from_tmux(&self, tmux_name: &str, worktrees: &HashMap<Uuid, crate::git::WorktreeInfo>) -> Option<Session> {
+        // Parse tmux session name to extract details
+        let name_without_prefix = tmux_name.strip_prefix("ciab_").unwrap_or(tmux_name);
+
+        // Find matching worktree
+        let matching_worktree = worktrees.iter()
+            .find(|(_, info)| {
+                let worktree_name_part = crate::models::Session::sanitize_tmux_name(&info.branch_name);
+                name_without_prefix.contains(&worktree_name_part)
+            });
+
+        if let Some((id, worktree_info)) = matching_worktree {
+            let mut session = Session::new(
+                worktree_info.branch_name.clone(),
+                worktree_info.source_repository.to_string_lossy().to_string()
+            );
+            session.id = *id;
+            session.tmux_session_name = tmux_name.to_string();
+            session.worktree_path = worktree_info.path.to_string_lossy().to_string();
+            session.branch_name = worktree_info.branch_name.clone();
+            session.status = SessionStatus::Running; // Tmux session exists, so it's running
+
+            // Check if attached
+            if let Ok(output) = Command::new("tmux")
+                .args(&["list-clients", "-t", tmux_name])
+                .output() {
+                if output.status.success() && !output.stdout.is_empty() {
+                    session.status = SessionStatus::Attached;
+                }
+            }
+
+            Some(session)
+        } else {
+            // Tmux session without matching worktree - create minimal session
+            // Try to infer repository name from tmux session name first
+            let workspace_path = if let Some(inferred_repo) = Self::extract_repo_name_from_tmux_session(tmux_name) {
+                // Use inferred repository name as a synthetic workspace path
+                // This will make the workspace name display as the repository name instead of username
+                format!("/synthetic/{}", inferred_repo)
+            } else {
+                // Fall back to home directory if no repository can be inferred
+                dirs::home_dir()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "/".to_string())
+            };
+
+            let mut session = Session::new(
+                name_without_prefix.to_string(),
+                workspace_path
+            );
+            session.tmux_session_name = tmux_name.to_string();
+            session.status = SessionStatus::Running;
+            Some(session)
+        }
+    }
+
+    async fn create_session_from_worktree(&self, id: Uuid, worktree_info: &crate::git::WorktreeInfo) -> Option<Session> {
+        let mut session = Session::new(
+            worktree_info.branch_name.clone(),
+            worktree_info.source_repository.to_string_lossy().to_string(),
+        );
+        session.id = id;
+        session.worktree_path = worktree_info.path.to_string_lossy().to_string();
+        session.branch_name = worktree_info.branch_name.clone();
+        session.status = SessionStatus::Stopped; // No tmux session
+        session.tmux_session_name = format!("ciab_{}", crate::models::Session::sanitize_tmux_name(&worktree_info.branch_name));
+
+        Some(session)
     }
 
     /// Load sessions from persistence (e.g., ~/.claude-box/sessions.json)
@@ -266,7 +224,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore] // Requires Docker
     async fn test_session_loader_creation() {
         let loader = SessionLoader::new().await;
         assert!(loader.is_ok());
