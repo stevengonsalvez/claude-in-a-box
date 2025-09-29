@@ -17,9 +17,12 @@ pub enum TmuxError {
     #[error("Session not found: {0}")]
     SessionNotFound(String),
 
+    #[error("Attach failed: {0}")]
+    AttachFailed(String),
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Nix error: {0}")]
     NixError(#[from] nix::Error),
 }

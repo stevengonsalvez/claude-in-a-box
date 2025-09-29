@@ -7,16 +7,17 @@ use tokio::sync::oneshot;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::io::{Read, Write};
 use crate::tmux::error::TmuxError;
 
-#[derive(Debug)]
 pub struct TmuxSession {
     pub name: String,
     pub worktree_path: String,
     pub program: String,  // e.g., "claude", "bash"
 
     // PTY for communication
-    ptmx: Option<RawFd>,  // Master side
+    master: Option<Box<dyn portable_pty::MasterPty + Send>>,  // Master side
+    ptmx: Option<RawFd>,  // Legacy - kept for compatibility
     pts: Option<RawFd>,   // Slave side
 
     // Attach state
@@ -64,7 +65,7 @@ impl TmuxSession {
         // For nix 0.27, we use portable-pty instead of nix::pty
         // Since nix::pty doesn't exist in 0.27, let's create the session without PTY for now
         // and use tmux's own session management
-        
+
         // Build tmux command with environment
         let mut cmd = Command::new("tmux");
         cmd.args(&[
@@ -105,6 +106,7 @@ impl TmuxSession {
             name: session_name,
             worktree_path: worktree_path.to_string(),
             program: program.to_string(),
+            master: None,
             ptmx: None,
             pts: None,
             attached: false,
@@ -139,9 +141,13 @@ impl TmuxSession {
             )));
         }
 
+        // Enable raw mode for terminal interaction
+        crossterm::terminal::enable_raw_mode()
+            .map_err(|_| TmuxError::AttachFailed("Failed to enable raw mode".to_string()))?;
+
         // Use portable-pty for terminal handling
         use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-        
+
         let pty_system = native_pty_system();
         let pty_pair = pty_system.openpty(PtySize {
             rows: 24,
@@ -152,7 +158,7 @@ impl TmuxSession {
 
         let mut cmd = CommandBuilder::new("tmux");
         cmd.args(&["attach-session", "-t", &self.name]);
-        
+
         let mut child = pty_pair.slave.spawn_command(cmd)
             .map_err(|e| TmuxError::IoError(std::io::Error::new(
                 std::io::ErrorKind::Other,
@@ -161,14 +167,31 @@ impl TmuxSession {
 
         let (detach_tx, detach_rx) = oneshot::channel();
 
-        // Get raw file descriptors for I/O
+        // Use master PTY for I/O operations
         let master = pty_pair.master;
 
         // Use tokio's mpsc for internal detach signaling
         let (internal_detach_tx, mut internal_detach_rx) = tokio::sync::mpsc::channel(1);
 
+        // Get reader first (cloning doesn't consume the master)
+        let mut master_reader = master.try_clone_reader().map_err(|e| {
+            TmuxError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to get PTY reader: {}", e)
+            ))
+        })?;
+
+        // Then get writer (this consumes the master)
+        let mut master_writer = master.take_writer().map_err(|e| {
+            TmuxError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to get PTY writer: {}", e)
+            ))
+        })?;
+
         // Input forwarding task
         let session_name = self.name.clone();
+
         let input_task = tokio::spawn(async move {
             let mut stdin = tokio::io::stdin();
             let mut buf = [0u8; 1024];
@@ -199,9 +222,12 @@ impl TmuxSession {
                                     break;
                                 }
 
-                                // Forward input to tmux using portable-pty
-                                // TODO: Implement actual PTY I/O forwarding
-                                // In a full implementation, this would write to master
+                                // Forward input to PTY (portable-pty is sync, so use blocking)
+                                let data = buf[..n].to_vec();
+                                if let Err(e) = master_writer.write_all(&data) {
+                                    eprintln!("Error writing to PTY: {}", e);
+                                    break;
+                                }
                             }
                         }
                     }
@@ -219,9 +245,46 @@ impl TmuxSession {
 
         // Output forwarding task
         let output_task = tokio::spawn(async move {
-            // In a real implementation, we'd read from master and write to stdout
-            // For now, just sleep
-            tokio::time::sleep(Duration::from_secs(3600)).await;
+            let mut stdout = tokio::io::stdout();
+            let mut buf = [0u8; 1024];
+
+            loop {
+                // portable-pty is sync, so use spawn_blocking for reads
+                let data = match tokio::task::spawn_blocking({
+                    let mut reader = master_reader;
+                    move || {
+                        let result = reader.read(&mut buf[..]);
+                        (result, reader)
+                    }
+                }).await {
+                    Ok((Ok(n), reader)) if n > 0 => {
+                        master_reader = reader;
+                        buf[..n].to_vec()
+                    }
+                    Ok((Ok(_), _)) => {
+                        // EOF from PTY
+                        break;
+                    }
+                    Ok((Err(e), _)) => {
+                        eprintln!("Error reading from PTY: {}", e);
+                        break;
+                    }
+                    Err(e) => {
+                        eprintln!("Error in blocking task: {}", e);
+                        break;
+                    }
+                };
+
+                // Forward output from PTY to stdout
+                if let Err(e) = stdout.write_all(&data).await {
+                    eprintln!("Error writing to stdout: {}", e);
+                    break;
+                }
+                if let Err(e) = stdout.flush().await {
+                    eprintln!("Error flushing stdout: {}", e);
+                    break;
+                }
+            }
         });
 
         self.attached = true;
@@ -253,6 +316,10 @@ impl TmuxSession {
         }
 
         self.attached = false;
+
+        // Restore terminal mode - allow to fail silently
+        let _ = crossterm::terminal::disable_raw_mode();
+
         Ok(())
     }
 
@@ -314,6 +381,23 @@ impl TmuxSession {
         // The tmux session will resize based on the terminal dimensions
         // when attached, so no explicit resize is needed here
         Ok(())
+    }
+}
+
+impl std::fmt::Debug for TmuxSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TmuxSession")
+            .field("name", &self.name)
+            .field("worktree_path", &self.worktree_path)
+            .field("program", &self.program)
+            .field("master", &self.master.is_some())
+            .field("ptmx", &self.ptmx)
+            .field("pts", &self.pts)
+            .field("attached", &self.attached)
+            .field("has_attach_ctx", &self.attach_ctx.is_some())
+            .field("has_input_task", &self.input_task.is_some())
+            .field("has_output_task", &self.output_task.is_some())
+            .finish()
     }
 }
 
