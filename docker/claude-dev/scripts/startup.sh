@@ -120,15 +120,6 @@ else
     warn "Claude logging commands not found"
 fi
 
-# Ensure theme preferences are set to avoid Claude CLI theme prompt
-# Check if theme is already configured
-if ! claude config get -g theme >/dev/null 2>&1; then
-    log "Setting default theme to avoid theme selection prompt"
-    claude config set -g theme dark
-else
-    log "Theme already configured: $(claude config get -g theme 2>/dev/null || echo 'unknown')"
-fi
-
 # Set trust dialog to accepted to avoid prompts when using --dangerously-skip-permissions
 if [[ "$CLAUDE_CONTINUE_FLAG" == *"--dangerously-skip-permissions"* ]]; then
     log "Setting trust dialog acceptance to avoid permission prompts (skip permissions enabled)"
