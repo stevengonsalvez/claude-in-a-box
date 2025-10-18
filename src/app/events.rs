@@ -40,6 +40,7 @@ pub enum AppEvent {
     ScrollLogsDown,
     ScrollLogsToTop,
     ScrollLogsToBottom,
+    ToggleAutoScroll, // Toggle auto-scroll mode in live logs
     // Mouse events
     MouseClick { x: u16, y: u16 },
     MouseDragStart { x: u16, y: u16 },
@@ -367,6 +368,10 @@ impl EventHandler {
             KeyCode::End => match state.focused_pane {
                 FocusedPane::Sessions => Some(AppEvent::GoToBottom),
                 FocusedPane::LiveLogs => Some(AppEvent::ScrollLogsToBottom),
+            },
+            KeyCode::Char(' ') => match state.focused_pane {
+                FocusedPane::Sessions => None, // Space does nothing in sessions pane
+                FocusedPane::LiveLogs => Some(AppEvent::ToggleAutoScroll),
             },
             _ => None,
         }
@@ -950,16 +955,19 @@ impl EventHandler {
                 );
             }
             AppEvent::ScrollLogsUp => {
-                // This will be handled by the LiveLogsStreamComponent
+                // Handled in main.rs to access layout component
             }
             AppEvent::ScrollLogsDown => {
-                // This will be handled by the LiveLogsStreamComponent
+                // Handled in main.rs to access layout component
             }
             AppEvent::ScrollLogsToTop => {
-                // This will be handled by the LiveLogsStreamComponent
+                // Handled in main.rs to access layout component
             }
             AppEvent::ScrollLogsToBottom => {
-                // This will be handled by the LiveLogsStreamComponent
+                // Handled in main.rs to access layout component
+            }
+            AppEvent::ToggleAutoScroll => {
+                // Handled in main.rs to access layout component
             }
             AppEvent::ConfirmationToggle => {
                 if let Some(ref mut dialog) = state.confirmation_dialog {
