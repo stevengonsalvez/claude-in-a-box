@@ -94,12 +94,6 @@ if [ ! -f /workspace/CLAUDE.md ] && [ -f /app/config/CLAUDE.md.template ]; then
     cp /app/config/CLAUDE.md.template /workspace/CLAUDE.md
 fi
 
-# Ensure theme preferences are set to avoid Claude CLI theme prompt
-if ! claude config get -g theme >/dev/null 2>&1; then
-    log "Setting default theme to avoid theme selection prompt"
-    claude config set -g theme dark
-fi
-
 # Set trust dialog to accepted
 claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || true
 

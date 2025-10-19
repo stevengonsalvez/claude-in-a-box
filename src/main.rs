@@ -273,6 +273,9 @@ async fn run_tui_loop(
                                     app.state.live_logs.values().map(|v| v.len()).sum::<usize>();
                                 layout.live_logs_mut().scroll_to_bottom(total_logs);
                             }
+                            AppEvent::ToggleAutoScroll => {
+                                layout.live_logs_mut().toggle_auto_scroll();
+                            }
                             _ => {
                                 // Process other events normally
                                 EventHandler::process_event(app_event, &mut app.state);
@@ -296,10 +299,14 @@ async fn run_tui_loop(
                             }
                         }
                         MouseEventKind::ScrollDown => {
-                            EventHandler::process_event(AppEvent::ScrollLogsDown, &mut app.state);
+                            // Handle mouse scroll directly to access layout component
+                            let total_logs =
+                                app.state.live_logs.values().map(|v| v.len()).sum::<usize>();
+                            layout.live_logs_mut().scroll_down(total_logs);
                         }
                         MouseEventKind::ScrollUp => {
-                            EventHandler::process_event(AppEvent::ScrollLogsUp, &mut app.state);
+                            // Handle mouse scroll directly to access layout component
+                            layout.live_logs_mut().scroll_up();
                         }
                         MouseEventKind::Drag(MouseButton::Left) => {
                             let (col, row) = (mouse_event.column, mouse_event.row);
