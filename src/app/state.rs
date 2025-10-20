@@ -555,6 +555,10 @@ pub struct AppState {
     // Quick commit dialog state
     pub quick_commit_message: Option<String>, // None = not in quick commit mode, Some = message being entered
     pub quick_commit_cursor: usize,           // Cursor position in quick commit message
+
+    // Tmux integration
+    pub tmux_sessions: HashMap<Uuid, crate::tmux::TmuxSession>,
+    pub preview_update_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[derive(Debug)]
@@ -643,6 +647,7 @@ pub enum AsyncAction {
     RefreshWorkspaces,         // Manual refresh of workspace data
     FetchContainerLogs(Uuid),  // Fetch container logs for a session
     AttachToContainer(Uuid),   // Attach to a container session
+    AttachToTmuxSession(Uuid), // Attach to a tmux session
     KillContainer(Uuid),       // Kill container for a session
     AuthSetupOAuth,            // Run OAuth authentication setup
     AuthSetupApiKey,           // Save API key authentication
@@ -687,6 +692,10 @@ impl Default for AppState {
             // Initialize quick commit state
             quick_commit_message: None,
             quick_commit_cursor: 0,
+
+            // Initialize tmux integration
+            tmux_sessions: HashMap::new(),
+            preview_update_task: None,
         }
     }
 }
@@ -2388,6 +2397,9 @@ impl AppState {
         let workspace_name =
             repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
 
+        // Clone mode so we can use it later for tmux check
+        let mode_clone = mode.clone();
+
         let request = SessionRequest {
             session_id,
             workspace_name,
@@ -2477,6 +2489,53 @@ impl AppState {
             }
         }
 
+        // If Docker session creation succeeded AND this is Interactive mode, create corresponding tmux session
+        // Boss mode sessions should NOT have tmux integration
+        if let Ok(ref session_state) = result {
+            if mode_clone == crate::models::SessionMode::Interactive {
+                if let Some(ref worktree_info) = session_state.worktree_info {
+                    info!("Creating tmux session for restarted Interactive mode session {}", session_id);
+
+                    // Send log message about tmux session creation
+                    let _ = log_sender.send("Creating tmux session for interactive mode...".to_string());
+
+                    // Create tmux session name from session info
+                    let tmux_name = format!("tmux_{}", branch_name.replace('/', "_").replace(' ', "_"));
+
+                    let mut tmux_session = crate::tmux::TmuxSession::new(
+                        tmux_name.clone(),
+                        "claude".to_string()
+                    );
+
+                    // Start tmux session in the worktree directory
+                    match tmux_session.start(&worktree_info.path).await {
+                        Ok(_) => {
+                            info!("Successfully started tmux session: {}", tmux_name);
+
+                            // Store tmux session name in the actual session model
+                            if let Some(session) = self.find_session_mut(session_id) {
+                                session.set_tmux_session_name(tmux_name.clone());
+                            }
+
+                            // Store tmux session in our map
+                            self.tmux_sessions.insert(session_id, tmux_session);
+
+                            let _ = log_sender.send("Tmux session created successfully!".to_string());
+                        }
+                        Err(e) => {
+                            warn!("Failed to start tmux session: {}", e);
+                            let _ = log_sender.send(format!("Warning: Failed to create tmux session: {}", e));
+                            // Don't fail the whole session creation if tmux fails
+                        }
+                    }
+                } else {
+                    warn!("Session state has no worktree info, skipping tmux creation");
+                }
+            } else {
+                info!("Skipping tmux creation for Boss mode session {}", session_id);
+            }
+        }
+
         result.map(|_| ())?;
         Ok(())
     }
@@ -2519,6 +2578,9 @@ impl AppState {
         let workspace_name =
             repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
 
+        // Clone mode so we can use it later for tmux check
+        let mode_clone = mode.clone();
+
         let request = SessionRequest {
             session_id,
             workspace_name,
@@ -2539,7 +2601,7 @@ impl AppState {
         let mut manager = SessionLifecycleManager::new().await?;
 
         // Pass the log sender to the session lifecycle manager
-        let result = manager.create_session_with_logs(request, Some(log_sender)).await;
+        let result = manager.create_session_with_logs(request, Some(log_sender.clone())).await;
 
         // Wait a moment for logs to be collected
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -2556,6 +2618,53 @@ impl AppState {
             match &result {
                 Ok(_) => logs.push("Session created successfully!".to_string()),
                 Err(e) => logs.push(format!("Session creation failed: {}", e)),
+            }
+        }
+
+        // If Docker session creation succeeded AND this is Interactive mode, create corresponding tmux session
+        // Boss mode sessions should NOT have tmux integration
+        if let Ok(ref session_state) = result {
+            if mode_clone == crate::models::SessionMode::Interactive {
+                if let Some(ref worktree_info) = session_state.worktree_info {
+                    info!("Creating tmux session for Interactive mode session {}", session_id);
+
+                    // Send log message about tmux session creation
+                    let _ = log_sender.send("Creating tmux session for interactive mode...".to_string());
+
+                    // Create tmux session name from session info
+                    let tmux_name = format!("tmux_{}", branch_name.replace('/', "_").replace(' ', "_"));
+
+                    let mut tmux_session = crate::tmux::TmuxSession::new(
+                        tmux_name.clone(),
+                        "claude".to_string()
+                    );
+
+                    // Start tmux session in the worktree directory
+                    match tmux_session.start(&worktree_info.path).await {
+                        Ok(_) => {
+                            info!("Successfully started tmux session: {}", tmux_name);
+
+                            // Store tmux session name in the actual session model
+                            if let Some(session) = self.find_session_mut(session_id) {
+                                session.set_tmux_session_name(tmux_name.clone());
+                            }
+
+                            // Store tmux session in our map
+                            self.tmux_sessions.insert(session_id, tmux_session);
+
+                            let _ = log_sender.send("Tmux session created successfully!".to_string());
+                        }
+                        Err(e) => {
+                            warn!("Failed to start tmux session: {}", e);
+                            let _ = log_sender.send(format!("Warning: Failed to create tmux session: {}", e));
+                            // Don't fail the whole session creation if tmux fails
+                        }
+                    }
+                } else {
+                    warn!("Session state has no worktree info, skipping tmux creation");
+                }
+            } else {
+                info!("Skipping tmux creation for Boss mode session {}", session_id);
             }
         }
 
@@ -2639,6 +2748,17 @@ impl AppState {
         use crate::git::WorktreeManager;
 
         info!("Deleting session: {}", session_id);
+
+        // First, cleanup tmux session if it exists
+        if let Some(mut tmux_session) = self.tmux_sessions.remove(&session_id) {
+            info!("Cleaning up tmux session for session {}", session_id);
+            if let Err(e) = tmux_session.cleanup().await {
+                warn!("Failed to cleanup tmux session: {}", e);
+                // Continue with session deletion even if tmux cleanup fails
+            } else {
+                info!("Successfully cleaned up tmux session");
+            }
+        }
 
         // Log workspace count before deletion
         let workspace_count_before = self.workspaces.len();
@@ -2771,6 +2891,12 @@ impl AppState {
                             session_id, e
                         );
                     }
+                    self.ui_needs_refresh = true;
+                }
+                AsyncAction::AttachToTmuxSession(_session_id) => {
+                    // NOTE: This action must be handled in main.rs where terminal access is available
+                    // The terminal handle is needed to call attach_to_tmux_session
+                    warn!("AttachToTmuxSession action should be handled in main loop, not here");
                     self.ui_needs_refresh = true;
                 }
                 AsyncAction::KillContainer(session_id) => {
@@ -3370,6 +3496,128 @@ impl AppState {
     /// Get current notifications (non-expired)
     pub fn get_current_notifications(&self) -> Vec<&Notification> {
         self.notifications.iter().filter(|n| !n.is_expired()).collect()
+    }
+
+    // ============================================================================
+    // Tmux Integration Methods
+    // ============================================================================
+
+    /// Start background task to update tmux preview content every 100ms
+    /// NOTE: This is now handled via the main update loop calling update_tmux_previews()
+    /// This method is kept for compatibility but does nothing
+    pub fn start_preview_updates(&mut self) {
+        // Preview updates are now handled by calling update_tmux_previews() from main loop
+        // No background task needed
+        info!("Preview updates will be handled via main update loop");
+    }
+
+    /// Stop the preview update task
+    pub fn stop_preview_updates(&mut self) {
+        if let Some(task) = self.preview_update_task.take() {
+            task.abort();
+        }
+    }
+
+    /// Update preview content for all tmux sessions (called from main update loop)
+    pub async fn update_tmux_previews(&mut self) -> anyhow::Result<()> {
+        // Collect session IDs and preview content to avoid borrowing conflicts
+        let mut updates = Vec::new();
+
+        for (session_id, tmux_session) in &self.tmux_sessions {
+            // Check if session is attached (without mutable borrow)
+            let should_update = self
+                .workspaces
+                .iter()
+                .flat_map(|w| &w.sessions)
+                .find(|s| s.id == *session_id)
+                .map(|s| !s.is_attached)
+                .unwrap_or(false);
+
+            if should_update {
+                // Capture pane content
+                match tmux_session.capture_pane_content().await {
+                    Ok(content) => {
+                        updates.push((*session_id, content));
+                    }
+                    Err(e) => {
+                        warn!("Failed to capture tmux pane content for session {}: {}", session_id, e);
+                    }
+                }
+            }
+        }
+
+        // Apply updates
+        for (session_id, content) in updates {
+            if let Some(session) = self.find_session_mut(session_id) {
+                session.set_preview(content);
+                self.ui_needs_refresh = true;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Attach to a tmux session (requires terminal handle)
+    pub async fn attach_to_tmux_session(
+        &mut self,
+        session_id: uuid::Uuid,
+        terminal: std::sync::Arc<tokio::sync::Mutex<ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>>>,
+    ) -> anyhow::Result<()> {
+        use crate::app::attach_handler::AttachHandler;
+
+        // Get session to find tmux session name
+        let session = self
+            .find_session(session_id)
+            .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+
+        let tmux_session_name = session
+            .tmux_session_name
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No tmux session associated with this session"))?
+            .clone();
+
+        // Mark session as attached
+        if let Some(session) = self.find_session_mut(session_id) {
+            session.mark_attached();
+        }
+
+        // Create attach handler and attach
+        // NOTE: This method is deprecated - attach handling is done in main.rs now
+        // Keeping this for backward compatibility but it won't be used
+        let mut attach_handler = AttachHandler::new(terminal);
+        attach_handler.attach_to_session(&tmux_session_name).await?;
+
+        // Mark session as detached after returning from attach
+        if let Some(session) = self.find_session_mut(session_id) {
+            session.mark_detached();
+        }
+
+        self.ui_needs_refresh = true;
+        Ok(())
+    }
+
+    /// Helper to find a session by ID across all workspaces
+    fn find_session(&self, session_id: uuid::Uuid) -> Option<&crate::models::session::Session> {
+        for workspace in &self.workspaces {
+            for session in &workspace.sessions {
+                if session.id == session_id {
+                    return Some(session);
+                }
+            }
+        }
+        None
+    }
+
+    /// Helper to find a mutable session by ID across all workspaces
+    fn find_session_mut(&mut self, session_id: uuid::Uuid) -> Option<&mut crate::models::session::Session> {
+        for workspace in &mut self.workspaces {
+            for session in &mut workspace.sessions {
+                if session.id == session_id {
+                    return Some(session);
+                }
+            }
+        }
+        None
     }
 }
 

@@ -20,6 +20,9 @@ bollard = "0.16"
 futures-util = "0.3"
 tar = "0.4"
 
+# Tmux/PTY support
+portable-pty = "0.8"
+
 # Git operations
 git2 = "0.18"
 

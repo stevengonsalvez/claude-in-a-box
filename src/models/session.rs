@@ -52,6 +52,11 @@ pub struct Session {
     pub skip_permissions: bool, // Whether to use --dangerously-skip-permissions flag
     pub mode: SessionMode,      // Interactive or Boss mode
     pub boss_prompt: Option<String>, // The prompt for boss mode execution
+
+    // Tmux integration fields
+    pub tmux_session_name: Option<String>, // Name of the tmux session if using tmux backend
+    pub preview_content: Option<String>,   // Cached preview content for display
+    pub is_attached: bool,                 // Whether user is currently attached to the session
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -104,6 +109,9 @@ impl Session {
             skip_permissions,
             mode,
             boss_prompt,
+            tmux_session_name: None,
+            preview_content: None,
+            is_attached: false,
         }
     }
 
@@ -118,6 +126,41 @@ impl Session {
 
     pub fn set_container_id(&mut self, container_id: Option<String>) {
         self.container_id = container_id;
+        self.update_last_accessed();
+    }
+
+    // Tmux integration methods
+
+    /// Get the tmux session name for this session
+    /// Format: tmux_{sanitized_name}
+    pub fn get_tmux_name(&self) -> String {
+        format!(
+            "tmux_{}",
+            self.name.replace(' ', "_").replace('.', "_").replace('/', "_")
+        )
+    }
+
+    /// Set the preview content for this session
+    pub fn set_preview(&mut self, content: String) {
+        self.preview_content = Some(content);
+        self.update_last_accessed();
+    }
+
+    /// Mark the session as attached
+    pub fn mark_attached(&mut self) {
+        self.is_attached = true;
+        self.update_last_accessed();
+    }
+
+    /// Mark the session as detached
+    pub fn mark_detached(&mut self) {
+        self.is_attached = false;
+        self.update_last_accessed();
+    }
+
+    /// Set the tmux session name
+    pub fn set_tmux_session_name(&mut self, name: String) {
+        self.tmux_session_name = Some(name);
         self.update_last_accessed();
     }
 }
