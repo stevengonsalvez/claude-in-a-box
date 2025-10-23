@@ -5,7 +5,16 @@
 // sequence preservation.
 
 use anyhow::Result;
+use lazy_static::lazy_static;
+use regex::Regex;
 use tokio::process::Command;
+
+lazy_static! {
+    /// Regex pattern to match ANSI escape sequences
+    /// Matches: ESC [ ... m (color/style codes)
+    /// Reference: https://en.wikipedia.org/wiki/ANSI_escape_code
+    static ref ANSI_REGEX: Regex = Regex::new(r"\x1b\[[0-9;]*m").unwrap();
+}
 
 /// Options for capturing tmux pane content
 #[derive(Debug, Clone)]
@@ -46,6 +55,87 @@ impl CaptureOptions {
             join_wrapped_lines: true,
         }
     }
+}
+
+/// Strip ANSI escape sequences from text
+///
+/// Removes color codes, cursor movements, and other terminal control sequences
+/// that would appear as literal text in ratatui (which expects plain text or styled spans).
+///
+/// # Arguments
+/// * `text` - The text containing ANSI escape sequences
+///
+/// # Returns
+/// * Clean text without ANSI codes
+///
+/// # Example
+/// ```ignore
+/// let colored = "\x1b[38;5;123mHello\x1b[0m";
+/// let plain = strip_ansi_codes(colored);
+/// assert_eq!(plain, "Hello");
+/// ```
+fn strip_ansi_codes(text: &str) -> String {
+    ANSI_REGEX.replace_all(text, "").to_string()
+}
+
+/// Filter out Claude Code UI noise from captured tmux content
+///
+/// Removes:
+/// - ANSI escape sequences (color codes, cursor movements, etc.)
+/// - Permission dialog boxes
+/// - Security warnings
+/// - Box-drawing characters around dialogs
+/// - Claude Code meta-UI elements
+fn filter_claude_ui_noise(content: &str) -> String {
+    // Step 1: Strip ANSI escape sequences first
+    // This must be done before line-by-line processing to ensure clean text matching
+    let stripped_content = strip_ansi_codes(content);
+
+    let lines: Vec<&str> = stripped_content.lines().collect();
+    let mut filtered_lines = Vec::new();
+    let mut skip_until_blank = false;
+
+    for line in lines {
+        // Skip permission dialog markers
+        if line.contains("Do you want to work in this folder?")
+            || line.contains("In order to work in this folder, we need your permission")
+            || line.contains("If this folder has malicious code")
+            || line.contains("Only continue if this is your code")
+            || line.contains("Security")
+            || line.contains("details")
+            || line.contains("https://docs.claude.com/s/claude-code-security")
+            || line.contains("Yes, continue")
+            || line.contains("No, exit")
+            || line.contains("Enter to confirm")
+            || line.contains("Esc to exit") {
+            skip_until_blank = true;
+            continue;
+        }
+
+        // Skip box-drawing lines (often part of dialogs)
+        if line.chars().all(|c| {
+            matches!(c, '─' | '│' | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' | ' ' | '>' | '1' | '2' | '.' | ',')
+        }) && !line.trim().is_empty() {
+            continue;
+        }
+
+        // Reset skip flag on blank line
+        if line.trim().is_empty() {
+            if skip_until_blank {
+                skip_until_blank = false;
+                continue;
+            }
+        }
+
+        // Skip if we're in skip mode
+        if skip_until_blank {
+            continue;
+        }
+
+        filtered_lines.push(line);
+    }
+
+    filtered_lines.join("\n")
 }
 
 /// Capture content from a tmux pane
@@ -90,7 +180,12 @@ pub async fn capture_pane(session_name: &str, options: CaptureOptions) -> Result
         anyhow::bail!("Failed to capture pane content: {}", stderr);
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    let raw_content = String::from_utf8_lossy(&output.stdout).to_string();
+
+    // Filter out Claude Code UI noise to show cleaner preview
+    let filtered_content = filter_claude_ui_noise(&raw_content);
+
+    Ok(filtered_content)
 }
 
 #[cfg(test)]
@@ -122,5 +217,62 @@ mod tests {
         assert!(opts.join_wrapped_lines);
         assert_eq!(opts.start_line, Some("-".to_string()));
         assert_eq!(opts.end_line, Some("-".to_string()));
+    }
+
+    #[test]
+    fn test_strip_ansi_codes_simple() {
+        let input = "\x1b[38;5;123mHello\x1b[0m World";
+        let expected = "Hello World";
+        assert_eq!(strip_ansi_codes(input), expected);
+    }
+
+    #[test]
+    fn test_strip_ansi_codes_multiple() {
+        let input = "\x1b[1m\x1b[31mRed Bold\x1b[0m Normal \x1b[32mGreen\x1b[0m";
+        let expected = "Red Bold Normal Green";
+        assert_eq!(strip_ansi_codes(input), expected);
+    }
+
+    #[test]
+    fn test_strip_ansi_codes_no_codes() {
+        let input = "Plain text with no codes";
+        let expected = "Plain text with no codes";
+        assert_eq!(strip_ansi_codes(input), expected);
+    }
+
+    #[test]
+    fn test_strip_ansi_codes_empty() {
+        let input = "";
+        let expected = "";
+        assert_eq!(strip_ansi_codes(input), expected);
+    }
+
+    #[test]
+    fn test_filter_claude_ui_noise_permission_dialog() {
+        let input = r#"Some output
+Do you want to work in this folder?
+/Users/stevengonsalvez/.claude-in-a-box/worktrees/by-name/claude-in-a-box--claude-90112e0b--89d6e40c
+
+In order to work in this folder, we need your permission for Claude Code to read, edit, and execute files.
+
+Yes, continue
+No, exit
+
+More output"#;
+        let result = filter_claude_ui_noise(input);
+        assert!(result.contains("Some output"));
+        assert!(result.contains("More output"));
+        assert!(!result.contains("Do you want to work"));
+        assert!(!result.contains("permission"));
+    }
+
+    #[test]
+    fn test_filter_claude_ui_noise_with_ansi() {
+        let input = "\x1b[38;5;123mColored\x1b[0m text\nDo you want to work in this folder?\n\nMore text";
+        let result = filter_claude_ui_noise(input);
+        assert!(result.contains("Colored text"));
+        assert!(result.contains("More text"));
+        assert!(!result.contains("\x1b["));
+        assert!(!result.contains("Do you want to work"));
     }
 }
