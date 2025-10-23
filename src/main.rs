@@ -20,6 +20,7 @@ mod components;
 mod config;
 mod docker;
 mod git;
+mod interactive;
 mod models;
 mod tmux;
 mod widgets;
@@ -276,6 +277,28 @@ async fn run_tui_loop(
                             }
                             AppEvent::ToggleAutoScroll => {
                                 layout.live_logs_mut().toggle_auto_scroll();
+                            }
+                            AppEvent::NewSession | AppEvent::SearchWorkspace | AppEvent::NewSessionCreate => {
+                                // Process the event to queue the async action
+                                EventHandler::process_event(app_event, &mut app.state);
+
+                                // IMMEDIATELY process the async action for responsive UI
+                                // This ensures dialogs appear without delay and session creation starts immediately
+                                use tracing::{info, error};
+                                info!(">>> Immediately processing async action for responsive UI");
+                                match app.tick().await {
+                                    Ok(()) => {
+                                        info!(">>> Immediate tick completed successfully");
+                                        last_tick = Instant::now();
+                                        // Force UI refresh
+                                        terminal.draw(|frame| {
+                                            layout.render(frame, &app.state);
+                                        })?;
+                                    }
+                                    Err(e) => {
+                                        error!(">>> Error during immediate tick: {}", e);
+                                    }
+                                }
                             }
                             _ => {
                                 // Process other events normally

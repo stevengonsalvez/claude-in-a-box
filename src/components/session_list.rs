@@ -103,6 +103,7 @@ impl SessionListComponent {
                         match session.status {
                             SessionStatus::Running => Style::default().fg(Color::Green),
                             SessionStatus::Stopped => Style::default().fg(Color::Gray),
+                            SessionStatus::Idle => Style::default().fg(Color::Yellow),
                             SessionStatus::Error(_) => Style::default().fg(Color::Red),
                         }
                     };

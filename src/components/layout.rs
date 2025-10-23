@@ -194,6 +194,7 @@ impl LayoutComponent {
                                 let status_icon = match session.status {
                                     crate::models::SessionStatus::Running => "🟢",
                                     crate::models::SessionStatus::Stopped => "🔴",
+                                    crate::models::SessionStatus::Idle => "🟡",
                                     crate::models::SessionStatus::Error(_) => "❌",
                                 };
                                 status_parts.push(format!(

@@ -20,6 +20,7 @@ impl Default for SessionMode {
 pub enum SessionStatus {
     Running,
     Stopped,
+    Idle,  // Tmux exists but Claude stopped
     Error(String),
 }
 
@@ -28,12 +29,18 @@ impl SessionStatus {
         match self {
             SessionStatus::Running => "●",
             SessionStatus::Stopped => "⏸",
+            SessionStatus::Idle => "○",  // Empty circle for idle
             SessionStatus::Error(_) => "✗",
         }
     }
 
     pub fn is_running(&self) -> bool {
         matches!(self, SessionStatus::Running)
+    }
+
+    /// Helper to check if session can be restarted
+    pub fn can_restart(&self) -> bool {
+        matches!(self, SessionStatus::Idle | SessionStatus::Error(_))
     }
 }
 

@@ -9,9 +9,11 @@
 // - Lightweight, fast, and responsive interactions
 
 pub mod capture;
+pub mod process_detection;
 pub mod pty_wrapper;
 pub mod session;
 
 pub use capture::CaptureOptions;
+pub use process_detection::ClaudeProcessDetector;
 pub use pty_wrapper::PtyWrapper;
 pub use session::{AttachState, TmuxSession};

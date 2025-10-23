@@ -305,7 +305,10 @@ impl EventHandler {
             }
             KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces), // Manual refresh
-            KeyCode::Char('n') => Some(AppEvent::NewSession),
+            KeyCode::Char('n') => {
+                tracing::info!(">>> 'N' key pressed in SessionList view");
+                Some(AppEvent::NewSession)
+            }
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachTmuxSession), // Attach to tmux session
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
@@ -840,8 +843,10 @@ impl EventHandler {
                 }
             }
             AppEvent::NewSession => {
+                tracing::info!(">>> AppEvent::NewSession received - current_view: {:?}", state.current_view);
                 // Mark for async processing - create normal new session with mode selection
                 state.pending_async_action = Some(AsyncAction::NewSessionNormal);
+                tracing::info!(">>> Set pending_async_action to NewSessionNormal");
             }
             AppEvent::SearchWorkspace => {
                 // Mark for async processing - search all workspaces
