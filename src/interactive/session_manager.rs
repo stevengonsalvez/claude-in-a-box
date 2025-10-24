@@ -245,27 +245,31 @@ impl InteractiveSessionManager {
     /// # Returns
     /// * `Result<()>` - Success or an error
     pub async fn remove_session(&mut self, session_id: Uuid) -> Result<(), InteractiveSessionError> {
-        info!("Removing Interactive session {}", session_id);
+        info!(">>> InteractiveSessionManager::remove_session() START: {}", session_id);
 
         // Try to get session from active_sessions first
         let session_opt = self.active_sessions.remove(&session_id);
+        info!("Session in active_sessions: {}", session_opt.is_some());
 
         // Step 1: Kill tmux session
         // If we have the session in memory, use its tmux_session_name
         // Otherwise, try to find it by discovering from worktree
         let tmux_session_name = if let Some(ref session) = session_opt {
+            info!("Using tmux session name from memory: {}", session.tmux_session_name);
             session.tmux_session_name.clone()
         } else {
             // Try to get worktree info and derive tmux session name
+            info!("Session not in memory, discovering from worktree");
             match self.worktree_manager.get_worktree_info(session_id) {
                 Ok(worktree) => {
+                    info!("Found worktree with branch: {}", worktree.branch_name);
                     let tmux_name = Self::generate_tmux_name(&worktree.branch_name);
-                    info!("Discovered tmux session name from worktree: {}", tmux_name);
+                    info!("Generated tmux session name: {}", tmux_name);
                     tmux_name
                 }
                 Err(e) => {
                     // Couldn't find worktree, can't determine tmux session name
-                    warn!("Could not find worktree for session {}: {}", session_id, e);
+                    error!("Could not find worktree for session {}: {}", session_id, e);
                     // Still try to remove worktree in case it exists
                     if let Err(remove_err) = self.worktree_manager.remove_worktree(session_id) {
                         warn!("Failed to remove worktree: {}", remove_err);
@@ -275,23 +279,31 @@ impl InteractiveSessionManager {
             }
         };
 
-        info!("Killing tmux session: {}", tmux_session_name);
+        info!("Attempting to kill tmux session: {}", tmux_session_name);
         let output = Command::new("tmux")
             .args(["kill-session", "-t", &tmux_session_name])
             .output()
             .await?;
 
-        if !output.status.success() {
+        if output.status.success() {
+            info!("Successfully killed tmux session: {}", tmux_session_name);
+        } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            warn!("Failed to kill tmux session: {}", stderr);
+            warn!("Failed to kill tmux session '{}': {}", tmux_session_name, stderr);
             // Continue anyway - session might already be dead
         }
 
         // Step 2: Remove worktree
-        info!("Removing worktree for session {}", session_id);
-        self.worktree_manager.remove_worktree(session_id)?;
+        info!("Attempting to remove worktree for session {}", session_id);
+        match self.worktree_manager.remove_worktree(session_id) {
+            Ok(()) => info!("Successfully removed worktree for session {}", session_id),
+            Err(e) => {
+                error!("Failed to remove worktree for session {}: {}", session_id, e);
+                return Err(e.into());
+            }
+        }
 
-        info!("Successfully removed Interactive session {}", session_id);
+        info!("<<< InteractiveSessionManager::remove_session() COMPLETE: {}", session_id);
         Ok(())
     }
 

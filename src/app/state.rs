@@ -1468,6 +1468,7 @@ impl AppState {
     }
 
     pub fn show_delete_confirmation(&mut self, session_id: Uuid) {
+        info!("!!! SHOWING DELETE CONFIRMATION DIALOG for session: {}", session_id);
         self.confirmation_dialog = Some(ConfirmationDialog {
             title: "Delete Session".to_string(),
             message: "Are you sure you want to delete this session? This will stop the container and remove the git worktree.".to_string(),
@@ -3036,21 +3037,31 @@ impl AppState {
     async fn delete_interactive_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
         use crate::interactive::InteractiveSessionManager;
 
-        info!("Deleting Interactive mode session: {}", session_id);
+        info!("=== DELETE INTERACTIVE SESSION START: {} ===", session_id);
 
         // Cleanup tmux session if it exists
         if let Some(mut tmux_session) = self.tmux_sessions.remove(&session_id) {
-            info!("Cleaning up tmux session for Interactive session {}", session_id);
+            info!("Found tmux session in state, cleaning up: {}", session_id);
             if let Err(e) = tmux_session.cleanup().await {
-                warn!("Failed to cleanup tmux session: {}", e);
+                warn!("Failed to cleanup tmux session from state: {}", e);
             }
+        } else {
+            info!("No tmux session found in state for: {}", session_id);
         }
 
         // Use Interactive session manager to remove session
+        info!("Creating InteractiveSessionManager for session: {}", session_id);
         let mut manager = InteractiveSessionManager::new()?;
-        manager.remove_session(session_id).await?;
+        info!("Calling manager.remove_session() for: {}", session_id);
+        match manager.remove_session(session_id).await {
+            Ok(()) => info!("manager.remove_session() succeeded for: {}", session_id),
+            Err(e) => {
+                error!("manager.remove_session() failed for {}: {}", session_id, e);
+                return Err(e.into());
+            }
+        }
 
-        info!("Successfully deleted Interactive session: {}", session_id);
+        info!("=== DELETE INTERACTIVE SESSION COMPLETE: {} ===", session_id);
         Ok(())
     }
 
