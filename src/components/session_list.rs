@@ -81,6 +81,16 @@ impl SessionListComponent {
                 for (session_idx, session) in workspace.sessions.iter().enumerate() {
                     let is_selected_session = state.selected_session_index == Some(session_idx);
                     let status_indicator = session.status.indicator();
+
+                    // Tmux status indicator
+                    let tmux_indicator = if session.is_attached {
+                        "🔗" // Attached to tmux
+                    } else if session.tmux_session_name.is_some() {
+                        "●"  // Tmux session running
+                    } else {
+                        "○"  // No tmux session
+                    };
+
                     let changes_text = if session.git_changes.total() > 0 {
                         format!(" ({})", session.git_changes.format())
                     } else {
@@ -93,14 +103,15 @@ impl SessionListComponent {
                         match session.status {
                             SessionStatus::Running => Style::default().fg(Color::Green),
                             SessionStatus::Stopped => Style::default().fg(Color::Gray),
+                            SessionStatus::Idle => Style::default().fg(Color::Yellow),
                             SessionStatus::Error(_) => Style::default().fg(Color::Red),
                         }
                     };
 
                     items.push(
                         ListItem::new(format!(
-                            "  {} {}{}",
-                            status_indicator, session.name, changes_text
+                            "  {} {} {}{}",
+                            status_indicator, tmux_indicator, session.name, changes_text
                         ))
                         .style(session_style),
                     );

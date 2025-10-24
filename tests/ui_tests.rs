@@ -600,4 +600,64 @@ mod tests {
         ui.press_key(KeyCode::Esc).unwrap();
         assert!(!ui.is_help_visible());
     }
+
+    #[tokio::test]
+    async fn test_n_key_real_auth_debug() {
+        use tracing_subscriber::EnvFilter;
+
+        // Initialize tracing to capture all logs
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::DEBUG.into()))
+            .with_test_writer()
+            .try_init();
+
+        eprintln!("=== Starting test_n_key_real_auth_debug ===");
+
+        // Create UI framework WITHOUT mocking (to test real auth)
+        let mut ui = UITestFramework::new().await;
+
+        eprintln!("Initial view: {:?}", ui.current_view());
+        eprintln!("Has new_session_state: {}", ui.has_new_session_state());
+
+        // Press 'n' key
+        eprintln!("\n>>> Pressing 'N' key...");
+        ui.press_key(KeyCode::Char('n')).unwrap();
+
+        eprintln!("After key press - view: {:?}", ui.current_view());
+        eprintln!("After key press - has_new_session_state: {}", ui.has_new_session_state());
+        eprintln!("After key press - pending_async_action: {:?}", ui.app.state.pending_async_action);
+
+        // Process async action
+        eprintln!("\n>>> Processing async action...");
+        match ui.process_async().await {
+            Ok(()) => eprintln!("process_async() succeeded"),
+            Err(e) => eprintln!("process_async() failed: {}", e),
+        }
+
+        eprintln!("\nAfter process_async:");
+        eprintln!("  View: {:?}", ui.current_view());
+        eprintln!("  Has new_session_state: {}", ui.has_new_session_state());
+        eprintln!("  Pending async action: {:?}", ui.app.state.pending_async_action);
+
+        if let Some(ref session_state) = ui.app.state.new_session_state {
+            eprintln!("  New session step: {:?}", session_state.step);
+        }
+
+        // This assertion should pass if the bug is fixed
+        eprintln!("\n>>> Checking assertions...");
+        if ui.current_view() != &View::NewSession {
+            eprintln!("FAIL: Expected NewSession view, got: {:?}", ui.current_view());
+            eprintln!("This is the bug we're debugging!");
+        }
+
+        if !ui.has_new_session_state() {
+            eprintln!("FAIL: Expected new_session_state to exist");
+            eprintln!("This is the bug we're debugging!");
+        }
+
+        // For now, let's not assert - just capture the output
+        eprintln!("\n=== Test complete ===");
+        eprintln!("Expected view: NewSession, Actual: {:?}", ui.current_view());
+        eprintln!("Expected new_session_state: true, Actual: {}", ui.has_new_session_state());
+    }
 }

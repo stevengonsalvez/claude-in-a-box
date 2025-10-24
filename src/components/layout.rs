@@ -9,7 +9,7 @@ use ratatui::{
 use super::{
     AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
     ConfirmationDialogComponent, HelpComponent, LiveLogsStreamComponent, LogsViewerComponent,
-    NewSessionComponent, NonGitNotificationComponent, SessionListComponent,
+    NewSessionComponent, NonGitNotificationComponent, SessionListComponent, TmuxPreviewPane,
 };
 use crate::app::{AppState, state::View};
 
@@ -24,6 +24,7 @@ pub struct LayoutComponent {
     non_git_notification: NonGitNotificationComponent,
     attached_terminal: AttachedTerminalComponent,
     auth_setup: AuthSetupComponent,
+    tmux_preview: TmuxPreviewPane,
 }
 
 impl LayoutComponent {
@@ -39,6 +40,7 @@ impl LayoutComponent {
             non_git_notification: NonGitNotificationComponent::new(),
             attached_terminal: AttachedTerminalComponent::new(),
             auth_setup: AuthSetupComponent::new(),
+            tmux_preview: TmuxPreviewPane::new(),
         }
     }
 
@@ -94,7 +96,20 @@ impl LayoutComponent {
 
         // Pass focus information to components
         self.session_list.render(frame, content_chunks[0], state);
-        self.live_logs_stream.render(frame, content_chunks[1], state);
+
+        // Render tmux preview if selected session has tmux, otherwise show live logs
+        let selected_has_tmux = state
+            .get_selected_session()
+            .and_then(|s| s.tmux_session_name.as_ref())
+            .is_some();
+
+        if selected_has_tmux {
+            // Render tmux preview pane
+            self.tmux_preview.render(frame, content_chunks[1], state);
+        } else {
+            // Render traditional live logs stream
+            self.live_logs_stream.render(frame, content_chunks[1], state);
+        }
 
         // Render bottom logs area (traditional logs viewer)
         self.logs_viewer.render(frame, main_layout[2], state);
@@ -179,6 +194,7 @@ impl LayoutComponent {
                                 let status_icon = match session.status {
                                     crate::models::SessionStatus::Running => "🟢",
                                     crate::models::SessionStatus::Stopped => "🔴",
+                                    crate::models::SessionStatus::Idle => "🟡",
                                     crate::models::SessionStatus::Error(_) => "❌",
                                 };
                                 status_parts.push(format!(

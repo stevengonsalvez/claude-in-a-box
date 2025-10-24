@@ -20,7 +20,9 @@ mod components;
 mod config;
 mod docker;
 mod git;
+mod interactive;
 mod models;
+mod tmux;
 mod widgets;
 
 use app::{App, EventHandler};
@@ -276,6 +278,28 @@ async fn run_tui_loop(
                             AppEvent::ToggleAutoScroll => {
                                 layout.live_logs_mut().toggle_auto_scroll();
                             }
+                            AppEvent::NewSession | AppEvent::SearchWorkspace | AppEvent::NewSessionCreate | AppEvent::ConfirmationConfirm => {
+                                // Process the event to queue the async action
+                                EventHandler::process_event(app_event, &mut app.state);
+
+                                // IMMEDIATELY process the async action for responsive UI
+                                // This ensures dialogs appear without delay and session creation/deletion starts immediately
+                                use tracing::{info, error};
+                                info!(">>> Immediately processing async action for responsive UI");
+                                match app.tick().await {
+                                    Ok(()) => {
+                                        info!(">>> Immediate tick completed successfully");
+                                        last_tick = Instant::now();
+                                        // Force UI refresh
+                                        terminal.draw(|frame| {
+                                            layout.render(frame, &app.state);
+                                        })?;
+                                    }
+                                    Err(e) => {
+                                        error!(">>> Error during immediate tick: {}", e);
+                                    }
+                                }
+                            }
                             _ => {
                                 // Process other events normally
                                 EventHandler::process_event(app_event, &mut app.state);
@@ -342,6 +366,70 @@ async fn run_tui_loop(
         }
 
         if last_tick.elapsed() >= tick_rate {
+            // Handle tmux attach action BEFORE app.tick() to get terminal access
+            // This is required because AttachToTmuxSession needs terminal handle for suspend/resume
+            if let Some(crate::app::state::AsyncAction::AttachToTmuxSession(session_id)) = app.state.pending_async_action.take() {
+                use tracing::{info, error};
+                use crate::app::AttachHandler;
+
+                info!("Handling AttachToTmuxSession for session {}", session_id);
+
+                // Get session to find tmux session name
+                let tmux_session_name = if let Some(session) = app.state.workspaces
+                    .iter()
+                    .flat_map(|w| &w.sessions)
+                    .find(|s| s.id == session_id)
+                {
+                    if let Some(ref name) = session.tmux_session_name {
+                        name.clone()
+                    } else {
+                        error!("No tmux session name found for session {}", session_id);
+                        app.state.add_error_notification("Session has no tmux session".to_string());
+                        app.state.ui_needs_refresh = true;
+                        continue; // Skip to next iteration
+                    }
+                } else {
+                    error!("Session {} not found", session_id);
+                    app.state.add_error_notification("Session not found".to_string());
+                    app.state.ui_needs_refresh = true;
+                    continue; // Skip to next iteration
+                };
+
+                // Mark session as attached
+                for workspace in &mut app.state.workspaces {
+                    for session in &mut workspace.sessions {
+                        if session.id == session_id {
+                            session.mark_attached();
+                            break;
+                        }
+                    }
+                }
+
+                // Create attach handler and attach directly
+                let mut attach_handler = AttachHandler::new_from_terminal(terminal)?;
+                match attach_handler.attach_to_session(&tmux_session_name).await {
+                    Ok(()) => {
+                        info!("Successfully attached and detached from tmux session {}", session_id);
+                    }
+                    Err(e) => {
+                        error!("Failed to attach to tmux session {}: {}", session_id, e);
+                        app.state.add_error_notification(format!("Failed to attach: {}", e));
+                    }
+                }
+
+                // Mark session as detached
+                for workspace in &mut app.state.workspaces {
+                    for session in &mut workspace.sessions {
+                        if session.id == session_id {
+                            session.mark_detached();
+                            break;
+                        }
+                    }
+                }
+
+                app.state.ui_needs_refresh = true;
+            }
+
             match app.tick().await {
                 Ok(()) => {
                     last_tick = Instant::now();
