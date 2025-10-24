@@ -278,12 +278,12 @@ async fn run_tui_loop(
                             AppEvent::ToggleAutoScroll => {
                                 layout.live_logs_mut().toggle_auto_scroll();
                             }
-                            AppEvent::NewSession | AppEvent::SearchWorkspace | AppEvent::NewSessionCreate => {
+                            AppEvent::NewSession | AppEvent::SearchWorkspace | AppEvent::NewSessionCreate | AppEvent::ConfirmationConfirm => {
                                 // Process the event to queue the async action
                                 EventHandler::process_event(app_event, &mut app.state);
 
                                 // IMMEDIATELY process the async action for responsive UI
-                                // This ensures dialogs appear without delay and session creation starts immediately
+                                // This ensures dialogs appear without delay and session creation/deletion starts immediately
                                 use tracing::{info, error};
                                 info!(">>> Immediately processing async action for responsive UI");
                                 match app.tick().await {
