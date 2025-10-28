@@ -39,3 +39,7 @@ tests/old-scripts-backup/
 .amazonq/
 AmazonQ.md
 .claude/action-summaries
+
+# Test artifacts
+test-logs/
+tests/recordings/

@@ -46,6 +46,7 @@ impl LogsViewerComponent {
             match &session.status {
                 crate::models::SessionStatus::Running => "Running",
                 crate::models::SessionStatus::Stopped => "Stopped",
+                crate::models::SessionStatus::Idle => "Idle",
                 crate::models::SessionStatus::Error(err) => err,
             },
             session.branch_name,
@@ -130,6 +131,11 @@ impl LogsViewerComponent {
             crate::models::SessionStatus::Stopped => vec![
                 ListItem::new("Container stopped").style(Style::default().fg(Color::Gray)),
                 ListItem::new("Last active: 2 minutes ago").style(Style::default().fg(Color::Gray)),
+            ],
+            crate::models::SessionStatus::Idle => vec![
+                ListItem::new("Tmux session active").style(Style::default().fg(Color::Yellow)),
+                ListItem::new("Claude CLI stopped").style(Style::default().fg(Color::Yellow)),
+                ListItem::new("Press 'r' to restart Claude").style(Style::default().fg(Color::Cyan)),
             ],
             crate::models::SessionStatus::Error(ref err) => vec![
                 ListItem::new("Starting Claude Code environment...")

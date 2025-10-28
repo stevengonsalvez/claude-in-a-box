@@ -803,6 +803,34 @@ cargo test --ignored
 RUST_LOG=debug cargo run
 ```
 
+### Testing
+
+#### Unit Tests
+```bash
+cargo test
+```
+
+#### E2E PTY Tests
+```bash
+# Silent mode (CI)
+cargo test --test e2e_pty_tests -- --ignored
+
+# Live visual debug (watch tests run in terminal)
+cargo test --features visual-debug -- --ignored
+```
+
+#### Visual Demos
+```bash
+# Install VHS
+brew install vhs  # macOS
+# or: go install github.com/charmbracelet/vhs@latest
+
+# Record demos
+./scripts/record-demos.sh
+```
+
+See `tests/E2E_TESTING.md` for detailed testing documentation.
+
 ### Building Docker Images
 
 ```bash
