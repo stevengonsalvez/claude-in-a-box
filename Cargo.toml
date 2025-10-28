@@ -56,6 +56,11 @@ lazy_static = "1.4"
 pulldown-cmark = "0.9"  # Markdown parsing
 syntect = "5.0"  # Syntax highlighting for code blocks
 
+[features]
+default = []
+visual-debug = []  # Enable live terminal during tests
+vt100-tests = []   # Enable vt100 screen verification
+
 [dev-dependencies]
 mockall = "0.12"
 pretty_assertions = "1.4"

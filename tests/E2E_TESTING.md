@@ -41,6 +41,12 @@ cargo test --test e2e_pty_tests test_e2e_new_session_flow -- --ignored
 cargo test --test e2e_pty_tests --features vt100-tests -- --ignored
 ```
 
+### Run with Visual Debug Mode (watch tests in live terminal)
+```bash
+cargo test test_visual_delete -- --ignored --features visual-debug --nocapture
+```
+**Note**: This opens a separate terminal window on macOS where you can watch the test execute in real-time (like Playwright headed mode).
+
 ### Why `--ignored`?
 E2E tests are marked with `#[ignore]` because:
 - They spawn actual processes (slower)
@@ -238,6 +244,59 @@ jobs:
 - Don't make tests too long (split into multiple tests)
 - Don't rely on exact timing (use reasonable timeouts)
 - Don't test internal implementation details
+
+## Visual Testing Modes
+
+### Silent Mode (Default)
+```bash
+cargo test --test e2e_pty_tests -- --ignored
+```
+- Headless execution
+- Fast, CI-friendly
+- Like Playwright headless
+
+### Live Visual Debug Mode
+```bash
+cargo test test_visual_delete -- --ignored --features visual-debug
+```
+- Opens terminal window
+- Watch test execute live
+- Like Playwright headed mode
+- macOS/Linux/WSL only
+
+### Screen Verification Mode
+```bash
+cargo test --features vt100-tests -- --ignored
+```
+- Parse terminal state with vt100
+- Verify exact layout
+- Check colors, cursor position
+
+## Creating Demos with VHS
+
+### Record All Demos
+```bash
+./scripts/record-demos.sh
+```
+
+### Record Single Demo
+```bash
+vhs tests/tapes/delete-session.tape
+```
+
+### Tape File Format
+```tape
+Output path/to/output.gif
+Set Theme "Dracula"
+Set Width 1280
+Set Height 800
+
+Type "command"
+Enter
+Sleep 2s
+```
+
+See [VHS Documentation](https://github.com/charmbracelet/vhs) for full syntax.
 
 ## Comparison with Other Approaches
 

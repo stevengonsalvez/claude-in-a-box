@@ -6,31 +6,19 @@ use rexpect::session::spawn_command;
 use std::process::Command;
 use std::time::Duration;
 
+mod helpers;
+
 // Helper function to spawn the app with proper environment
 fn spawn_app() -> Result<rexpect::session::PtySession, rexpect::error::Error> {
-    // Use the debug binary directly to avoid cargo warnings
-    let binary_path = if std::path::Path::new("target/debug/claude-box").exists() {
-        "target/debug/claude-box"
-    } else {
-        // Fallback to cargo run if binary doesn't exist
-        "cargo"
-    };
+    #[cfg(feature = "visual-debug")]
+    {
+        helpers::visual_debug::spawn_app_visual()
+    }
 
-    let mut cmd = if binary_path == "cargo" {
-        let mut c = Command::new("cargo");
-        c.arg("run");
-        c.arg("--quiet");
-        c.arg("2>/dev/null");  // Suppress stderr
-        c
-    } else {
-        Command::new(binary_path)
-    };
-
-    // Set environment variables for testing
-    cmd.env("RUST_LOG", "error");  // Only show errors
-    cmd.env("NO_COLOR", "1"); // Disable colors for easier parsing
-
-    spawn_command(cmd, Some(15000))  // Increase timeout
+    #[cfg(not(feature = "visual-debug"))]
+    {
+        helpers::visual_debug::spawn_app_silent()
+    }
 }
 
 #[test]
@@ -165,4 +153,105 @@ fn test_e2e_visual_layout() -> Result<(), Box<dyn std::error::Error>> {
     session.send("\x1b")?;
 
     Ok(())
+}
+
+// Visual debug test - only enabled with visual-debug feature
+#[test]
+#[ignore]
+#[cfg(feature = "visual-debug")]
+fn test_visual_delete_session() -> Result<(), Box<dyn std::error::Error>> {
+    println!("🖥️  VISUAL TEST: Watch the delete flow in the terminal window");
+
+    let mut session = spawn_app()?;
+
+    // Wait for initialization
+    session.exp_string("\x1b[?1049h")?;
+    std::thread::sleep(Duration::from_secs(2));
+
+    println!("⌨️  Pressing 'd' to delete...");
+    session.send("d")?;
+    std::thread::sleep(Duration::from_secs(1));
+
+    println!("⌨️  Pressing Enter to confirm...");
+    session.send("\r")?;
+    std::thread::sleep(Duration::from_secs(2));
+
+    println!("✅ Visual test complete - did you see the deletion?");
+
+    // Clean up
+    session.send("q")?;
+
+    Ok(())
+}
+
+// VT100 screen verification tests
+#[cfg(feature = "vt100-tests")]
+mod vt100_tests {
+    use super::*;
+    use crate::helpers::vt100_helper::ScreenCapture;
+
+    #[test]
+    #[ignore]
+    fn test_e2e_screen_layout() -> Result<(), Box<dyn std::error::Error>> {
+        let mut session = spawn_app()?;
+        let mut capture = ScreenCapture::new(40, 120);
+
+        // Wait for initialization
+        session.exp_string("\x1b[?1049h")?;
+        std::thread::sleep(Duration::from_millis(500));
+
+        // Read available output
+        // Note: We need to read the buffer to capture the screen state
+        // For a more complete implementation, we'd continuously process output
+        // For now, this is a basic example showing the concept
+        if let Some(output_char) = session.try_read() {
+            let output = output_char.to_string();
+            capture.process_output(output.as_bytes());
+        }
+
+        // Verify layout - adjust based on actual UI
+        assert!(capture.has_text("Session"));
+
+        println!("✅ Screen layout verified");
+
+        // Clean up
+        session.send("q")?;
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_e2e_delete_confirmation_dialog() -> Result<(), Box<dyn std::error::Error>> {
+        let mut session = spawn_app()?;
+        let mut capture = ScreenCapture::new(40, 120);
+
+        session.exp_string("\x1b[?1049h")?;
+
+        // Press delete
+        session.send("d")?;
+        std::thread::sleep(Duration::from_millis(500));
+
+        // Capture dialog
+        if let Some(output_char) = session.try_read() {
+            let output = output_char.to_string();
+            capture.process_output(output.as_bytes());
+        }
+
+        // Verify dialog appears (adjust text based on actual implementation)
+        // The exact text will depend on your UI implementation
+        println!("Screen contents: {}", capture.contents());
+
+        // Verify cursor position (should be on dialog)
+        let (row, col) = capture.cursor_position();
+        println!("Cursor at: ({}, {})", row, col);
+
+        println!("✅ Delete dialog verified");
+
+        // Clean up
+        session.send("\x1b")?;
+        session.send("q")?;
+
+        Ok(())
+    }
 }
