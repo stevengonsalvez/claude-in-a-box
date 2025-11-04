@@ -2920,17 +2920,18 @@ impl AppState {
         Ok(())
     }
 
-    /// Clean up orphaned containers (containers without worktrees)
+    /// Clean up orphaned containers (containers without worktrees) AND orphaned session state
     pub async fn cleanup_orphaned_containers(&mut self) -> anyhow::Result<usize> {
         use crate::docker::ContainerManager;
 
-        info!("Starting cleanup of orphaned containers");
+        info!("Starting cleanup of orphaned containers and state entries");
 
         let container_manager = ContainerManager::new().await?;
         let containers = container_manager.list_claude_containers().await?;
 
         let mut cleaned_up = 0;
 
+        // Step 1: Clean up orphaned containers (containers without worktrees)
         for container in containers {
             if let Some(session_id_str) =
                 container.labels.as_ref().and_then(|labels| labels.get("claude-session-id"))
@@ -2973,10 +2974,45 @@ impl AppState {
             }
         }
 
+        // Step 2: Clean up orphaned session state (sessions in workspace list without worktrees)
+        let worktree_manager = crate::git::WorktreeManager::new()?;
+        let mut orphaned_sessions = Vec::new();
+
+        // Collect all session IDs from all workspaces
+        for workspace in &self.workspaces {
+            for session in &workspace.sessions {
+                // Check if this session's name starts with "orphaned-"
+                if session.name.starts_with("orphaned-") {
+                    orphaned_sessions.push(session.id);
+                } else {
+                    // Also check if the worktree actually exists
+                    if let Err(_) = worktree_manager.get_worktree_info(session.id) {
+                        info!("Found session without worktree: {} ({})", session.name, session.id);
+                        orphaned_sessions.push(session.id);
+                    }
+                }
+            }
+        }
+
+        // Remove orphaned session state entries
+        for session_id in &orphaned_sessions {
+            info!("Removing orphaned session state: {}", session_id);
+
+            // Remove from workspaces
+            for workspace in &mut self.workspaces {
+                workspace.sessions.retain(|s| s.id != *session_id);
+            }
+
+            // Clean up any remaining state
+            self.live_logs.remove(session_id);
+
+            cleaned_up += 1;
+        }
+
         if cleaned_up > 0 {
-            info!("Cleaned up {} orphaned containers", cleaned_up);
+            info!("Cleaned up {} orphaned items (containers + state entries)", cleaned_up);
             self.add_success_notification(format!(
-                "🧹 Cleaned up {} orphaned containers",
+                "🧹 Cleaned up {} orphaned items",
                 cleaned_up
             ));
 
@@ -2984,8 +3020,8 @@ impl AppState {
             self.load_real_workspaces().await;
             self.ui_needs_refresh = true;
         } else {
-            info!("No orphaned containers found");
-            self.add_info_notification("✅ No orphaned containers found".to_string());
+            info!("No orphaned containers or sessions found");
+            self.add_info_notification("✅ No orphaned items found".to_string());
         }
 
         Ok(cleaned_up)
