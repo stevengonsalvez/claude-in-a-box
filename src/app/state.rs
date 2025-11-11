@@ -3009,8 +3009,42 @@ impl AppState {
             cleaned_up += 1;
         }
 
+        // Step 3: Prune git worktrees (removes stale git references for deleted worktrees)
+        info!("Pruning git worktrees to remove stale references");
+        use tokio::process::Command;
+        match Command::new("git")
+            .arg("worktree")
+            .arg("prune")
+            .arg("-v")
+            .output()
+            .await
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    if !stdout.trim().is_empty() {
+                        info!("Git worktree prune output: {}", stdout.trim());
+                        // Count lines that start with "Removing" to track pruned worktrees
+                        let pruned_count = stdout.lines().filter(|line| line.contains("Removing")).count();
+                        if pruned_count > 0 {
+                            info!("Pruned {} stale git worktree references", pruned_count);
+                            cleaned_up += pruned_count;
+                        }
+                    } else {
+                        info!("No stale git worktree references to prune");
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!("Git worktree prune failed: {}", stderr);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to run git worktree prune: {}", e);
+            }
+        }
+
         if cleaned_up > 0 {
-            info!("Cleaned up {} orphaned items (containers + state entries)", cleaned_up);
+            info!("Cleaned up {} orphaned items (containers + state + git refs)", cleaned_up);
             self.add_success_notification(format!(
                 "🧹 Cleaned up {} orphaned items",
                 cleaned_up
