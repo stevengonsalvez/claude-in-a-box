@@ -49,9 +49,13 @@ pub struct AppConfig {
     /// Docker configuration
     #[serde(default)]
     pub docker: DockerConfig,
+
+    /// Tmux configuration
+    #[serde(default)]
+    pub tmux: TmuxConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceDefaults {
     /// Default branch prefix for new sessions
     #[serde(default = "default_branch_prefix")]
@@ -69,6 +73,22 @@ pub struct WorkspaceDefaults {
     /// These are added to the default paths (~/projects, ~/code, etc.)
     #[serde(default)]
     pub workspace_scan_paths: Vec<PathBuf>,
+
+    /// Maximum number of repositories to show in search results (default: 500)
+    #[serde(default = "default_max_repositories")]
+    pub max_repositories: usize,
+}
+
+impl Default for WorkspaceDefaults {
+    fn default() -> Self {
+        Self {
+            branch_prefix: default_branch_prefix(),
+            auto_detect: default_true(),
+            exclude_paths: Vec::new(),
+            workspace_scan_paths: Vec::new(),
+            max_repositories: default_max_repositories(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -116,6 +136,25 @@ pub struct DockerTlsConfig {
     pub client_key: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TmuxConfig {
+    /// Detach key combination (default: "ctrl-q")
+    #[serde(default = "default_detach_key")]
+    pub detach_key: String,
+
+    /// Preview update interval in milliseconds (default: 100ms)
+    #[serde(default = "default_update_interval")]
+    pub preview_update_interval_ms: u64,
+
+    /// Tmux history limit in lines (default: 10000)
+    #[serde(default = "default_history_limit")]
+    pub history_limit: u32,
+
+    /// Enable mouse scrolling in tmux (default: true)
+    #[serde(default = "default_mouse_scroll")]
+    pub enable_mouse_scroll: bool,
+}
+
 fn default_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
@@ -132,12 +171,32 @@ fn default_theme() -> String {
     "dark".to_string()
 }
 
+fn default_detach_key() -> String {
+    "ctrl-q".to_string()
+}
+
+fn default_update_interval() -> u64 {
+    100
+}
+
+fn default_history_limit() -> u32 {
+    10000
+}
+
+fn default_mouse_scroll() -> bool {
+    true
+}
+
 fn default_true() -> bool {
     true
 }
 
 fn default_docker_timeout() -> u64 {
     60
+}
+
+fn default_max_repositories() -> usize {
+    500
 }
 
 impl AppConfig {
@@ -232,6 +291,8 @@ impl AppConfig {
             self.workspace_defaults.workspace_scan_paths =
                 other.workspace_defaults.workspace_scan_paths;
         }
+        // Always take max_repositories from config if loaded from file
+        self.workspace_defaults.max_repositories = other.workspace_defaults.max_repositories;
 
         // Override UI preferences
         if other.ui_preferences.theme != default_theme() {
@@ -280,6 +341,7 @@ impl Default for AppConfig {
             workspace_defaults: WorkspaceDefaults::default(),
             ui_preferences: UiPreferences::default(),
             docker: DockerConfig::default(),
+            tmux: TmuxConfig::default(),
         };
 
         // Load built-in templates

@@ -58,12 +58,19 @@ impl WorkspaceScanner {
             self.search_paths.len()
         );
 
+        // Log each search path for debugging
+        for (i, path) in self.search_paths.iter().enumerate() {
+            info!("Search path {}: {}", i + 1, path.display());
+        }
+
         let mut workspaces = Vec::new();
         let mut errors = Vec::new();
 
         for search_path in &self.search_paths {
+            info!("Scanning path: {}", search_path.display());
             match self.scan_directory(search_path, 0) {
                 Ok(mut found_workspaces) => {
+                    info!("Found {} workspaces in {}", found_workspaces.len(), search_path.display());
                     workspaces.append(&mut found_workspaces);
                 }
                 Err(e) => {
