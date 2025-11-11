@@ -55,7 +55,7 @@ pub struct AppConfig {
     pub tmux: TmuxConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceDefaults {
     /// Default branch prefix for new sessions
     #[serde(default = "default_branch_prefix")]
@@ -73,6 +73,22 @@ pub struct WorkspaceDefaults {
     /// These are added to the default paths (~/projects, ~/code, etc.)
     #[serde(default)]
     pub workspace_scan_paths: Vec<PathBuf>,
+
+    /// Maximum number of repositories to show in search results (default: 500)
+    #[serde(default = "default_max_repositories")]
+    pub max_repositories: usize,
+}
+
+impl Default for WorkspaceDefaults {
+    fn default() -> Self {
+        Self {
+            branch_prefix: default_branch_prefix(),
+            auto_detect: default_true(),
+            exclude_paths: Vec::new(),
+            workspace_scan_paths: Vec::new(),
+            max_repositories: default_max_repositories(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -179,6 +195,10 @@ fn default_docker_timeout() -> u64 {
     60
 }
 
+fn default_max_repositories() -> usize {
+    500
+}
+
 impl AppConfig {
     /// Load configuration from default locations
     pub fn load() -> Result<Self> {
@@ -271,6 +291,8 @@ impl AppConfig {
             self.workspace_defaults.workspace_scan_paths =
                 other.workspace_defaults.workspace_scan_paths;
         }
+        // Always take max_repositories from config if loaded from file
+        self.workspace_defaults.max_repositories = other.workspace_defaults.max_repositories;
 
         // Override UI preferences
         if other.ui_preferences.theme != default_theme() {

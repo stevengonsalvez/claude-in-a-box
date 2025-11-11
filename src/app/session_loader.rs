@@ -259,16 +259,22 @@ impl SessionLoader {
         );
         let scan_result = scanner.scan()?;
 
+        let max_repos = self.config.workspace_defaults.max_repositories;
+        let total_found = scan_result.workspaces.len();
+
         let repos: Vec<PathBuf> = scan_result
             .workspaces
             .into_iter()
             .map(|w| w.path)
-            .take(100) // Limit to 100 repositories to prevent UI performance issues
+            .take(max_repos)
             .collect();
 
         info!(
-            "Found {} repositories (limited to 100 for UI performance)",
-            repos.len()
+            "Found {} repositories (showing {} of {}, limit: {})",
+            total_found,
+            repos.len(),
+            total_found,
+            max_repos
         );
         Ok(repos)
     }
