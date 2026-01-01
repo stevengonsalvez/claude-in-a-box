@@ -295,6 +295,11 @@ impl TmuxPreviewPane {
     pub fn mode(&self) -> PreviewMode {
         self.preview_mode
     }
+
+    /// Check if the preview is currently in scroll mode
+    pub fn is_scroll_mode(&self) -> bool {
+        self.preview_mode == PreviewMode::Scroll
+    }
 }
 
 impl Default for TmuxPreviewPane {

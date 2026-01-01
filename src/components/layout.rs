@@ -152,6 +152,11 @@ impl LayoutComponent {
         &mut self.live_logs_stream
     }
 
+    /// Get mutable reference to tmux preview component for scroll handling
+    pub fn tmux_preview_mut(&mut self) -> &mut TmuxPreviewPane {
+        &mut self.tmux_preview
+    }
+
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
         // Grouped command bar with separators
         use ratatui::text::{Line, Span};

@@ -253,10 +253,38 @@ async fn run_tui_loop(
         if crossterm::event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key_event) => {
+                    // Intercept keys when tmux preview is in scroll mode
+                    use crossterm::event::KeyCode;
+                    if layout.tmux_preview_mut().is_scroll_mode() {
+                        match key_event.code {
+                            KeyCode::Esc => {
+                                layout.tmux_preview_mut().exit_scroll_mode();
+                                continue; // Don't process ESC as Quit
+                            }
+                            KeyCode::Up | KeyCode::Char('k') => {
+                                layout.tmux_preview_mut().scroll_up();
+                                continue; // Don't let event handler navigate sessions
+                            }
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                layout.tmux_preview_mut().scroll_down();
+                                continue; // Don't let event handler navigate sessions
+                            }
+                            KeyCode::PageUp => {
+                                layout.tmux_preview_mut().scroll_page_up();
+                                continue;
+                            }
+                            KeyCode::PageDown => {
+                                layout.tmux_preview_mut().scroll_page_down();
+                                continue;
+                            }
+                            _ => {} // Let other keys pass through to event handler
+                        }
+                    }
+
                     if let Some(app_event) =
                         EventHandler::handle_key_event(key_event, &mut app.state)
                     {
-                        // Handle scroll events for live logs
+                        // Handle scroll events for live logs and tmux preview
                         use crate::app::events::AppEvent;
                         match app_event {
                             AppEvent::ScrollLogsUp => {
@@ -277,6 +305,27 @@ async fn run_tui_loop(
                             }
                             AppEvent::ToggleAutoScroll => {
                                 layout.live_logs_mut().toggle_auto_scroll();
+                            }
+                            // Tmux preview scroll events
+                            AppEvent::ScrollPreviewUp => {
+                                let preview = layout.tmux_preview_mut();
+                                if !preview.is_scroll_mode() {
+                                    preview.enter_scroll_mode();
+                                }
+                                preview.scroll_up();
+                            }
+                            AppEvent::ScrollPreviewDown => {
+                                let preview = layout.tmux_preview_mut();
+                                if !preview.is_scroll_mode() {
+                                    preview.enter_scroll_mode();
+                                }
+                                preview.scroll_down();
+                            }
+                            AppEvent::EnterScrollMode => {
+                                layout.tmux_preview_mut().enter_scroll_mode();
+                            }
+                            AppEvent::ExitScrollMode => {
+                                layout.tmux_preview_mut().exit_scroll_mode();
                             }
                             AppEvent::NewSession | AppEvent::SearchWorkspace | AppEvent::NewSessionCreate | AppEvent::ConfirmationConfirm => {
                                 // Process the event to queue the async action
