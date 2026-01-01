@@ -4,7 +4,8 @@
 use crate::config::AppConfig;
 use crate::docker::ContainerManager;
 use crate::git::WorktreeManager;
-use crate::models::{Session, SessionStatus, Workspace};
+use crate::models::{Session, SessionMode, SessionStatus, Workspace};
+use crate::tmux::TmuxSession;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -63,6 +64,7 @@ impl SessionLoader {
                         session.id = session_id;
                         session.container_id = container.id;
                         session.branch_name = worktree_info.branch_name.clone();
+                        session.mode = SessionMode::Boss;
 
                         // Set session status based on container state
                         let state = container.state.as_deref().unwrap_or("unknown");
@@ -75,12 +77,25 @@ impl SessionLoader {
                             }
                         });
 
-                        // Get workspace name from source repo
+                        // Get workspace name from worktree path
+                        // Worktree naming: <repo-name>--<branch-hash>--<session-id>
+                        // Extract the repo name from the worktree directory name
                         let workspace_name = worktree_info
-                            .source_repository
+                            .path
                             .file_name()
                             .and_then(|n| n.to_str())
-                            .unwrap_or("unknown")
+                            .and_then(|name| {
+                                // Split by "--" and take the first part (repo name)
+                                name.split("--").next()
+                            })
+                            .unwrap_or_else(|| {
+                                // Fallback to source repository name
+                                worktree_info
+                                    .source_repository
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("unknown")
+                            })
                             .to_string();
 
                         // Add session to appropriate workspace
@@ -128,6 +143,7 @@ impl SessionLoader {
                         session.set_status(SessionStatus::Error(
                             "Worktree missing - container orphaned".to_string(),
                         ));
+                        session.mode = SessionMode::Boss;
 
                         // Try to determine the original workspace from container labels or name
                         let workspace_name = container
@@ -184,6 +200,18 @@ impl SessionLoader {
                     if !already_processed {
                         debug!("Found orphaned worktree for session {}", session_id);
 
+                        // Skip Interactive (tmux-managed) sessions - those are loaded separately
+                        let tmux_probe =
+                            TmuxSession::new(worktree_info.branch_name.clone(), "claude".to_string());
+                        if tmux_probe.does_session_exist().await {
+                            info!(
+                                "Skipping tmux-managed Interactive session {} ({}) in Boss mode loader",
+                                session_id,
+                                tmux_probe.name()
+                            );
+                            continue;
+                        }
+
                         // Create session for orphaned worktree
                         let mut session = Session::new(
                             worktree_info.branch_name.clone(),
@@ -191,6 +219,7 @@ impl SessionLoader {
                         );
                         session.id = session_id;
                         session.branch_name = worktree_info.branch_name.clone();
+                        session.mode = SessionMode::Boss;
                         session.set_status(SessionStatus::Stopped); // No container = stopped
 
                         let workspace_name = worktree_info
@@ -246,16 +275,22 @@ impl SessionLoader {
         );
         let scan_result = scanner.scan()?;
 
+        let max_repos = self.config.workspace_defaults.max_repositories;
+        let total_found = scan_result.workspaces.len();
+
         let repos: Vec<PathBuf> = scan_result
             .workspaces
             .into_iter()
             .map(|w| w.path)
-            .take(100) // Limit to 100 repositories to prevent UI performance issues
+            .take(max_repos)
             .collect();
 
         info!(
-            "Found {} repositories (limited to 100 for UI performance)",
-            repos.len()
+            "Found {} repositories (showing {} of {}, limit: {})",
+            total_found,
+            repos.len(),
+            total_found,
+            max_repos
         );
         Ok(repos)
     }

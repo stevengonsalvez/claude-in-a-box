@@ -20,6 +20,9 @@ bollard = "0.16"
 futures-util = "0.3"
 tar = "0.4"
 
+# Tmux/PTY support
+portable-pty = "0.8"
+
 # Git operations
 git2 = "0.18"
 
@@ -53,9 +56,20 @@ lazy_static = "1.4"
 pulldown-cmark = "0.9"  # Markdown parsing
 syntect = "5.0"  # Syntax highlighting for code blocks
 
+[features]
+default = []
+visual-debug = []  # Enable live terminal during tests
+vt100-tests = []   # Enable vt100 screen verification
+
 [dev-dependencies]
 mockall = "0.12"
 pretty_assertions = "1.4"
+
+# PTY-based end-to-end testing (like expect for Rust)
+rexpect = "0.5"
+
+# VT100 terminal emulation for visual verification
+vt100 = "0.15"
 
 [profile.release]
 lto = true

@@ -124,6 +124,13 @@ pub enum AppEvent {
     GitViewCommitCancel,          // Cancel commit message input (Esc)
     GitViewCommitConfirm,         // Confirm and execute commit (Enter)
     GitCommitSuccess(String),     // Commit was successful with message
+    // Tmux integration events
+    AttachTmuxSession,            // Attach to tmux session
+    DetachTmuxSession,            // Detach from tmux session
+    EnterScrollMode,              // Enter scroll mode in tmux preview
+    ExitScrollMode,               // Exit scroll mode in tmux preview
+    ScrollPreviewUp,              // Scroll tmux preview up
+    ScrollPreviewDown,            // Scroll tmux preview down
 }
 
 pub struct EventHandler;
@@ -300,13 +307,21 @@ impl EventHandler {
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces), // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
-            KeyCode::Char('a') => Some(AppEvent::AttachSession),
+            KeyCode::Char('a') => Some(AppEvent::AttachTmuxSession), // Attach to tmux session
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('e') => Some(AppEvent::RestartSession),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
             KeyCode::Char('x') => Some(AppEvent::CleanupOrphaned),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
             KeyCode::Char('p') => Some(AppEvent::QuickCommitStart), // Start quick commit dialog
+
+            // Tmux preview scroll mode (Shift + Up/Down)
+            KeyCode::Up if key_event.modifiers.contains(KeyModifiers::SHIFT) => {
+                Some(AppEvent::ScrollPreviewUp)
+            }
+            KeyCode::Down if key_event.modifiers.contains(KeyModifiers::SHIFT) => {
+                Some(AppEvent::ScrollPreviewDown)
+            }
 
             // Navigation keys depend on focused pane
             KeyCode::Char('j') | KeyCode::Down => {
@@ -829,6 +844,11 @@ impl EventHandler {
                 state.pending_async_action = Some(AsyncAction::NewSessionNormal);
             }
             AppEvent::SearchWorkspace => {
+                // Don't overwrite pending DeleteSession actions
+                if let Some(AsyncAction::DeleteSession(_)) = state.pending_async_action {
+                    return;
+                }
+
                 // Mark for async processing - search all workspaces
                 state.pending_async_action = Some(AsyncAction::StartWorkspaceSearch);
                 // Clear any previous cancellation flag
@@ -905,10 +925,41 @@ impl EventHandler {
                     state.pending_async_action = Some(AsyncAction::AttachToContainer(session_id));
                 }
             }
+            AppEvent::AttachTmuxSession => {
+                // Attach to tmux session for the selected session
+                if let Some(session_id) = state.get_selected_session_id() {
+                    state.pending_async_action = Some(AsyncAction::AttachToTmuxSession(session_id));
+                }
+            }
             AppEvent::DetachSession => {
                 // Clear attached session and return to session list
                 state.attached_session_id = None;
                 state.current_view = View::SessionList;
+                state.ui_needs_refresh = true;
+            }
+            AppEvent::DetachTmuxSession => {
+                // Detaching from tmux is handled by AttachHandler (Ctrl+Q)
+                // This event is a no-op placeholder
+                tracing::debug!("DetachTmuxSession event received (no-op)");
+            }
+            AppEvent::ScrollPreviewUp => {
+                // Scroll events are handled by the LayoutComponent's tmux_preview
+                // This is a signal that should be processed in main loop
+                tracing::debug!("ScrollPreviewUp event (handled by layout component)");
+                state.ui_needs_refresh = true;
+            }
+            AppEvent::ScrollPreviewDown => {
+                // Scroll events are handled by the LayoutComponent's tmux_preview
+                // This is a signal that should be processed in main loop
+                tracing::debug!("ScrollPreviewDown event (handled by layout component)");
+                state.ui_needs_refresh = true;
+            }
+            AppEvent::EnterScrollMode => {
+                tracing::debug!("EnterScrollMode event (handled by layout component)");
+                state.ui_needs_refresh = true;
+            }
+            AppEvent::ExitScrollMode => {
+                tracing::debug!("ExitScrollMode event (handled by layout component)");
                 state.ui_needs_refresh = true;
             }
             AppEvent::KillContainer => {

@@ -7,5 +7,7 @@ pub mod components;
 pub mod config;
 pub mod docker;
 pub mod git;
+pub mod interactive;
 pub mod models;
+pub mod tmux;
 pub mod widgets;

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use chrono;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 /// Text editor with cursor support for boss mode prompts
@@ -555,6 +555,10 @@ pub struct AppState {
     // Quick commit dialog state
     pub quick_commit_message: Option<String>, // None = not in quick commit mode, Some = message being entered
     pub quick_commit_cursor: usize,           // Cursor position in quick commit message
+
+    // Tmux integration
+    pub tmux_sessions: HashMap<Uuid, crate::tmux::TmuxSession>,
+    pub preview_update_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 #[derive(Debug)]
@@ -643,6 +647,7 @@ pub enum AsyncAction {
     RefreshWorkspaces,         // Manual refresh of workspace data
     FetchContainerLogs(Uuid),  // Fetch container logs for a session
     AttachToContainer(Uuid),   // Attach to a container session
+    AttachToTmuxSession(Uuid), // Attach to a tmux session
     KillContainer(Uuid),       // Kill container for a session
     AuthSetupOAuth,            // Run OAuth authentication setup
     AuthSetupApiKey,           // Save API key authentication
@@ -687,6 +692,10 @@ impl Default for AppState {
             // Initialize quick commit state
             quick_commit_message: None,
             quick_commit_cursor: 0,
+
+            // Initialize tmux integration
+            tmux_sessions: HashMap::new(),
+            preview_update_task: None,
         }
     }
 }
@@ -865,6 +874,7 @@ impl AppState {
         };
 
         let auth_dir = home_dir.join(".claude-in-a-box/auth");
+
         let has_credentials = auth_dir.join(".credentials.json").exists();
         let has_claude_json = auth_dir.join(".claude.json").exists();
         let has_api_key = std::env::var("ANTHROPIC_API_KEY").is_ok();
@@ -872,11 +882,9 @@ impl AppState {
 
         // Load .env file if it exists to check for API key
         let has_env_api_key = if has_env_file {
-            if let Ok(contents) = std::fs::read_to_string(home_dir.join(".claude-in-a-box/.env")) {
-                contents.contains("ANTHROPIC_API_KEY=")
-            } else {
-                false
-            }
+            std::fs::read_to_string(home_dir.join(".claude-in-a-box/.env"))
+                .map(|contents| contents.contains("ANTHROPIC_API_KEY="))
+                .unwrap_or(false)
         } else {
             false
         };
@@ -886,26 +894,16 @@ impl AppState {
         let has_valid_oauth = if has_credentials && has_claude_json {
             // Check if we have OAuth credentials (either valid token OR refresh token to get new one)
             let credentials_path = auth_dir.join(".credentials.json");
-            if let Ok(contents) = std::fs::read_to_string(&credentials_path) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
-                    if let Some(oauth) = json.get("claudeAiOauth") {
-                        // If we have a refresh token, we can refresh even if access token is expired
-                        if oauth.get("refreshToken").is_some() {
-                            info!("Found refresh token - can refresh if needed");
-                            true
-                        } else {
-                            // No refresh token, check if access token is still valid
-                            Self::is_oauth_token_valid(&credentials_path)
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
+            std::fs::read_to_string(&credentials_path)
+                .ok()
+                .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+                .and_then(|json| json.get("claudeAiOauth").cloned())
+                .map(|oauth| {
+                    // If we have a refresh token, we can refresh even if access token is expired
+                    oauth.get("refreshToken").is_some()
+                        || Self::is_oauth_token_valid(&credentials_path)
+                })
+                .unwrap_or(false)
         } else {
             false
         };
@@ -1115,65 +1113,145 @@ impl AppState {
     }
 
     pub async fn load_real_workspaces(&mut self) {
-        info!("Loading active sessions from Docker containers");
+        info!("Loading active sessions (both Docker and Interactive)");
 
-        // Check and refresh OAuth tokens if needed
+        // Clear existing workspaces before loading to prevent duplicates
+        self.workspaces.clear();
+
+        // Check and refresh OAuth tokens if needed (only if Docker is available)
         let home_dir = dirs::home_dir();
         if let Some(home) = home_dir {
             let credentials_path =
                 home.join(".claude-in-a-box").join("auth").join(".credentials.json");
 
-            // Only attempt refresh if we have OAuth credentials
+            // Only attempt refresh if we have OAuth credentials AND Docker is available
             if credentials_path.exists() && Self::oauth_token_needs_refresh(&credentials_path) {
-                info!("OAuth token needs refresh, attempting automatic refresh");
-                match self.refresh_oauth_tokens().await {
-                    Ok(()) => info!("OAuth tokens refreshed successfully"),
-                    Err(e) => warn!("Failed to refresh OAuth tokens: {}", e),
+                if self.is_docker_available().await {
+                    info!("Docker available - attempting OAuth token refresh");
+                    match self.refresh_oauth_tokens().await {
+                        Ok(()) => info!("OAuth tokens refreshed successfully"),
+                        Err(e) => warn!("Failed to refresh OAuth tokens: {}", e),
+                    }
+                } else {
+                    info!("Docker not available - skipping OAuth token refresh");
                 }
             }
         }
 
-        // Try to load active sessions
+        // Load Boss mode sessions (Docker-based) if Docker is available
+        if self.is_docker_available().await {
+            info!("Docker available - loading Boss mode sessions");
+            self.load_boss_mode_sessions().await;
+        } else {
+            info!("Docker not available - skipping Boss mode session loading");
+        }
+
+        // Load Interactive mode sessions (always attempt, no Docker needed)
+        info!("Loading Interactive mode sessions");
+        self.load_interactive_mode_sessions().await;
+
+        // Set initial selection
+        if !self.workspaces.is_empty() {
+            self.selected_workspace_index = Some(0);
+            if !self.workspaces[0].sessions.is_empty() {
+                self.selected_session_index = Some(0);
+            }
+        } else {
+            info!("No active sessions found. Use 'n' to create a new session.");
+            self.selected_workspace_index = None;
+            self.selected_session_index = None;
+        }
+
+        // Queue logs fetch for the currently selected session if any
+        self.queue_logs_fetch();
+    }
+
+    /// Load Boss mode sessions from Docker containers
+    async fn load_boss_mode_sessions(&mut self) {
+        // Try to load active Docker sessions
         match SessionLoader::new().await {
             Ok(loader) => {
                 match loader.load_active_sessions().await {
-                    Ok(workspaces) => {
-                        self.workspaces = workspaces;
+                    Ok(mut workspaces) => {
+                        // Append to existing workspaces instead of replacing
+                        self.workspaces.append(&mut workspaces);
                         info!(
-                            "Loaded {} workspaces with active sessions",
+                            "Loaded {} Boss mode workspaces (total: {})",
+                            workspaces.len(),
                             self.workspaces.len()
                         );
-
-                        // Queue logs fetch for the currently selected session if any
-                        self.queue_logs_fetch();
-
-                        // Set initial selection
-                        if !self.workspaces.is_empty() {
-                            self.selected_workspace_index = Some(0);
-                            if !self.workspaces[0].sessions.is_empty() {
-                                self.selected_session_index = Some(0);
-                            }
-                        } else {
-                            info!("No active sessions found. Use 'n' to create a new session.");
-                            self.selected_workspace_index = None;
-                            self.selected_session_index = None;
-                        }
                     }
                     Err(e) => {
-                        warn!("Failed to load active sessions: {}", e);
-                        info!("No active sessions found. Use 'n' to create a new session.");
-                        self.workspaces.clear();
-                        self.selected_workspace_index = None;
-                        self.selected_session_index = None;
+                        warn!("Failed to load Boss mode sessions: {}", e);
                     }
                 }
             }
             Err(e) => {
-                warn!("Failed to create session loader: {}", e);
-                info!("No active sessions found. Use 'n' to create a new session.");
-                self.workspaces.clear();
-                self.selected_workspace_index = None;
-                self.selected_session_index = None;
+                warn!("Failed to create session loader for Boss mode: {}", e);
+            }
+        }
+    }
+
+    /// Load Interactive mode sessions from tmux
+    async fn load_interactive_mode_sessions(&mut self) {
+        use crate::interactive::InteractiveSessionManager;
+
+        // Create Interactive session manager (no Docker needed)
+        let mut manager = match InteractiveSessionManager::new() {
+            Ok(m) => m,
+            Err(e) => {
+                warn!("Failed to create Interactive session manager: {}", e);
+                return;
+            }
+        };
+
+        // Discover Interactive sessions from tmux
+        match manager.list_sessions().await {
+            Ok(sessions) => {
+                info!("Discovered {} Interactive sessions from tmux", sessions.len());
+
+                // Convert to Session models and add to workspaces
+                for interactive_session in sessions {
+                    let session = interactive_session.to_session_model();
+
+                    // Find or create workspace for this session
+                    let workspace_path = interactive_session.worktree_path
+                        .parent()
+                        .unwrap_or(&interactive_session.worktree_path);
+
+                    // Remove any stale entries for this session (e.g., added by Boss-mode loader)
+                    for workspace in &mut self.workspaces {
+                        workspace.sessions.retain(|s| s.id != interactive_session.session_id);
+                    }
+
+                    if let Some(workspace) = self.workspaces.iter_mut().find(|w| {
+                        std::path::Path::new(&w.path).canonicalize().ok()
+                            == workspace_path.canonicalize().ok()
+                    }) {
+                        // Add to existing workspace
+                        workspace.sessions.push(session);
+                    } else {
+                        // Create new workspace
+                        let mut workspace = crate::models::Workspace::new(
+                            interactive_session.workspace_name.clone(),
+                            workspace_path.to_path_buf(),
+                        );
+                        workspace.sessions.push(session);
+                        self.workspaces.push(workspace);
+                    }
+
+                    // Store tmux session for attach operations
+                    // Pass branch name (NOT tmux-prefixed name) to TmuxSession::new()
+                    // because TmuxSession::sanitize_name() will add the tmux_ prefix
+                    let tmux_session = crate::tmux::TmuxSession::new(
+                        interactive_session.branch_name.clone(),
+                        "claude".to_string(),
+                    );
+                    self.tmux_sessions.insert(interactive_session.session_id, tmux_session);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to discover Interactive sessions: {}", e);
             }
         }
     }
@@ -1351,6 +1429,7 @@ impl AppState {
     }
 
     pub fn show_delete_confirmation(&mut self, session_id: Uuid) {
+        info!("!!! SHOWING DELETE CONFIRMATION DIALOG for session: {}", session_id);
         self.confirmation_dialog = Some(ConfirmationDialog {
             title: "Delete Session".to_string(),
             message: "Are you sure you want to delete this session? This will stop the container and remove the git worktree.".to_string(),
@@ -1604,21 +1683,12 @@ impl AppState {
         use crate::git::WorkspaceScanner;
         use std::env;
 
-        info!("Starting normal new session with mode selection");
+        info!("=== new_session_normal called ===");
 
-        // Check if authentication is set up first
-        if Self::is_first_time_setup() {
-            info!("Authentication not set up, switching to auth setup view");
-            self.current_view = View::AuthSetup;
-            self.auth_setup_state = Some(AuthSetupState {
-                selected_method: AuthMethod::OAuth,
-                api_key_input: String::new(),
-                is_processing: false,
-                error_message: Some("Authentication required before creating sessions.\n\nPlease set up Claude authentication to continue.".to_string()),
-                show_cursor: false,
-            });
-            return;
-        }
+        // REMOVED: Auth check moved to Boss mode selection only
+        // Interactive mode works without Docker authentication (uses host ~/.claude)
+        // Boss mode will check auth when selected during session creation
+        info!("Proceeding with session creation (auth deferred to Boss mode selection)");
 
         // Check if current directory is a git repository
         let current_dir = match env::current_dir() {
@@ -2187,20 +2257,62 @@ impl AppState {
     }
 
     pub async fn new_session_create(&mut self) {
-        // Check if authentication is set up first
-        if Self::is_first_time_setup() {
-            info!("Authentication not set up, switching to auth setup view");
-            self.current_view = View::AuthSetup;
-            self.auth_setup_state = Some(AuthSetupState {
-                selected_method: AuthMethod::OAuth,
-                api_key_input: String::new(),
-                is_processing: false,
-                error_message: Some("Authentication required before creating sessions.\n\nPlease set up Claude authentication to continue.".to_string()),
-                show_cursor: false,
-            });
-            // Clear new session state
-            self.new_session_state = None;
+        // Check session mode FIRST to determine if auth is needed
+        let session_mode = if let Some(ref state) = self.new_session_state {
+            state.mode.clone()
+        } else {
+            tracing::error!("new_session_create called but new_session_state is None");
             return;
+        };
+
+        // ONLY check authentication for Boss mode (Docker-based sessions)
+        // Interactive mode uses host ~/.claude and doesn't need Docker auth
+        if session_mode == crate::models::SessionMode::Boss {
+            // First check if Docker is available (Boss mode requires Docker)
+            if !self.is_docker_available().await {
+                error!("Boss mode requires Docker but Docker is not running");
+                self.add_error_notification(
+                    "Boss mode requires Docker.\n\nPlease start Docker and try again, or use Interactive mode instead.".to_string()
+                );
+                // Stay in current view so user can go back and select Interactive mode
+                return;
+            }
+
+            // Check if tokens need refresh (Docker is available at this point)
+            if let Some(home) = dirs::home_dir() {
+                let credentials_path = home.join(".claude-in-a-box/auth/.credentials.json");
+                if credentials_path.exists() && Self::oauth_token_needs_refresh(&credentials_path) {
+                    info!("Boss mode selected - OAuth tokens need refresh, attempting refresh");
+                    match self.refresh_oauth_tokens().await {
+                        Ok(()) => info!("OAuth tokens refreshed successfully for Boss mode"),
+                        Err(e) => {
+                            error!("Failed to refresh OAuth tokens for Boss mode: {}", e);
+                            self.add_error_notification(
+                                format!("Failed to refresh OAuth tokens: {}\n\nPlease check Docker and try again.", e)
+                            );
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Then check if authentication is set up
+            if Self::is_first_time_setup() {
+                info!("Boss mode selected but authentication not set up, switching to auth setup view");
+                self.current_view = View::AuthSetup;
+                self.auth_setup_state = Some(AuthSetupState {
+                    selected_method: AuthMethod::OAuth,
+                    api_key_input: String::new(),
+                    is_processing: false,
+                    error_message: Some("Boss mode requires Docker authentication.\n\nPlease set up Claude authentication to continue.".to_string()),
+                    show_cursor: false,
+                });
+                // Clear new session state
+                self.new_session_state = None;
+                return;
+            }
+        } else {
+            info!("Interactive mode selected - skipping Docker auth check (will use host ~/.claude)");
         }
 
         let (
@@ -2388,6 +2500,9 @@ impl AppState {
         let workspace_name =
             repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
 
+        // Clone mode so we can use it later for tmux check
+        let mode_clone = mode.clone();
+
         let request = SessionRequest {
             session_id,
             workspace_name,
@@ -2477,6 +2592,54 @@ impl AppState {
             }
         }
 
+        // If Docker session creation succeeded AND this is Interactive mode, create corresponding tmux session
+        // Boss mode sessions should NOT have tmux integration
+        if let Ok(ref session_state) = result {
+            if mode_clone == crate::models::SessionMode::Interactive {
+                if let Some(ref worktree_info) = session_state.worktree_info {
+                    info!("Creating tmux session for restarted Interactive mode session {}", session_id);
+
+                    // Send log message about tmux session creation
+                    let _ = log_sender.send("Creating tmux session for interactive mode...".to_string());
+
+                    // Create tmux session name from session info
+                    let tmux_name = format!("tmux_{}", branch_name.replace('/', "_").replace(' ', "_"));
+
+                    let mut tmux_session = crate::tmux::TmuxSession::new(
+                        tmux_name.clone(),
+                        "claude".to_string()
+                    );
+                    let tmux_session_name = tmux_session.name().to_string();
+
+                    // Start tmux session in the worktree directory
+                    match tmux_session.start(&worktree_info.path).await {
+                        Ok(_) => {
+                            info!("Successfully started tmux session: {}", tmux_session_name);
+
+                            // Store tmux session name in the actual session model
+                            if let Some(session) = self.find_session_mut(session_id) {
+                                session.set_tmux_session_name(tmux_session_name.clone());
+                            }
+
+                            // Store tmux session in our map
+                            self.tmux_sessions.insert(session_id, tmux_session);
+
+                            let _ = log_sender.send("Tmux session created successfully!".to_string());
+                        }
+                        Err(e) => {
+                            warn!("Failed to start tmux session: {}", e);
+                            let _ = log_sender.send(format!("Warning: Failed to create tmux session: {}", e));
+                            // Don't fail the whole session creation if tmux fails
+                        }
+                    }
+                } else {
+                    warn!("Session state has no worktree info, skipping tmux creation");
+                }
+            } else {
+                info!("Skipping tmux creation for Boss mode session {}", session_id);
+            }
+        }
+
         result.map(|_| ())?;
         Ok(())
     }
@@ -2490,13 +2653,168 @@ impl AppState {
         mode: crate::models::SessionMode,
         boss_prompt: Option<String>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // Branch based on session mode
+        match mode {
+            crate::models::SessionMode::Interactive => {
+                self.create_interactive_session(
+                    repo_path,
+                    branch_name,
+                    session_id,
+                    skip_permissions,
+                )
+                .await
+            }
+            crate::models::SessionMode::Boss => {
+                self.create_boss_session(
+                    repo_path,
+                    branch_name,
+                    session_id,
+                    skip_permissions,
+                    boss_prompt,
+                )
+                .await
+            }
+        }
+    }
+
+    /// Create an Interactive mode session (host-based, no Docker)
+    async fn create_interactive_session(
+        &mut self,
+        repo_path: &std::path::Path,
+        branch_name: &str,
+        session_id: Uuid,
+        _skip_permissions: bool, // Not used for Interactive mode
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::interactive::InteractiveSessionManager;
+
+        info!(
+            "Creating Interactive mode session {} for branch '{}'",
+            session_id, branch_name
+        );
+
+        // Create a channel for logs
+        let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
+
+        // Initialize logs for this session
+        self.logs.insert(session_id, vec!["Starting Interactive session creation...".to_string()]);
+
+        // Create a shared vector for logs
+        let session_logs = Arc::new(Mutex::new(Vec::new()));
+        let logs_clone = session_logs.clone();
+
+        // Spawn a task to collect logs
+        let session_id_clone = session_id;
+        tokio::spawn(async move {
+            while let Some(log_message) = log_receiver.recv().await {
+                if let Ok(mut logs) = logs_clone.lock() {
+                    logs.push(log_message.clone());
+                }
+                info!("Interactive session log for {}: {}", session_id_clone, log_message);
+            }
+        });
+
+        let workspace_name = repo_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Send log updates
+        let _ = log_sender.send("Creating git worktree...".to_string());
+
+        // Create Interactive session manager (NO Docker dependency)
+        let mut manager = InteractiveSessionManager::new()?;
+
+        // Create the session
+        let result = manager
+            .create_session(
+                session_id,
+                workspace_name.clone(),
+                repo_path.to_path_buf(),
+                branch_name.to_string(),
+                None, // base_branch
+            )
+            .await;
+
+        // Wait for logs to be collected
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Transfer collected logs
+        if let Ok(collected_logs) = session_logs.lock() {
+            if let Some(logs) = self.logs.get_mut(&session_id) {
+                logs.extend(collected_logs.clone());
+            }
+        }
+
+        match result {
+            Ok(interactive_session) => {
+                // Send success log
+                if let Some(logs) = self.logs.get_mut(&session_id) {
+                    logs.push("Interactive session created successfully!".to_string());
+                }
+
+                // Convert to Session model and add to workspaces
+                let session = interactive_session.to_session_model();
+
+                // Find or create workspace for this repo
+                if let Some(workspace) = self.workspaces.iter_mut().find(|w| {
+                    std::path::Path::new(&w.path).canonicalize().ok()
+                        == repo_path.canonicalize().ok()
+                }) {
+                    workspace.sessions.push(session);
+                } else {
+                    // Create new workspace
+                    let mut workspace = crate::models::Workspace::new(
+                        workspace_name,
+                        repo_path.to_path_buf(),
+                    );
+                    workspace.sessions.push(session);
+                    self.workspaces.push(workspace);
+                }
+
+                // Store tmux session for attach operations
+                // Pass branch name (NOT tmux-prefixed name) to TmuxSession::new()
+                // because TmuxSession::sanitize_name() will add the tmux_ prefix
+                let tmux_session = crate::tmux::TmuxSession::new(
+                    interactive_session.branch_name.clone(),
+                    "claude".to_string(),
+                );
+                self.tmux_sessions.insert(session_id, tmux_session);
+
+                info!("Successfully created Interactive session {}", session_id);
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to create Interactive session: {}", e);
+                if let Some(logs) = self.logs.get_mut(&session_id) {
+                    logs.push(format!("Session creation failed: {}", e));
+                }
+                Err(Box::new(e))
+            }
+        }
+    }
+
+    /// Create a Boss mode session (Docker-based)
+    async fn create_boss_session(
+        &mut self,
+        repo_path: &std::path::Path,
+        branch_name: &str,
+        session_id: Uuid,
+        skip_permissions: bool,
+        boss_prompt: Option<String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         use crate::docker::session_lifecycle::{SessionLifecycleManager, SessionRequest};
+
+        info!(
+            "Creating Boss mode session {} for branch '{}'",
+            session_id, branch_name
+        );
 
         // Create a channel for build logs
         let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
 
         // Initialize logs for this session
-        self.logs.insert(session_id, vec!["Starting session creation...".to_string()]);
+        self.logs.insert(session_id, vec!["Starting Boss session creation...".to_string()]);
 
         // Create a shared vector for logs
         let session_logs = Arc::new(Mutex::new(Vec::new()));
@@ -2527,7 +2845,7 @@ impl AppState {
             base_branch: None,
             container_config: None,
             skip_permissions,
-            mode,
+            mode: crate::models::SessionMode::Boss,
             boss_prompt,
         };
 
@@ -2536,6 +2854,7 @@ impl AppState {
             session_logs.push("Creating worktree...".to_string());
         }
 
+        // Create Docker-based session manager
         let mut manager = SessionLifecycleManager::new().await?;
 
         // Pass the log sender to the session lifecycle manager
@@ -2554,7 +2873,7 @@ impl AppState {
         // Add completion log based on result
         if let Some(logs) = self.logs.get_mut(&session_id) {
             match &result {
-                Ok(_) => logs.push("Session created successfully!".to_string()),
+                Ok(_) => logs.push("Boss session created successfully!".to_string()),
                 Err(e) => logs.push(format!("Session creation failed: {}", e)),
             }
         }
@@ -2563,17 +2882,18 @@ impl AppState {
         Ok(())
     }
 
-    /// Clean up orphaned containers (containers without worktrees)
+    /// Clean up orphaned containers (containers without worktrees) AND orphaned session state
     pub async fn cleanup_orphaned_containers(&mut self) -> anyhow::Result<usize> {
         use crate::docker::ContainerManager;
 
-        info!("Starting cleanup of orphaned containers");
+        info!("Starting cleanup of orphaned containers and state entries");
 
         let container_manager = ContainerManager::new().await?;
         let containers = container_manager.list_claude_containers().await?;
 
         let mut cleaned_up = 0;
 
+        // Step 1: Clean up orphaned containers (containers without worktrees)
         for container in containers {
             if let Some(session_id_str) =
                 container.labels.as_ref().and_then(|labels| labels.get("claude-session-id"))
@@ -2616,10 +2936,79 @@ impl AppState {
             }
         }
 
+        // Step 2: Clean up orphaned session state (sessions in workspace list without worktrees)
+        let worktree_manager = crate::git::WorktreeManager::new()?;
+        let mut orphaned_sessions = Vec::new();
+
+        // Collect all session IDs from all workspaces
+        for workspace in &self.workspaces {
+            for session in &workspace.sessions {
+                // Check if this session's name starts with "orphaned-"
+                if session.name.starts_with("orphaned-") {
+                    orphaned_sessions.push(session.id);
+                } else {
+                    // Also check if the worktree actually exists
+                    if let Err(_) = worktree_manager.get_worktree_info(session.id) {
+                        info!("Found session without worktree: {} ({})", session.name, session.id);
+                        orphaned_sessions.push(session.id);
+                    }
+                }
+            }
+        }
+
+        // Remove orphaned session state entries
+        for session_id in &orphaned_sessions {
+            info!("Removing orphaned session state: {}", session_id);
+
+            // Remove from workspaces
+            for workspace in &mut self.workspaces {
+                workspace.sessions.retain(|s| s.id != *session_id);
+            }
+
+            // Clean up any remaining state
+            self.live_logs.remove(session_id);
+
+            cleaned_up += 1;
+        }
+
+        // Step 3: Prune git worktrees (removes stale git references for deleted worktrees)
+        info!("Pruning git worktrees to remove stale references");
+        use tokio::process::Command;
+        match Command::new("git")
+            .arg("worktree")
+            .arg("prune")
+            .arg("-v")
+            .output()
+            .await
+        {
+            Ok(output) => {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    if !stdout.trim().is_empty() {
+                        info!("Git worktree prune output: {}", stdout.trim());
+                        // Count lines that start with "Removing" to track pruned worktrees
+                        let pruned_count = stdout.lines().filter(|line| line.contains("Removing")).count();
+                        if pruned_count > 0 {
+                            info!("Pruned {} stale git worktree references", pruned_count);
+                            cleaned_up += pruned_count;
+                        }
+                    } else {
+                        info!("No stale git worktree references to prune");
+                    }
+                } else {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    warn!("Git worktree prune failed: {}", stderr);
+                }
+            }
+            Err(e) => {
+                warn!("Failed to run git worktree prune: {}", e);
+            }
+        }
+
         if cleaned_up > 0 {
-            info!("Cleaned up {} orphaned containers", cleaned_up);
+            info!("Cleaned up {} orphaned items (containers + state + git refs)", cleaned_up);
             self.add_success_notification(format!(
-                "🧹 Cleaned up {} orphaned containers",
+                "🧹 Cleaned up {} orphaned items",
                 cleaned_up
             ));
 
@@ -2627,29 +3016,103 @@ impl AppState {
             self.load_real_workspaces().await;
             self.ui_needs_refresh = true;
         } else {
-            info!("No orphaned containers found");
-            self.add_info_notification("✅ No orphaned containers found".to_string());
+            info!("No orphaned containers or sessions found");
+            self.add_info_notification("✅ No orphaned items found".to_string());
         }
 
         Ok(cleaned_up)
     }
 
     async fn delete_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
+        info!("Deleting session: {}", session_id);
+
+        // Determine session mode by finding the session
+        let session_mode = self.find_session(session_id)
+            .map(|s| s.mode.clone());
+
+        if let Some(mode) = session_mode {
+            match mode {
+                crate::models::SessionMode::Interactive => {
+                    self.delete_interactive_session(session_id).await?;
+                }
+                crate::models::SessionMode::Boss => {
+                    self.delete_boss_session(session_id).await?;
+                }
+            }
+        } else {
+            // Session not found in UI, try both cleanup methods
+            warn!("Session {} not found in UI, attempting cleanup anyway", session_id);
+
+            // Try Interactive cleanup first (no Docker needed)
+            if let Err(e) = self.delete_interactive_session(session_id).await {
+                debug!("Interactive cleanup failed (expected if Boss mode): {}", e);
+            }
+
+            // Try Boss cleanup if Docker is available
+            if self.is_docker_available().await {
+                if let Err(e) = self.delete_boss_session(session_id).await {
+                    debug!("Boss cleanup failed (expected if Interactive mode): {}", e);
+                }
+            }
+        }
+
+        // Reload workspaces to ensure UI reflects the actual state
+        self.load_real_workspaces().await;
+        // Force UI refresh to show updated session list immediately
+        self.ui_needs_refresh = true;
+
+        info!("Successfully deleted session: {}", session_id);
+        Ok(())
+    }
+
+    /// Delete an Interactive mode session
+    async fn delete_interactive_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
+        use crate::interactive::InteractiveSessionManager;
+
+        info!("=== DELETE INTERACTIVE SESSION START: {} ===", session_id);
+
+        // Cleanup tmux session if it exists
+        if let Some(mut tmux_session) = self.tmux_sessions.remove(&session_id) {
+            info!("Found tmux session in state, cleaning up: {}", session_id);
+            if let Err(e) = tmux_session.cleanup().await {
+                warn!("Failed to cleanup tmux session from state: {}", e);
+            }
+        } else {
+            info!("No tmux session found in state for: {}", session_id);
+        }
+
+        // Use Interactive session manager to remove session
+        info!("Creating InteractiveSessionManager for session: {}", session_id);
+        let mut manager = InteractiveSessionManager::new()?;
+        info!("Calling manager.remove_session() for: {}", session_id);
+        match manager.remove_session(session_id).await {
+            Ok(()) => info!("manager.remove_session() succeeded for: {}", session_id),
+            Err(e) => {
+                error!("manager.remove_session() failed for {}: {}", session_id, e);
+                return Err(e.into());
+            }
+        }
+
+        info!("=== DELETE INTERACTIVE SESSION COMPLETE: {} ===", session_id);
+        Ok(())
+    }
+
+    /// Delete a Boss mode session
+    async fn delete_boss_session(&mut self, session_id: Uuid) -> anyhow::Result<()> {
         use crate::docker::{ContainerManager, SessionLifecycleManager};
         use crate::git::WorktreeManager;
 
-        info!("Deleting session: {}", session_id);
+        info!("Deleting Boss mode session: {}", session_id);
 
-        // Log workspace count before deletion
-        let workspace_count_before = self.workspaces.len();
-        let session_count_before: usize = self.workspaces.iter().map(|w| w.sessions.len()).sum();
-        info!(
-            "Before deletion: {} workspaces, {} sessions",
-            workspace_count_before, session_count_before
-        );
+        // Cleanup tmux session if it exists (Boss mode might have tmux for attach)
+        if let Some(mut tmux_session) = self.tmux_sessions.remove(&session_id) {
+            info!("Cleaning up tmux session for Boss session {}", session_id);
+            if let Err(e) = tmux_session.cleanup().await {
+                warn!("Failed to cleanup tmux session: {}", e);
+            }
+        }
 
         // First, try to find and remove the container directly
-        // This ensures we clean up containers even if they're not in the lifecycle manager
         let container_name = format!("claude-session-{}", session_id);
         let container_manager = ContainerManager::new().await?;
 
@@ -2685,7 +3148,6 @@ impl AppState {
                 warn!("Session not found in lifecycle manager: {}", e);
                 info!("Attempting to remove orphaned worktree directly");
 
-                // If session not found in lifecycle manager, it's likely an orphaned worktree
                 // Remove the worktree directly
                 let worktree_manager = WorktreeManager::new()?;
                 if let Err(worktree_err) = worktree_manager.remove_worktree(session_id) {
@@ -2696,25 +3158,13 @@ impl AppState {
             }
         }
 
-        // Reload workspaces to ensure UI reflects the actual state
-        self.load_real_workspaces().await;
-        // Force UI refresh to show updated session list immediately
-        self.ui_needs_refresh = true;
-
-        // Log workspace count after deletion
-        let workspace_count_after = self.workspaces.len();
-        let session_count_after: usize = self.workspaces.iter().map(|w| w.sessions.len()).sum();
-        info!(
-            "After deletion: {} workspaces, {} sessions",
-            workspace_count_after, session_count_after
-        );
-
-        info!("Successfully deleted session: {}", session_id);
+        info!("Successfully deleted Boss session: {}", session_id);
         Ok(())
     }
 
     pub async fn process_async_action(&mut self) -> anyhow::Result<()> {
         if let Some(action) = self.pending_async_action.take() {
+            info!(">>> process_async_action() called with action: {:?}", action);
             match action {
                 AsyncAction::StartNewSession => {
                     self.start_new_session().await;
@@ -2771,6 +3221,12 @@ impl AppState {
                             session_id, e
                         );
                     }
+                    self.ui_needs_refresh = true;
+                }
+                AsyncAction::AttachToTmuxSession(_session_id) => {
+                    // NOTE: This action must be handled in main.rs where terminal access is available
+                    // The terminal handle is needed to call attach_to_tmux_session
+                    warn!("AttachToTmuxSession action should be handled in main loop, not here");
                     self.ui_needs_refresh = true;
                 }
                 AsyncAction::KillContainer(session_id) => {
@@ -2967,6 +3423,21 @@ impl AppState {
         self.ui_needs_refresh = true;
 
         Ok(())
+    }
+
+    /// Check if Docker is available and running (synchronous, static version)
+    pub fn is_docker_available_sync() -> bool {
+        use std::process::{Command, Stdio};
+
+        match Command::new("docker")
+            .arg("info")
+            .stdout(Stdio::null())  // Suppress stdout
+            .stderr(Stdio::null())  // Suppress stderr
+            .status()
+        {
+            Ok(status) => status.success(),
+            Err(_) => false,
+        }
     }
 
     /// Check if Docker is available and running
@@ -3166,6 +3637,25 @@ impl AppState {
                     self.add_info_notification(
                         "🔄 Restarting session - review and update settings as needed".to_string(),
                     );
+                }
+                crate::models::SessionStatus::Idle => {
+                    info!(
+                        "Session {} is idle (tmux running but Claude stopped), restarting Claude in tmux",
+                        session_id
+                    );
+
+                    // For Idle sessions, we restart Claude within the existing tmux session
+                    if let Err(e) = self.restart_claude_in_tmux(session_id).await {
+                        error!("Failed to restart Claude in tmux for session {}: {}", session_id, e);
+                        self.add_error_notification(format!(
+                            "❌ Failed to restart Claude: {}",
+                            e
+                        ));
+                    } else {
+                        self.add_success_notification(
+                            "✓ Claude restarted successfully".to_string(),
+                        );
+                    }
                 }
                 status => {
                     warn!(
@@ -3371,6 +3861,171 @@ impl AppState {
     pub fn get_current_notifications(&self) -> Vec<&Notification> {
         self.notifications.iter().filter(|n| !n.is_expired()).collect()
     }
+
+    // ============================================================================
+    // Tmux Integration Methods
+    // ============================================================================
+
+    /// Start background task to update tmux preview content every 100ms
+    /// NOTE: This is now handled via the main update loop calling update_tmux_previews()
+    /// This method is kept for compatibility but does nothing
+    pub fn start_preview_updates(&mut self) {
+        // Preview updates are now handled by calling update_tmux_previews() from main loop
+        // No background task needed
+        info!("Preview updates will be handled via main update loop");
+    }
+
+    /// Stop the preview update task
+    pub fn stop_preview_updates(&mut self) {
+        if let Some(task) = self.preview_update_task.take() {
+            task.abort();
+        }
+    }
+
+    /// Update preview content for all tmux sessions (called from main update loop)
+    pub async fn update_tmux_previews(&mut self) -> anyhow::Result<()> {
+        use crate::tmux::ClaudeProcessDetector;
+
+        // Collect session IDs, preview content, and health status to avoid borrowing conflicts
+        let mut updates = Vec::new();
+        let detector = ClaudeProcessDetector::new();
+
+        for (session_id, tmux_session) in &self.tmux_sessions {
+            // Check if session is attached (without mutable borrow)
+            let should_update = self
+                .workspaces
+                .iter()
+                .flat_map(|w| &w.sessions)
+                .find(|s| s.id == *session_id)
+                .map(|s| !s.is_attached)
+                .unwrap_or(false);
+
+            if should_update {
+                // Capture pane content
+                match tmux_session.capture_pane_content().await {
+                    Ok(content) => {
+                        // Check if Claude is running by analyzing the content
+                        let claude_running = detector.has_claude_status_bar(&content);
+                        updates.push((*session_id, content, claude_running));
+                    }
+                    Err(e) => {
+                        warn!("Failed to capture tmux pane content for session {}: {}", session_id, e);
+                    }
+                }
+            }
+        }
+
+        // Apply updates
+        for (session_id, content, claude_running) in updates {
+            if let Some(session) = self.find_session_mut(session_id) {
+                session.set_preview(content);
+
+                // Update session status based on Claude health
+                use crate::models::SessionStatus;
+                let new_status = if claude_running {
+                    SessionStatus::Running
+                } else {
+                    SessionStatus::Idle
+                };
+
+                // Only update if status changed to avoid unnecessary refreshes
+                if session.status != new_status {
+                    session.set_status(new_status);
+                    info!(
+                        "Session {} status updated to: {}",
+                        session_id,
+                        if claude_running { "Running" } else { "Idle" }
+                    );
+                }
+
+                self.ui_needs_refresh = true;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Restart Claude in an existing tmux session (for Idle sessions)
+    async fn restart_claude_in_tmux(&mut self, session_id: Uuid) -> anyhow::Result<()> {
+        use anyhow::Context;
+        use std::process::Command;
+
+        // Get session details
+        let session = self
+            .find_session(session_id)
+            .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+
+        let tmux_session_name = session
+            .tmux_session_name
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("No tmux session associated with this session"))?
+            .clone();
+
+        let workspace_path = session.workspace_path.clone();
+        let skip_permissions = session.skip_permissions;
+
+        info!(
+            "Restarting Claude in tmux session '{}' for workspace '{}'",
+            tmux_session_name, workspace_path
+        );
+
+        // Send 'claude' command to the tmux session
+        // This assumes the user stopped Claude with Ctrl+C or it crashed
+        let claude_cmd = if skip_permissions {
+            "claude --dangerously-skip-permissions".to_string()
+        } else {
+            "claude".to_string()
+        };
+
+        // Send the command to tmux using 'send-keys'
+        let output = Command::new("tmux")
+            .args(&[
+                "send-keys",
+                "-t",
+                &tmux_session_name,
+                &claude_cmd,
+                "C-m", // Press Enter
+            ])
+            .output()
+            .context("Failed to send claude command to tmux")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Failed to send command to tmux: {}", stderr);
+        }
+
+        // Update session status to Running (will be confirmed by next preview update)
+        if let Some(session) = self.find_session_mut(session_id) {
+            session.set_status(crate::models::SessionStatus::Running);
+        }
+
+        info!("Successfully sent Claude restart command to tmux session '{}'", tmux_session_name);
+        Ok(())
+    }
+
+    /// Helper to find a session by ID across all workspaces
+    fn find_session(&self, session_id: uuid::Uuid) -> Option<&crate::models::session::Session> {
+        for workspace in &self.workspaces {
+            for session in &workspace.sessions {
+                if session.id == session_id {
+                    return Some(session);
+                }
+            }
+        }
+        None
+    }
+
+    /// Helper to find a mutable session by ID across all workspaces
+    fn find_session_mut(&mut self, session_id: uuid::Uuid) -> Option<&mut crate::models::session::Session> {
+        for workspace in &mut self.workspaces {
+            for session in &mut workspace.sessions {
+                if session.id == session_id {
+                    return Some(session);
+                }
+            }
+        }
+        None
+    }
 }
 
 pub struct App {
@@ -3388,11 +4043,18 @@ impl App {
         // Initialize log streaming coordinator
         let (mut coordinator, log_sender) = LogStreamingCoordinator::new();
 
-        // Initialize the streaming manager inside the coordinator
-        if let Err(e) = coordinator.init_manager(log_sender.clone()) {
-            warn!("Failed to initialize log streaming manager: {}", e);
+        // Only initialize the streaming manager if Docker is available
+        // (log streaming requires Docker for Boss mode containers)
+        if AppState::is_docker_available_sync() {
+            info!("Docker available - initializing log streaming manager");
+            if let Err(e) = coordinator.init_manager(log_sender.clone()) {
+                warn!("Failed to initialize log streaming manager: {}", e);
+            } else {
+                info!("Log streaming coordinator initialized successfully");
+            }
         } else {
-            info!("Log streaming coordinator initialized successfully");
+            info!("Docker not available - skipping log streaming manager initialization");
+            info!("Log streaming will be available when Docker is started");
         }
 
         self.state.log_streaming_coordinator = Some(coordinator);
@@ -3405,41 +4067,42 @@ impl App {
                 home.join(".claude-in-a-box").join("auth").join(".credentials.json");
 
             // Only attempt refresh if we have OAuth credentials that need refreshing
+            // AND Docker is available (token refresh requires Docker for Boss mode)
             if credentials_path.exists() && AppState::oauth_token_needs_refresh(&credentials_path) {
-                info!("OAuth token needs refresh on startup, attempting automatic refresh");
-                match self.state.refresh_oauth_tokens().await {
-                    Ok(()) => info!("OAuth tokens refreshed successfully on startup"),
-                    Err(e) => warn!("Failed to refresh OAuth tokens on startup: {}", e),
+                if self.state.is_docker_available().await {
+                    info!("Docker available - attempting OAuth token refresh on startup");
+                    match self.state.refresh_oauth_tokens().await {
+                        Ok(()) => info!("OAuth tokens refreshed successfully on startup"),
+                        Err(e) => warn!("Failed to refresh OAuth tokens: {}", e),
+                    }
+                } else {
+                    info!("Docker not available - skipping OAuth token refresh (Boss mode will require Docker)");
+                    // Don't show error - user might only use Interactive mode which doesn't need Docker
                 }
             }
         }
 
-        // Check if this is first time setup
-        if AppState::is_first_time_setup() {
-            self.state.current_view = View::AuthSetup;
-            self.state.auth_setup_state = Some(AuthSetupState {
-                selected_method: AuthMethod::OAuth,
-                api_key_input: String::new(),
-                is_processing: false,
-                error_message: None,
-                show_cursor: false,
-            });
-        } else {
-            // Initialize Claude integration
-            if let Err(e) = self.state.init_claude_integration().await {
-                warn!("Failed to initialize Claude integration: {}", e);
-            }
+        // REMOVED: Auth check moved to Boss mode selection only
+        // Interactive mode should work without Docker authentication
+        // Authentication is only required for Boss mode (Docker-based sessions)
+        info!("App::init() - skipping upfront auth check (deferred to Boss mode selection)");
 
-            self.state.check_current_directory_status();
-            self.state.load_real_workspaces().await;
+        // Always start with SessionList view
+        info!("Starting with SessionList view (auth deferred until Boss mode)");
+        // Initialize Claude integration
+        if let Err(e) = self.state.init_claude_integration().await {
+            warn!("Failed to initialize Claude integration: {}", e);
+        }
 
-            // Start log streaming for any running sessions
-            if let Err(e) = self.init_log_streaming_for_sessions().await {
-                warn!(
-                    "Failed to initialize log streaming for existing sessions: {}",
-                    e
-                );
-            }
+        self.state.check_current_directory_status();
+        self.state.load_real_workspaces().await;
+
+        // Start log streaming for any running sessions
+        if let Err(e) = self.init_log_streaming_for_sessions().await {
+            warn!(
+                "Failed to initialize log streaming for existing sessions: {}",
+                e
+            );
         }
     }
 
@@ -3517,28 +4180,33 @@ impl App {
                 {
                     info!("OAuth token needs refresh (periodic check)");
 
-                    // Refresh tokens inline (this is quick enough not to block UI)
-                    match self.state.refresh_oauth_tokens().await {
-                        Ok(()) => {
-                            info!("OAuth tokens refreshed successfully (periodic)");
-                            // Add a notification to inform the user
-                            self.state.add_notification(Notification {
-                                message: "✅ OAuth tokens refreshed automatically".to_string(),
-                                notification_type: NotificationType::Success,
-                                created_at: Instant::now(),
-                                duration: Duration::from_secs(5),
-                            });
+                    // Only attempt refresh if Docker is available
+                    if self.state.is_docker_available().await {
+                        // Refresh tokens inline (this is quick enough not to block UI)
+                        match self.state.refresh_oauth_tokens().await {
+                            Ok(()) => {
+                                info!("OAuth tokens refreshed successfully (periodic)");
+                                // Add a notification to inform the user
+                                self.state.add_notification(Notification {
+                                    message: "✅ OAuth tokens refreshed automatically".to_string(),
+                                    notification_type: NotificationType::Success,
+                                    created_at: Instant::now(),
+                                    duration: Duration::from_secs(5),
+                                });
+                            }
+                            Err(e) => {
+                                warn!("Failed to refresh OAuth tokens (periodic): {}", e);
+                                // Add a warning notification
+                                self.state.add_notification(Notification {
+                                    message: format!("⚠️ Token refresh failed: {}", e),
+                                    notification_type: NotificationType::Warning,
+                                    created_at: Instant::now(),
+                                    duration: Duration::from_secs(10),
+                                });
+                            }
                         }
-                        Err(e) => {
-                            warn!("Failed to refresh OAuth tokens (periodic): {}", e);
-                            // Add a warning notification
-                            self.state.add_notification(Notification {
-                                message: format!("⚠️ Token refresh failed: {}", e),
-                                notification_type: NotificationType::Warning,
-                                created_at: Instant::now(),
-                                duration: Duration::from_secs(10),
-                            });
-                        }
+                    } else {
+                        info!("Docker not available - skipping periodic OAuth token refresh");
                     }
                 }
             }
@@ -3558,9 +4226,22 @@ impl App {
             self.state.add_live_log(session_id, log_entry);
         }
 
+        // Update tmux session previews for Interactive mode sessions
+        // This captures pane content from tmux and updates session.preview_content
+        if let Err(e) = self.state.update_tmux_previews().await {
+            warn!("Failed to update tmux previews: {}", e);
+        }
+
         // Process any pending async actions
+        if self.state.pending_async_action.is_some() {
+            info!(">>> tick() detected pending_async_action: {:?}", self.state.pending_async_action);
+        }
         match self.state.process_async_action().await {
-            Ok(()) => {}
+            Ok(()) => {
+                if self.state.pending_async_action.is_some() {
+                    info!(">>> After process_async_action, still pending: {:?}", self.state.pending_async_action);
+                }
+            }
             Err(e) => {
                 warn!("Error processing async action: {}", e);
                 // Return to safe state if there was an error
