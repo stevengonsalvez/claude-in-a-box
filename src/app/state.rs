@@ -3906,8 +3906,8 @@ impl AppState {
                 .unwrap_or(false);
 
             if should_update {
-                // Capture pane content
-                match tmux_session.capture_pane_content().await {
+                // Capture full scrollback history for preview (allows scrolling through history)
+                match tmux_session.capture_full_history().await {
                     Ok(content) => {
                         // Check if Claude is running by analyzing the content
                         let claude_running = detector.has_claude_status_bar(&content);
