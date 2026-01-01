@@ -255,26 +255,27 @@ async fn run_tui_loop(
                 Event::Key(key_event) => {
                     // Intercept keys when tmux preview is in scroll mode
                     use crossterm::event::KeyCode;
-                    if layout.tmux_preview_mut().is_scroll_mode() {
+                    let preview = layout.tmux_preview_mut();
+                    if preview.is_scroll_mode() {
                         match key_event.code {
                             KeyCode::Esc => {
-                                layout.tmux_preview_mut().exit_scroll_mode();
+                                preview.exit_scroll_mode();
                                 continue; // Don't process ESC as Quit
                             }
                             KeyCode::Up | KeyCode::Char('k') => {
-                                layout.tmux_preview_mut().scroll_up();
+                                preview.scroll_up();
                                 continue; // Don't let event handler navigate sessions
                             }
                             KeyCode::Down | KeyCode::Char('j') => {
-                                layout.tmux_preview_mut().scroll_down();
+                                preview.scroll_down();
                                 continue; // Don't let event handler navigate sessions
                             }
                             KeyCode::PageUp => {
-                                layout.tmux_preview_mut().scroll_page_up();
+                                preview.scroll_page_up();
                                 continue;
                             }
                             KeyCode::PageDown => {
-                                layout.tmux_preview_mut().scroll_page_down();
+                                preview.scroll_page_down();
                                 continue;
                             }
                             _ => {} // Let other keys pass through to event handler
