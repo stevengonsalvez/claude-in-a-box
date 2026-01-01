@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::AppState;
-use crate::models::{SessionStatus, Workspace};
+use crate::models::{SessionMode, SessionStatus, Workspace};
 
 pub struct SessionListComponent {
     list_state: ListState,
@@ -102,6 +102,12 @@ impl SessionListComponent {
 
                     let status_indicator = session.status.indicator();
 
+                    // Mode indicator (Boss = Docker container, Interactive = host tmux)
+                    let mode_indicator = match session.mode {
+                        SessionMode::Boss => "🐳", // Docker container
+                        SessionMode::Interactive => "🖥️", // Host/Interactive
+                    };
+
                     // Tmux status indicator
                     let tmux_indicator = if session.is_attached {
                         "🔗" // Attached to tmux
@@ -129,10 +135,11 @@ impl SessionListComponent {
                     };
 
                     // Show branch name instead of session name (more distinctive)
+                    // Format: tree_prefix status_indicator mode_indicator tmux_indicator branch_name changes
                     items.push(
                         ListItem::new(format!(
-                            "  {} {} {} {}{}",
-                            tree_prefix, status_indicator, tmux_indicator, session.branch_name, changes_text
+                            "  {} {} {} {} {}{}",
+                            tree_prefix, status_indicator, mode_indicator, tmux_indicator, session.branch_name, changes_text
                         ))
                         .style(session_style),
                     );
