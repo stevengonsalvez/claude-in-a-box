@@ -55,6 +55,7 @@ lazy_static = "1.4"
 # Markdown and syntax highlighting
 pulldown-cmark = "0.9"  # Markdown parsing
 syntect = "5.0"  # Syntax highlighting for code blocks
+ansi-to-tui = "4"
 
 [features]
 default = []

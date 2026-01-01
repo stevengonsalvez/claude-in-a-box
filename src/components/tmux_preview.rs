@@ -4,7 +4,9 @@
 // - Normal mode: Last N lines with auto-scroll
 // - Scroll mode: Full history with manual navigation
 // - Status footer with mode indicators and keyboard shortcuts
+// - Colored output using ANSI escape sequence parsing
 
+use ansi_to_tui::IntoText;
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
@@ -139,7 +141,12 @@ impl TmuxPreviewPane {
             }
         };
 
-        let paragraph = Paragraph::new(display_text)
+        // Convert ANSI escape sequences to ratatui styled text for colored output
+        let styled_text = display_text
+            .into_text()
+            .unwrap_or_else(|_| Text::raw(&display_text));
+
+        let paragraph = Paragraph::new(styled_text)
             .block(
                 Block::default()
                     .title(title)

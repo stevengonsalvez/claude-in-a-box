@@ -81,46 +81,46 @@ fn strip_ansi_codes(text: &str) -> String {
 /// Filter out Claude Code UI noise from captured tmux content
 ///
 /// Removes:
-/// - ANSI escape sequences (color codes, cursor movements, etc.)
 /// - Permission dialog boxes
 /// - Security warnings
 /// - Box-drawing characters around dialogs
 /// - Claude Code meta-UI elements
+///
+/// Preserves ANSI color codes for colored output display.
 fn filter_claude_ui_noise(content: &str) -> String {
-    // Step 1: Strip ANSI escape sequences first
-    // This must be done before line-by-line processing to ensure clean text matching
-    let stripped_content = strip_ansi_codes(content);
-
-    let lines: Vec<&str> = stripped_content.lines().collect();
+    let original_lines: Vec<&str> = content.lines().collect();
     let mut filtered_lines = Vec::new();
     let mut skip_until_blank = false;
 
-    for line in lines {
+    for original_line in original_lines {
+        // Strip ANSI codes just for pattern matching, but keep original line
+        let clean_line = strip_ansi_codes(original_line);
+
         // Skip permission dialog markers
-        if line.contains("Do you want to work in this folder?")
-            || line.contains("In order to work in this folder, we need your permission")
-            || line.contains("If this folder has malicious code")
-            || line.contains("Only continue if this is your code")
-            || line.contains("Security")
-            || line.contains("details")
-            || line.contains("https://docs.claude.com/s/claude-code-security")
-            || line.contains("Yes, continue")
-            || line.contains("No, exit")
-            || line.contains("Enter to confirm")
-            || line.contains("Esc to exit") {
+        if clean_line.contains("Do you want to work in this folder?")
+            || clean_line.contains("In order to work in this folder, we need your permission")
+            || clean_line.contains("If this folder has malicious code")
+            || clean_line.contains("Only continue if this is your code")
+            || clean_line.contains("Security")
+            || clean_line.contains("details")
+            || clean_line.contains("https://docs.claude.com/s/claude-code-security")
+            || clean_line.contains("Yes, continue")
+            || clean_line.contains("No, exit")
+            || clean_line.contains("Enter to confirm")
+            || clean_line.contains("Esc to exit") {
             skip_until_blank = true;
             continue;
         }
 
         // Skip box-drawing lines (often part of dialogs)
-        if line.chars().all(|c| {
+        if clean_line.chars().all(|c| {
             matches!(c, '─' | '│' | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' | ' ' | '>' | '1' | '2' | '.' | ',')
-        }) && !line.trim().is_empty() {
+        }) && !clean_line.trim().is_empty() {
             continue;
         }
 
         // Reset skip flag on blank line
-        if line.trim().is_empty() {
+        if clean_line.trim().is_empty() {
             if skip_until_blank {
                 skip_until_blank = false;
                 continue;
@@ -132,7 +132,8 @@ fn filter_claude_ui_noise(content: &str) -> String {
             continue;
         }
 
-        filtered_lines.push(line);
+        // Keep the original line WITH ANSI codes preserved
+        filtered_lines.push(original_line);
     }
 
     filtered_lines.join("\n")
