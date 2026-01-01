@@ -4003,45 +4003,6 @@ impl AppState {
         Ok(())
     }
 
-    /// Attach to a tmux session (requires terminal handle)
-    pub async fn attach_to_tmux_session(
-        &mut self,
-        session_id: uuid::Uuid,
-        terminal: std::sync::Arc<tokio::sync::Mutex<ratatui::Terminal<ratatui::backend::CrosstermBackend<std::io::Stdout>>>>,
-    ) -> anyhow::Result<()> {
-        use crate::app::attach_handler::AttachHandler;
-
-        // Get session to find tmux session name
-        let session = self
-            .find_session(session_id)
-            .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
-
-        let tmux_session_name = session
-            .tmux_session_name
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("No tmux session associated with this session"))?
-            .clone();
-
-        // Mark session as attached
-        if let Some(session) = self.find_session_mut(session_id) {
-            session.mark_attached();
-        }
-
-        // Create attach handler and attach
-        // NOTE: This method is deprecated - attach handling is done in main.rs now
-        // Keeping this for backward compatibility but it won't be used
-        let mut attach_handler = AttachHandler::new(terminal);
-        attach_handler.attach_to_session(&tmux_session_name).await?;
-
-        // Mark session as detached after returning from attach
-        if let Some(session) = self.find_session_mut(session_id) {
-            session.mark_detached();
-        }
-
-        self.ui_needs_refresh = true;
-        Ok(())
-    }
-
     /// Helper to find a session by ID across all workspaces
     fn find_session(&self, session_id: uuid::Uuid) -> Option<&crate::models::session::Session> {
         for workspace in &self.workspaces {
