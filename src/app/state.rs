@@ -1263,6 +1263,11 @@ impl AppState {
                         .parent()
                         .unwrap_or(&interactive_session.worktree_path);
 
+                    // Remove any stale entries for this session (e.g., added by Boss-mode loader)
+                    for workspace in &mut self.workspaces {
+                        workspace.sessions.retain(|s| s.id != interactive_session.session_id);
+                    }
+
                     if let Some(workspace) = self.workspaces.iter_mut().find(|w| {
                         std::path::Path::new(&w.path).canonicalize().ok()
                             == workspace_path.canonicalize().ok()
@@ -2648,15 +2653,16 @@ impl AppState {
                         tmux_name.clone(),
                         "claude".to_string()
                     );
+                    let tmux_session_name = tmux_session.name().to_string();
 
                     // Start tmux session in the worktree directory
                     match tmux_session.start(&worktree_info.path).await {
                         Ok(_) => {
-                            info!("Successfully started tmux session: {}", tmux_name);
+                            info!("Successfully started tmux session: {}", tmux_session_name);
 
                             // Store tmux session name in the actual session model
                             if let Some(session) = self.find_session_mut(session_id) {
-                                session.set_tmux_session_name(tmux_name.clone());
+                                session.set_tmux_session_name(tmux_session_name.clone());
                             }
 
                             // Store tmux session in our map

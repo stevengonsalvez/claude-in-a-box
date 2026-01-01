@@ -4,7 +4,8 @@
 use crate::config::AppConfig;
 use crate::docker::ContainerManager;
 use crate::git::WorktreeManager;
-use crate::models::{Session, SessionStatus, Workspace};
+use crate::models::{Session, SessionMode, SessionStatus, Workspace};
+use crate::tmux::TmuxSession;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -63,6 +64,7 @@ impl SessionLoader {
                         session.id = session_id;
                         session.container_id = container.id;
                         session.branch_name = worktree_info.branch_name.clone();
+                        session.mode = SessionMode::Boss;
 
                         // Set session status based on container state
                         let state = container.state.as_deref().unwrap_or("unknown");
@@ -141,6 +143,7 @@ impl SessionLoader {
                         session.set_status(SessionStatus::Error(
                             "Worktree missing - container orphaned".to_string(),
                         ));
+                        session.mode = SessionMode::Boss;
 
                         // Try to determine the original workspace from container labels or name
                         let workspace_name = container
@@ -197,6 +200,18 @@ impl SessionLoader {
                     if !already_processed {
                         debug!("Found orphaned worktree for session {}", session_id);
 
+                        // Skip Interactive (tmux-managed) sessions - those are loaded separately
+                        let tmux_probe =
+                            TmuxSession::new(worktree_info.branch_name.clone(), "claude".to_string());
+                        if tmux_probe.does_session_exist().await {
+                            info!(
+                                "Skipping tmux-managed Interactive session {} ({}) in Boss mode loader",
+                                session_id,
+                                tmux_probe.name()
+                            );
+                            continue;
+                        }
+
                         // Create session for orphaned worktree
                         let mut session = Session::new(
                             worktree_info.branch_name.clone(),
@@ -204,6 +219,7 @@ impl SessionLoader {
                         );
                         session.id = session_id;
                         session.branch_name = worktree_info.branch_name.clone();
+                        session.mode = SessionMode::Boss;
                         session.set_status(SessionStatus::Stopped); // No container = stopped
 
                         let workspace_name = worktree_info

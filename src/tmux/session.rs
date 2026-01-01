@@ -77,7 +77,11 @@ impl TmuxSession {
     /// # Returns
     /// * A sanitized name with "tmux_" prefix and invalid characters replaced
     fn sanitize_name(name: &str) -> String {
-        let cleaned = name
+        let base_name = name
+            .strip_prefix("tmux_")
+            .unwrap_or(name);
+
+        let cleaned = base_name
             .replace(' ', "_")
             .replace('.', "_")
             .replace('/', "_")
@@ -274,6 +278,10 @@ mod tests {
         assert_eq!(
             TmuxSession::sanitize_name("test.name/with:chars"),
             "tmux_test_name_with_chars"
+        );
+        assert_eq!(
+            TmuxSession::sanitize_name("tmux_already_sanitized"),
+            "tmux_already_sanitized"
         );
     }
 
