@@ -131,6 +131,7 @@ pub enum AppEvent {
     ExitScrollMode,               // Exit scroll mode in tmux preview
     ScrollPreviewUp,              // Scroll tmux preview up
     ScrollPreviewDown,            // Scroll tmux preview down
+    ToggleExpandAll,              // Toggle expand/collapse all workspaces
 }
 
 pub struct EventHandler;
@@ -314,6 +315,7 @@ impl EventHandler {
             KeyCode::Char('x') => Some(AppEvent::CleanupOrphaned),
             KeyCode::Char('g') => Some(AppEvent::ShowGitView), // Show git view
             KeyCode::Char('p') => Some(AppEvent::QuickCommitStart), // Start quick commit dialog
+            KeyCode::Char('E') => Some(AppEvent::ToggleExpandAll), // Toggle expand/collapse all workspaces
 
             // Tmux preview scroll mode (Shift + Up/Down)
             KeyCode::Up if key_event.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -817,6 +819,7 @@ impl EventHandler {
             AppEvent::Quit => state.quit(),
             AppEvent::ToggleHelp => state.toggle_help(),
             AppEvent::ToggleClaudeChat => state.toggle_claude_chat(),
+            AppEvent::ToggleExpandAll => state.toggle_expand_all_workspaces(),
             AppEvent::RefreshWorkspaces => {
                 // Mark for async processing to reload workspace data
                 state.pending_async_action = Some(AsyncAction::RefreshWorkspaces);

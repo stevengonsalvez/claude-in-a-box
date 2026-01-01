@@ -501,6 +501,7 @@ pub struct AppState {
     pub workspaces: Vec<Workspace>,
     pub selected_workspace_index: Option<usize>,
     pub selected_session_index: Option<usize>,
+    pub expand_all_workspaces: bool, // When true, show all sessions across all workspaces
     pub current_view: View,
     pub should_quit: bool,
     pub logs: HashMap<Uuid, Vec<String>>,
@@ -662,6 +663,7 @@ impl Default for AppState {
             workspaces: Vec::new(),
             selected_workspace_index: None,
             selected_session_index: None,
+            expand_all_workspaces: true, // Default to expanded view
             current_view: View::SessionList,
             should_quit: false,
             logs: HashMap::new(),
@@ -1215,9 +1217,8 @@ impl AppState {
                     let session = interactive_session.to_session_model();
 
                     // Find or create workspace for this session
-                    let workspace_path = interactive_session.worktree_path
-                        .parent()
-                        .unwrap_or(&interactive_session.worktree_path);
+                    // Use source_repository (the original git repo) not worktree_path parent
+                    let workspace_path = &interactive_session.source_repository;
 
                     // Remove any stale entries for this session (e.g., added by Boss-mode loader)
                     for workspace in &mut self.workspaces {
@@ -1410,6 +1411,10 @@ impl AppState {
 
     pub fn toggle_help(&mut self) {
         self.help_visible = !self.help_visible;
+    }
+
+    pub fn toggle_expand_all_workspaces(&mut self) {
+        self.expand_all_workspaces = !self.expand_all_workspaces;
     }
 
     pub fn toggle_claude_chat(&mut self) {

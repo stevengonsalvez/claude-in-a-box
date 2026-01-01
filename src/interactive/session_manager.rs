@@ -49,6 +49,7 @@ pub enum InteractiveSessionError {
 pub struct InteractiveSession {
     pub session_id: Uuid,
     pub worktree_path: PathBuf,
+    pub source_repository: PathBuf, // The original git repository path
     pub tmux_session_name: String,
     pub branch_name: String,
     pub workspace_name: String,
@@ -130,6 +131,7 @@ impl InteractiveSessionManager {
         let session = InteractiveSession {
             session_id,
             worktree_path: worktree_info.path.clone(),
+            source_repository: worktree_info.source_repository.clone(),
             tmux_session_name: tmux_session_name.clone(),
             branch_name: branch_name.clone(),
             workspace_name: workspace_name.clone(),
@@ -224,6 +226,7 @@ impl InteractiveSessionManager {
                 return Ok(InteractiveSession {
                     session_id, // Use the session_id from the symlink directory
                     worktree_path: worktree.path,
+                    source_repository: worktree.source_repository,
                     tmux_session_name: tmux_name.to_string(),
                     branch_name: worktree.branch_name,
                     workspace_name,

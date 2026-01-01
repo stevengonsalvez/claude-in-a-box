@@ -2,7 +2,7 @@
 
 use ratatui::{
     prelude::*,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     widgets::{Block, Borders, Paragraph},
 };
 
@@ -77,7 +77,7 @@ impl LayoutComponent {
             .constraints([
                 Constraint::Length(3), // Top status bar
                 Constraint::Min(0),    // Main content area
-                Constraint::Length(5), // Bottom logs area
+                Constraint::Length(3), // Session info (single line + borders)
                 Constraint::Length(3), // Bottom menu bar
             ])
             .split(frame.size());
@@ -153,15 +153,59 @@ impl LayoutComponent {
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        let menu_text = "[n]ew [s]earch [a]ttach [e]restart [g]it [p]commit [c]laude [f]refresh [x]cleanup [Tab]focus [r]e-auth [d]elete [?]help [q]uit";
+        // Grouped command bar with separators
+        use ratatui::text::{Line, Span};
 
-        let menu = Paragraph::new(menu_text)
+        let menu_spans = vec![
+            // Navigation group
+            Span::styled("[n]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("ew ", Style::default().fg(Color::White)),
+            Span::styled("[s]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("earch ", Style::default().fg(Color::White)),
+            Span::styled("[E]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("xpand ", Style::default().fg(Color::White)),
+            Span::styled("[Tab]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("focus", Style::default().fg(Color::White)),
+            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            // Actions group
+            Span::styled("[a]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("ttach ", Style::default().fg(Color::White)),
+            Span::styled("[e]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("restart ", Style::default().fg(Color::White)),
+            Span::styled("[d]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled("elete", Style::default().fg(Color::White)),
+            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            // Git group
+            Span::styled("[g]", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled("it ", Style::default().fg(Color::White)),
+            Span::styled("[p]", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+            Span::styled("commit", Style::default().fg(Color::White)),
+            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            // Tools group
+            Span::styled("[c]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("laude ", Style::default().fg(Color::White)),
+            Span::styled("[f]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("refresh ", Style::default().fg(Color::White)),
+            Span::styled("[x]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("cleanup", Style::default().fg(Color::White)),
+            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            // System group
+            Span::styled("[r]", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+            Span::styled("e-auth ", Style::default().fg(Color::White)),
+            Span::styled("[?]", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
+            Span::styled("help ", Style::default().fg(Color::White)),
+            Span::styled("[q]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+            Span::styled("uit", Style::default().fg(Color::White)),
+        ];
+
+        let menu_line = Line::from(menu_spans);
+
+        let menu = Paragraph::new(menu_line)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
             )
-            .style(Style::default().fg(Color::Yellow))
             .alignment(Alignment::Center);
 
         frame.render_widget(menu, area);
