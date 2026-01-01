@@ -3,7 +3,8 @@
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    text::{Line, Span},
+    widgets::{Block, Borders, ListItem, Paragraph, Wrap},
 };
 
 use crate::app::AppState;
@@ -27,54 +28,49 @@ impl LogsViewerComponent {
         &self,
         frame: &mut Frame,
         area: Rect,
-        state: &AppState,
+        _state: &AppState,
         session: &crate::models::Session,
     ) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(6), // Session info
-                Constraint::Min(0),    // Logs
-            ])
-            .split(area);
+        // Flat single-line session info with pipe separators and status color
+        let status_text = match &session.status {
+            crate::models::SessionStatus::Running => "Running",
+            crate::models::SessionStatus::Stopped => "Stopped",
+            crate::models::SessionStatus::Idle => "Idle",
+            crate::models::SessionStatus::Error(err) => err,
+        };
 
-        // Session info panel
-        let info_text = format!(
-            "Session: {}\nStatus: {} {}\nBranch: {}\nChanges: {}\nCreated: {}",
-            session.name,
-            session.status.indicator(),
-            match &session.status {
-                crate::models::SessionStatus::Running => "Running",
-                crate::models::SessionStatus::Stopped => "Stopped",
-                crate::models::SessionStatus::Idle => "Idle",
-                crate::models::SessionStatus::Error(err) => err,
-            },
-            session.branch_name,
-            session.git_changes.format(),
-            session.created_at.format("%Y-%m-%d %H:%M:%S")
-        );
+        let status_color = match &session.status {
+            crate::models::SessionStatus::Running => Color::Green,
+            crate::models::SessionStatus::Idle => Color::Yellow,
+            crate::models::SessionStatus::Stopped => Color::Gray,
+            crate::models::SessionStatus::Error(_) => Color::Red,
+        };
 
-        let info_paragraph = Paragraph::new(info_text)
+        // Build spans with colored status
+        let info_spans = vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(&session.name, Style::default().fg(Color::White)),
+            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("{} {}", session.status.indicator(), status_text),
+                Style::default().fg(status_color),
+            ),
+            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            Span::styled(" ", Style::default().fg(Color::Cyan)),
+            Span::styled(&session.branch_name, Style::default().fg(Color::Cyan)),
+        ];
+
+        let info_line = Line::from(info_spans);
+
+        let info_paragraph = Paragraph::new(info_line)
             .block(
                 Block::default()
                     .title("Session Info")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Cyan)),
-            )
-            .wrap(Wrap { trim: true });
+            );
 
-        frame.render_widget(info_paragraph, chunks[0]);
-
-        // Logs panel
-        let logs_items = self.get_session_logs(state, session);
-        let logs_list = List::new(logs_items).block(
-            Block::default()
-                .title("Logs")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-
-        frame.render_widget(logs_list, chunks[1]);
+        frame.render_widget(info_paragraph, area);
     }
 
     fn render_empty_state(&self, frame: &mut Frame, area: Rect) {

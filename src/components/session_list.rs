@@ -58,7 +58,8 @@ impl SessionListComponent {
 
         for (workspace_idx, workspace) in state.workspaces.iter().enumerate() {
             let is_selected_workspace = state.selected_workspace_index == Some(workspace_idx);
-            let workspace_symbol = if workspace.sessions.is_empty() {
+            let session_count = workspace.sessions.len();
+            let workspace_symbol = if session_count == 0 {
                 "▷"
             } else if is_selected_workspace {
                 "▼"
@@ -72,14 +73,27 @@ impl SessionListComponent {
                 Style::default().fg(Color::White)
             };
 
+            // Add session count badge (only show if sessions exist, use dot separator)
+            let count_display = if session_count > 1 {
+                format!(" ·{}", session_count)  // Only show count when multiple sessions
+            } else {
+                String::new()
+            };
+
             items.push(
-                ListItem::new(format!("{} {}", workspace_symbol, workspace.name))
+                ListItem::new(format!("{} {}{}", workspace_symbol, workspace.name, count_display))
                     .style(workspace_style),
             );
 
             if is_selected_workspace {
+                let session_len = workspace.sessions.len();
                 for (session_idx, session) in workspace.sessions.iter().enumerate() {
                     let is_selected_session = state.selected_session_index == Some(session_idx);
+                    let is_last_session = session_idx == session_len - 1;
+
+                    // Use tree line characters
+                    let tree_prefix = if is_last_session { "└─" } else { "├─" };
+
                     let status_indicator = session.status.indicator();
 
                     // Tmux status indicator
@@ -108,10 +122,11 @@ impl SessionListComponent {
                         }
                     };
 
+                    // Show branch name instead of session name (more distinctive)
                     items.push(
                         ListItem::new(format!(
-                            "  {} {} {}{}",
-                            status_indicator, tmux_indicator, session.name, changes_text
+                            "  {} {} {} {}{}",
+                            tree_prefix, status_indicator, tmux_indicator, session.branch_name, changes_text
                         ))
                         .style(session_style),
                     );
