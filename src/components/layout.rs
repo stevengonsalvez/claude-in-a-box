@@ -162,6 +162,8 @@ impl LayoutComponent {
             Span::styled("ew ", Style::default().fg(Color::White)),
             Span::styled("[s]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled("earch ", Style::default().fg(Color::White)),
+            Span::styled("[E]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("xpand ", Style::default().fg(Color::White)),
             Span::styled("[Tab]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled("focus", Style::default().fg(Color::White)),
             Span::styled(" │ ", Style::default().fg(Color::DarkGray)),

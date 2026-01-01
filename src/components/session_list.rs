@@ -59,9 +59,13 @@ impl SessionListComponent {
         for (workspace_idx, workspace) in state.workspaces.iter().enumerate() {
             let is_selected_workspace = state.selected_workspace_index == Some(workspace_idx);
             let session_count = workspace.sessions.len();
+
+            // Determine expand state: expanded if selected OR if expand_all is true
+            let is_expanded = is_selected_workspace || state.expand_all_workspaces;
+
             let workspace_symbol = if session_count == 0 {
                 "▷"
-            } else if is_selected_workspace {
+            } else if is_expanded {
                 "▼"
             } else {
                 "▶"
@@ -85,10 +89,12 @@ impl SessionListComponent {
                     .style(workspace_style),
             );
 
-            if is_selected_workspace {
+            // Show sessions if workspace is expanded (selected OR expand_all is true)
+            if is_expanded {
                 let session_len = workspace.sessions.len();
                 for (session_idx, session) in workspace.sessions.iter().enumerate() {
-                    let is_selected_session = state.selected_session_index == Some(session_idx);
+                    // Session is selected only if this workspace is selected AND session index matches
+                    let is_selected_session = is_selected_workspace && state.selected_session_index == Some(session_idx);
                     let is_last_session = session_idx == session_len - 1;
 
                     // Use tree line characters
@@ -144,10 +150,27 @@ impl SessionListComponent {
 
     fn update_selection(&mut self, state: &AppState) {
         if let Some(workspace_idx) = state.selected_workspace_index {
-            let mut current_index = workspace_idx;
+            let mut current_index = 0;
 
-            if let Some(session_idx) = state.selected_session_index {
-                current_index += session_idx + 1;
+            // When expand_all is true, we need to count items from all workspaces
+            for (idx, workspace) in state.workspaces.iter().enumerate() {
+                if idx == workspace_idx {
+                    // Found the selected workspace
+                    current_index += idx; // Add workspace line itself (accounting for skipped sessions)
+
+                    // When expand_all, add all sessions from prior workspaces
+                    if state.expand_all_workspaces {
+                        for prior_workspace in state.workspaces.iter().take(idx) {
+                            current_index += prior_workspace.sessions.len();
+                        }
+                    }
+
+                    // Add session offset if a session is selected
+                    if let Some(session_idx) = state.selected_session_index {
+                        current_index += session_idx + 1;
+                    }
+                    break;
+                }
             }
 
             self.list_state.select(Some(current_index));
