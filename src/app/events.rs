@@ -5,7 +5,7 @@ use crate::app::{
     state::{AsyncAction, AuthMethod, View},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use tracing::{info, warn};
+use tracing::info;
 
 // Layout configuration - sessions pane width as percentage of terminal width
 const SESSIONS_PANE_WIDTH_PERCENTAGE: f32 = 0.4;
@@ -305,10 +305,7 @@ impl EventHandler {
             }
             KeyCode::Char('c') => Some(AppEvent::ToggleClaudeChat),
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces), // Manual refresh
-            KeyCode::Char('n') => {
-                tracing::info!(">>> 'N' key pressed in SessionList view");
-                Some(AppEvent::NewSession)
-            }
+            KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
             KeyCode::Char('a') => Some(AppEvent::AttachTmuxSession), // Attach to tmux session
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
@@ -816,10 +813,6 @@ impl EventHandler {
     }
 
     pub fn process_event(event: AppEvent, state: &mut AppState) {
-        // Log every event for debugging delete issue
-        use tracing::debug;
-        debug!(">>> process_event: {:?}, current pending_async_action: {:?}", event, state.pending_async_action);
-
         match event {
             AppEvent::Quit => state.quit(),
             AppEvent::ToggleHelp => state.toggle_help(),
@@ -847,21 +840,16 @@ impl EventHandler {
                 }
             }
             AppEvent::NewSession => {
-                tracing::info!(">>> AppEvent::NewSession received - current_view: {:?}", state.current_view);
                 // Mark for async processing - create normal new session with mode selection
                 state.pending_async_action = Some(AsyncAction::NewSessionNormal);
-                tracing::info!(">>> Set pending_async_action to NewSessionNormal");
             }
             AppEvent::SearchWorkspace => {
-                info!("!!! SearchWorkspace EVENT - current pending_async_action: {:?}", state.pending_async_action);
                 // Don't overwrite pending DeleteSession actions
                 if let Some(AsyncAction::DeleteSession(_)) = state.pending_async_action {
-                    warn!("!!! Ignoring SearchWorkspace - DeleteSession in progress");
                     return;
                 }
 
                 // Mark for async processing - search all workspaces
-                info!("!!! Setting AsyncAction::StartWorkspaceSearch");
                 state.pending_async_action = Some(AsyncAction::StartWorkspaceSearch);
                 // Clear any previous cancellation flag
                 state.async_operation_cancelled = false;
@@ -989,13 +977,9 @@ impl EventHandler {
                 }
             }
             AppEvent::DeleteSession => {
-                info!("!!! DELETE SESSION EVENT TRIGGERED");
                 // Show confirmation dialog
                 if let Some(session) = state.selected_session() {
-                    info!("!!! Selected session found: {}", session.id);
                     state.show_delete_confirmation(session.id);
-                } else {
-                    warn!("!!! No session selected for deletion");
                 }
             }
             AppEvent::CleanupOrphaned => {
@@ -1042,26 +1026,17 @@ impl EventHandler {
                 }
             }
             AppEvent::ConfirmationConfirm => {
-                info!("!!! CONFIRMATION CONFIRM EVENT");
                 if let Some(dialog) = state.confirmation_dialog.take() {
-                    info!("!!! Dialog found, selected_option: {}", dialog.selected_option);
                     if dialog.selected_option {
                         // User confirmed, execute the action
-                        info!("!!! User confirmed action");
                         match dialog.confirm_action {
                             crate::app::state::ConfirmAction::DeleteSession(session_id) => {
-                                info!("!!! Setting AsyncAction::DeleteSession for: {}", session_id);
                                 state.pending_async_action =
                                     Some(AsyncAction::DeleteSession(session_id));
-                                info!("!!! IMMEDIATELY AFTER SETTING: pending_async_action = {:?}", state.pending_async_action);
                             }
                         }
-                    } else {
-                        info!("!!! User declined action (selected No)");
                     }
                     // If not confirmed, just close the dialog
-                } else {
-                    warn!("!!! No confirmation dialog found");
                 }
             }
             AppEvent::ConfirmationCancel => {

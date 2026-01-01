@@ -259,7 +259,7 @@ impl TmuxPreviewPane {
 
     /// Exit scroll mode
     pub fn exit_scroll_mode(&mut self) {
-        self.preview_mode = PreviewMode::Scroll;
+        self.preview_mode = PreviewMode::Normal;
         self.scroll_offset = 0;
     }
 

@@ -13,7 +13,7 @@ Converting claude-in-a-box from Docker container-based sessions to native tmux s
 - Scroll mode for reviewing history
 - Lightweight, fast interactions
 
-**Plan Location**: `/Users/stevengonsalvez/d/git/claude-in-a-box/plans/tmux-integration.md`
+**Plan Location**: `./plans/tmux-integration.md`
 
 ## Work Completed ✅
 
@@ -306,10 +306,10 @@ pub struct TmuxConfig {
 ### Step 1: Load Context
 ```bash
 # Read the plan
-cat /Users/stevengonsalvez/d/git/claude-in-a-box/plans/tmux-integration.md
+cat ./plans/tmux-integration.md
 
 # Read this handover
-cat /Users/stevengonsalvez/d/git/claude-in-a-box/.handover/tmux-integration-handover.md
+cat ./.handover/tmux-integration-handover.md
 ```
 
 ### Step 2: Complete Phase 5
@@ -356,7 +356,7 @@ Mark all remaining phases as complete in the plan file
 - `src/config/mod.rs` - Configuration (needs work)
 
 **Plan & Progress**:
-- `/Users/stevengonsalvez/d/git/claude-in-a-box/plans/tmux-integration.md`
+- `./plans/tmux-integration.md`
 - Phases 1-4: ✅ Complete
 - Phase 5: 🔄 40% complete
 - Phases 6-8: ⏸ Pending
@@ -385,7 +385,6 @@ From the plan, still need to verify:
 
 **Command to verify**:
 ```bash
-cd /Users/stevengonsalvez/d/git/claude-in-a-box
 cargo check --lib
 ```
 

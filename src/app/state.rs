@@ -868,42 +868,23 @@ impl AppState {
 
     /// Check if this is first time setup (no auth configured)
     pub fn is_first_time_setup() -> bool {
-        use tracing::{debug, info, warn};
-
         let home_dir = match dirs::home_dir() {
-            Some(dir) => {
-                debug!("Home directory: {:?}", dir);
-                dir
-            }
-            None => {
-                warn!("Could not determine home directory");
-                return false;
-            }
+            Some(dir) => dir,
+            None => return false,
         };
 
         let auth_dir = home_dir.join(".claude-in-a-box/auth");
-        debug!("Checking auth directory: {:?}", auth_dir);
 
         let has_credentials = auth_dir.join(".credentials.json").exists();
         let has_claude_json = auth_dir.join(".claude.json").exists();
         let has_api_key = std::env::var("ANTHROPIC_API_KEY").is_ok();
         let has_env_file = home_dir.join(".claude-in-a-box/.env").exists();
 
-        debug!(
-            "Auth file checks: credentials={}, claude.json={}, api_key_env={}, .env_file={}",
-            has_credentials, has_claude_json, has_api_key, has_env_file
-        );
-
         // Load .env file if it exists to check for API key
         let has_env_api_key = if has_env_file {
-            if let Ok(contents) = std::fs::read_to_string(home_dir.join(".claude-in-a-box/.env")) {
-                let has_key = contents.contains("ANTHROPIC_API_KEY=");
-                debug!("Checked .env file for API key: {}", has_key);
-                has_key
-            } else {
-                debug!("Could not read .env file");
-                false
-            }
+            std::fs::read_to_string(home_dir.join(".claude-in-a-box/.env"))
+                .map(|contents| contents.contains("ANTHROPIC_API_KEY="))
+                .unwrap_or(false)
         } else {
             false
         };
@@ -911,49 +892,24 @@ impl AppState {
         // For OAuth authentication, we need BOTH .credentials.json AND .claude.json
         // If we have a refresh token, we can refresh expired access tokens, so it's not "first time setup"
         let has_valid_oauth = if has_credentials && has_claude_json {
-            debug!("Found both credentials and claude.json files, checking OAuth validity");
             // Check if we have OAuth credentials (either valid token OR refresh token to get new one)
             let credentials_path = auth_dir.join(".credentials.json");
-            if let Ok(contents) = std::fs::read_to_string(&credentials_path) {
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&contents) {
-                    if let Some(oauth) = json.get("claudeAiOauth") {
-                        // If we have a refresh token, we can refresh even if access token is expired
-                        if oauth.get("refreshToken").is_some() {
-                            info!("Found refresh token - OAuth authentication available");
-                            true
-                        } else {
-                            // No refresh token, check if access token is still valid
-                            debug!("No refresh token found, checking access token validity");
-                            let valid = Self::is_oauth_token_valid(&credentials_path);
-                            debug!("Access token valid: {}", valid);
-                            valid
-                        }
-                    } else {
-                        debug!("No 'claudeAiOauth' field found in credentials.json");
-                        false
-                    }
-                } else {
-                    debug!("Failed to parse credentials.json as JSON");
-                    false
-                }
-            } else {
-                debug!("Failed to read credentials.json file");
-                false
-            }
+            std::fs::read_to_string(&credentials_path)
+                .ok()
+                .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+                .and_then(|json| json.get("claudeAiOauth").cloned())
+                .map(|oauth| {
+                    // If we have a refresh token, we can refresh even if access token is expired
+                    oauth.get("refreshToken").is_some()
+                        || Self::is_oauth_token_valid(&credentials_path)
+                })
+                .unwrap_or(false)
         } else {
-            debug!("Missing one or both required OAuth files");
             false
         };
 
-        let result = !has_valid_oauth && !has_api_key && !has_env_api_key;
-
-        info!(
-            "is_first_time_setup result: {} (has_valid_oauth={}, has_api_key={}, has_env_api_key={})",
-            result, has_valid_oauth, has_api_key, has_env_api_key
-        );
-
         // Show auth screen if we don't have valid OAuth setup AND no API key alternatives
-        result
+        !has_valid_oauth && !has_api_key && !has_env_api_key
     }
 
     /// Check if OAuth token in credentials file is still valid (not expired)
@@ -2902,7 +2858,7 @@ impl AppState {
         let mut manager = SessionLifecycleManager::new().await?;
 
         // Pass the log sender to the session lifecycle manager
-        let result = manager.create_session_with_logs(request, Some(log_sender.clone())).await;
+        let result = manager.create_session_with_logs(request, Some(log_sender)).await;
 
         // Wait a moment for logs to be collected
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;

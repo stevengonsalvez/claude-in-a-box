@@ -12,10 +12,8 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io::{self, Stdout};
-use std::sync::Arc;
+use std::io::Stdout;
 use tokio::process::Command;
-use tokio::sync::Mutex;
 
 /// Handler for attaching to tmux sessions with TUI suspend/resume
 pub struct AttachHandler<'a> {
@@ -23,15 +21,6 @@ pub struct AttachHandler<'a> {
 }
 
 impl<'a> AttachHandler<'a> {
-    /// Create a new attach handler from Arc<Mutex<Terminal>>
-    ///
-    /// # Arguments
-    /// * `terminal` - The Ratatui terminal to suspend/resume
-    pub fn new(terminal: Arc<Mutex<Terminal<CrosstermBackend<Stdout>>>>) -> Self {
-        // This is the old API that's no longer used
-        unimplemented!("Use new_from_terminal instead")
-    }
-
     /// Create a new attach handler from a mutable terminal reference
     ///
     /// # Arguments
