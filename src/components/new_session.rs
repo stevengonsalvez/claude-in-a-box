@@ -329,78 +329,145 @@ impl NewSessionComponent {
     }
 
     fn render_branch_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
-        // Draw border around entire dialog
+        // Draw outer border with modern styling
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session");
-        frame.render_widget(block, area);
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .title(Span::styled(
+                " 🌿 New Session ",
+                Style::default()
+                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Length(5), // Repository info
+                Constraint::Length(6), // Repository info card
+                Constraint::Length(1), // Spacer
                 Constraint::Length(3), // Branch input
-                Constraint::Length(3), // Instructions
+                Constraint::Length(1), // Spacer
+                Constraint::Length(2), // Instructions
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Enter Branch Name")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
-
-        // Repository info
-        let repo_info = if let Some(selected_idx) = session_state.selected_repo_index {
+        // Repository info card with icon
+        let (repo_name, repo_path) = if let Some(selected_idx) = session_state.selected_repo_index {
             if let Some((_, repo)) = session_state.filtered_repos.get(selected_idx) {
-                let repo_name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
-                format!(
-                    "Repository: {}\nPath: {}",
-                    repo_name,
-                    repo.to_string_lossy()
-                )
+                let name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+                let path = repo.to_string_lossy().to_string();
+                // Truncate long paths
+                let display_path = if path.len() > 60 {
+                    format!("...{}", &path[path.len()-57..])
+                } else {
+                    path
+                };
+                (name.to_string(), display_path)
             } else {
-                "Repository: Unknown".to_string()
+                ("Unknown".to_string(), "".to_string())
             }
         } else {
-            "Repository: None selected".to_string()
+            ("None selected".to_string(), "".to_string())
         };
 
-        let repo_display = Paragraph::new(repo_info)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::White)),
-            )
-            .style(Style::default().fg(Color::White));
-        frame.render_widget(repo_display, chunks[1]);
+        let repo_lines = vec![
+            Line::from(vec![
+                Span::styled("  📁 ", Style::default()),
+                Span::styled("Repository", Style::default().fg(Color::Rgb(150, 150, 150))),
+            ]),
+            Line::from(vec![
+                Span::styled("     ", Style::default()),
+                Span::styled(
+                    &repo_name,
+                    Style::default()
+                        .fg(Color::Rgb(100, 200, 255)) // Light blue
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  📍 ", Style::default()),
+                Span::styled("Path", Style::default().fg(Color::Rgb(150, 150, 150))),
+            ]),
+            Line::from(vec![
+                Span::styled("     ", Style::default()),
+                Span::styled(
+                    repo_path,
+                    Style::default().fg(Color::Rgb(180, 180, 180)).add_modifier(Modifier::ITALIC),
+                ),
+            ]),
+        ];
 
-        // Branch input
-        let branch_input = Paragraph::new(session_state.branch_name.as_str())
+        let repo_display = Paragraph::new(repo_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title("Branch Name"),
-            )
-            .style(Style::default().fg(Color::White));
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(70, 70, 90)))
+                    .style(Style::default().bg(Color::Rgb(30, 30, 40))),
+            );
+        frame.render_widget(repo_display, chunks[0]);
+
+        // Branch input with icon and cursor
+        let branch_text = if session_state.branch_name.is_empty() {
+            Line::from(vec![
+                Span::styled("  🔀 ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled(
+                    "agents-in-a-box/",
+                    Style::default().fg(Color::Rgb(128, 128, 128)).add_modifier(Modifier::ITALIC),
+                ),
+                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("  🔀 ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled(
+                    &session_state.branch_name,
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))),
+            ])
+        };
+
+        let branch_input = Paragraph::new(branch_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(100, 200, 100))) // Green border
+                    .title(Span::styled(
+                        " Branch Name ",
+                        Style::default().fg(Color::Rgb(100, 200, 100)),
+                    ))
+                    .style(Style::default().bg(Color::Rgb(35, 35, 45))),
+            );
         frame.render_widget(branch_input, chunks[2]);
 
-        // Instructions
-        let instructions = Paragraph::new("Type branch name • Enter: Create Session • Esc: Cancel")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[3]);
+        // Styled instructions footer
+        let instructions = Line::from(vec![
+            Span::styled("  ⌨️  ", Style::default()),
+            Span::styled("Type", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled(" branch name  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Create Session  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+        ]);
+
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+        frame.render_widget(instructions_widget, chunks[4]);
     }
 
     fn render_permissions_config(
