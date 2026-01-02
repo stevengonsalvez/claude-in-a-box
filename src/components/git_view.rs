@@ -1,5 +1,7 @@
 // ABOUTME: Git view component for displaying git status, changed files, and diffs with commit/push functionality
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use git2::{DiffFormat, DiffOptions, Repository};
 use ratatui::{

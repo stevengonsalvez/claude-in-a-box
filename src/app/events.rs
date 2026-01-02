@@ -1,5 +1,7 @@
 // ABOUTME: Event handling system for keyboard input and app actions
 
+#![allow(dead_code)]
+
 use crate::app::{
     AppState,
     state::{AsyncAction, AuthMethod, View},
@@ -140,7 +142,7 @@ impl EventHandler {
     /// Handle mouse events and convert to appropriate app events
     pub fn handle_mouse_event(event: AppEvent, state: &mut AppState) -> Option<AppEvent> {
         match event {
-            AppEvent::MouseClick { x, y } => {
+            AppEvent::MouseClick { x, y: _ } => {
                 // Determine which pane was clicked based on terminal dimensions
                 // The layout splits at 40% for sessions, 60% for logs
                 let term_width = crossterm::terminal::size().unwrap_or((80, 24)).0;
@@ -167,7 +169,7 @@ impl EventHandler {
                     None
                 }
             }
-            AppEvent::MouseDragStart { x, y } => {
+            AppEvent::MouseDragStart { x: _, y: _ } => {
                 // Start text selection in logs pane
                 if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
                     // This will be handled in Phase 2
@@ -176,7 +178,7 @@ impl EventHandler {
                     None
                 }
             }
-            AppEvent::MouseDragging { x, y } => {
+            AppEvent::MouseDragging { x: _, y: _ } => {
                 // Update selection during drag
                 if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
                     // This will be handled in Phase 2
@@ -185,7 +187,7 @@ impl EventHandler {
                     None
                 }
             }
-            AppEvent::MouseDragEnd { x, y } => {
+            AppEvent::MouseDragEnd { x: _, y: _ } => {
                 // Finalize text selection
                 if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
                     // This will be handled in Phase 2

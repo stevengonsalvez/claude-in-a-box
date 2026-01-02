@@ -6,6 +6,8 @@
 // - Status footer with mode indicators and keyboard shortcuts
 // - Colored output using ANSI escape sequence parsing
 
+#![allow(dead_code)]
+
 use ansi_to_tui::IntoText;
 use ratatui::{
     prelude::*,

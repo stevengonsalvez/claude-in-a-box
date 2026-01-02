@@ -6,13 +6,12 @@
 // - Content capture for live preview
 // - Clean session cleanup
 
+#![allow(dead_code)]
+
 use crate::tmux::capture::{capture_pane, CaptureOptions};
 use crate::tmux::pty_wrapper::PtyWrapper;
 use anyhow::{Context, Result};
-use portable_pty::CommandBuilder;
-use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::Arc;
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, Duration};

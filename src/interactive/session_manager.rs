@@ -9,7 +9,9 @@
 // This manager is completely independent of Docker and ContainerManager,
 // enabling lightweight, fast development workflows.
 
-use crate::git::{WorktreeInfo, WorktreeManager};
+#![allow(dead_code)]
+
+use crate::git::WorktreeManager;
 use crate::models::{Session, SessionMode, SessionStatus};
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};

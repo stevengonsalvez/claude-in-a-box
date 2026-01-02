@@ -1,6 +1,8 @@
 // ABOUTME: Unified session progress tracking for all container types
 // Provides consistent progress reporting across different session creation paths
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 /// Unified progress updates for session creation operations

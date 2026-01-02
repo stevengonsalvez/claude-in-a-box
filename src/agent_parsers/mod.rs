@@ -6,5 +6,7 @@ pub mod plain_text;
 pub mod types;
 
 pub use claude_json::ClaudeJsonParser;
+#[allow(unused_imports)]
 pub use plain_text::PlainTextParser;
+#[allow(unused_imports)]
 pub use types::{AgentEvent, AgentOutputParser, McpServerInfo, ParserFactory, ParserState};

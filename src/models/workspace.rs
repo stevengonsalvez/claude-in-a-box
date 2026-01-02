@@ -1,5 +1,7 @@
 // ABOUTME: Workspace data model representing a git repository that can contain multiple sessions
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

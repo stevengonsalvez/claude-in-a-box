@@ -1,5 +1,7 @@
 // ABOUTME: Live Docker log streaming component for real-time container monitoring
 
+#![allow(dead_code)]
+
 use super::log_formatter_simple::{FormatConfig, SimpleLogFormatter};
 use crate::app::AppState;
 use ratatui::{

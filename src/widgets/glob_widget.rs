@@ -4,7 +4,6 @@
 use super::{MessageWidget, WidgetOutput, ToolResult, helpers, result_parser};
 use crate::agent_parsers::AgentEvent;
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
-use serde_json::Value;
 use uuid::Uuid;
 
 pub struct GlobWidget;

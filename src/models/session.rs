@@ -1,5 +1,7 @@
 // ABOUTME: Session data model representing a Claude Code container instance with git worktree
 
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

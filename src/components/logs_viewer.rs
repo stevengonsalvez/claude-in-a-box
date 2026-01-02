@@ -1,5 +1,7 @@
 // ABOUTME: Logs viewer component for displaying container logs and session information
 
+#![allow(dead_code)]
+
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},

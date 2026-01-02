@@ -1,6 +1,8 @@
 // ABOUTME: Session loader that queries Docker containers and worktrees to load active sessions
 // Groups sessions by their source repository for display
 
+#![allow(dead_code)]
+
 use crate::config::AppConfig;
 use crate::docker::ContainerManager;
 use crate::git::WorktreeManager;

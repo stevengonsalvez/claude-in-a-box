@@ -1,6 +1,8 @@
 // ABOUTME: Central message router for directing JSON events to appropriate widgets
 // Similar to Opcode's StreamMessage.tsx, routes different message types to specialized widgets
 
+#![allow(dead_code)]
+
 use crate::agent_parsers::{AgentEvent, types::StructuredPayload};
 use crate::components::live_logs_stream::LogEntryLevel;
 use serde_json::Value;
@@ -154,7 +156,7 @@ impl MessageRouter {
                 self.render_error(message, code, container_name, session_id)
             }
 
-            AgentEvent::Usage { input_tokens, output_tokens, cache_tokens, total_cost } => {
+            AgentEvent::Usage { .. } => {
                 // Filter out usage events - return empty vector
                 WidgetOutput::MultiLine(vec![])
             }

@@ -1,6 +1,8 @@
 // ABOUTME: Advanced log parser for beautifying Docker container logs in TUI
 // Handles pattern detection, ANSI stripping, and intelligent log categorization
 
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;

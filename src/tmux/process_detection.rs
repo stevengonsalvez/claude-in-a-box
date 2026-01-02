@@ -1,5 +1,7 @@
 // ABOUTME: Claude process detection by parsing tmux status bar content
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use std::process::Command;
 use tracing::{debug, warn};

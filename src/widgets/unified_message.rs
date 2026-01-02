@@ -2,7 +2,6 @@
 // Provides unified message handling with content blocks and metadata support
 
 use crate::agent_parsers::{AgentEvent, types::StructuredPayload};
-use crate::widgets::WidgetOutput;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -168,7 +167,7 @@ impl From<AgentEvent> for UnifiedMessage {
 
             AgentEvent::Structured(payload) => {
                 match payload {
-                    StructuredPayload::TodoList { title, items, pending, in_progress, done } => {
+                    StructuredPayload::TodoList { title, items: _, pending, in_progress, done } => {
                         metadata.insert("structured_type".to_string(), Value::String("todo_list".to_string()));
                         metadata.insert("pending".to_string(), Value::Number((*pending).into()));
                         metadata.insert("in_progress".to_string(), Value::Number((*in_progress).into()));
@@ -185,7 +184,7 @@ impl From<AgentEvent> for UnifiedMessage {
                             vec![ContentBlock::Text(summary)],
                         )
                     }
-                    StructuredPayload::GlobResults { paths, total } => {
+                    StructuredPayload::GlobResults { paths: _, total } => {
                         metadata.insert("structured_type".to_string(), Value::String("glob_results".to_string()));
                         metadata.insert("total".to_string(), Value::Number((*total).into()));
 

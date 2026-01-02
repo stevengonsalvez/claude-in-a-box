@@ -1,6 +1,8 @@
 // ABOUTME: Container template definitions for different development environments
 // Provides pre-configured templates including claude-docker based setup
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;

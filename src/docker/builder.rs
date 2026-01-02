@@ -1,6 +1,8 @@
 // ABOUTME: Docker image builder for container templates
 // Handles building custom images from Dockerfiles and claude-docker base
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::image::{BuildImageOptions, CreateImageOptions};

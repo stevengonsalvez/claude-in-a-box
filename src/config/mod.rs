@@ -1,6 +1,8 @@
 // ABOUTME: Configuration management for agents-in-a-box
 // Handles application config, container defaults, and MCP server definitions
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use dirs;
 use serde::{Deserialize, Serialize};

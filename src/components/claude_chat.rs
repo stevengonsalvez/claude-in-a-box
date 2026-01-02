@@ -1,5 +1,7 @@
 // ABOUTME: Claude chat panel component for integrated TUI chat experience
 
+#![allow(dead_code)]
+
 use crate::app::AppState;
 use crate::claude::types::{ClaudeMessage, ClaudeRole};
 use ratatui::{
@@ -11,6 +13,7 @@ use ratatui::{
 
 pub struct ClaudeChatComponent {
     scroll_offset: usize,
+    #[allow(dead_code)]
     input_cursor_pos: usize,
     max_visible_messages: usize,
 }

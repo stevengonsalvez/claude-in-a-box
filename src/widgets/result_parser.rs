@@ -37,7 +37,7 @@ pub fn parse_markdown_to_logs(
                 }
 
                 match tag {
-                    Tag::Heading(level, _, _) => {
+                    Tag::Heading(_level, _, _) => {
                         // Add spacing before headings
                         if !entries.is_empty() {
                             entries.push(create_text_entry(

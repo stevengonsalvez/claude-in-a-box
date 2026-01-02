@@ -1,10 +1,11 @@
 // ABOUTME: Widget system for rich message rendering in the TUI
 // Provides composable widgets for different tool and message types
 
-use crate::agent_parsers::{AgentEvent, types::StructuredPayload};
+#![allow(dead_code)]
+
+use crate::agent_parsers::AgentEvent;
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
 use serde_json::Value;
-use std::collections::HashMap;
 use uuid::Uuid;
 use crossterm::terminal;
 
@@ -49,6 +50,7 @@ pub use mcp_widget::McpWidget;
 pub use ls_result_widget::LsResultWidget;
 pub use system_reminder_widget::SystemReminderWidget;
 pub use tool_result_store::ToolResultStore;
+#[allow(unused_imports)]
 pub use unified_message::{UnifiedMessage, MessageType, ContentBlock};
 pub use reminder_filter::ReminderFilter;
 
@@ -102,7 +104,7 @@ pub trait MessageWidget: Send + Sync {
     fn render(&self, event: AgentEvent, container_name: &str, session_id: Uuid) -> WidgetOutput;
 
     /// Render the event with an associated tool result
-    fn render_with_result(&self, event: AgentEvent, result: Option<ToolResult>, container_name: &str, session_id: Uuid) -> WidgetOutput {
+    fn render_with_result(&self, event: AgentEvent, _result: Option<ToolResult>, container_name: &str, session_id: Uuid) -> WidgetOutput {
         // Default implementation just calls render without result
         self.render(event, container_name, session_id)
     }

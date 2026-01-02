@@ -1,5 +1,7 @@
 // ABOUTME: Application state management and view switching logic for agents-in-a-box TUI
 
+#![allow(dead_code)]
+
 use crate::app::SessionLoader;
 use crate::claude::client::ClaudeChatManager;
 use crate::claude::types::ClaudeStreamingEvent;

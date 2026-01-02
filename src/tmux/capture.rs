@@ -4,6 +4,8 @@
 // including full scrollback history, visible pane content, and ANSI escape
 // sequence preservation.
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -161,14 +163,14 @@ pub async fn capture_pane(session_name: &str, options: CaptureOptions) -> Result
     }
 
     // Add start line if specified
-    let mut start_arg = String::new();
+    let start_arg;
     if let Some(start) = &options.start_line {
         start_arg = format!("-S{}", start);
         args.push(&start_arg);
     }
 
     // Add end line if specified
-    let mut end_arg = String::new();
+    let end_arg;
     if let Some(end) = &options.end_line {
         end_arg = format!("-E{}", end);
         args.push(&end_arg);

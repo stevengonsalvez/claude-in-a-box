@@ -1,5 +1,7 @@
 // ABOUTME: Claude API client implementation for direct communication with Anthropic API
 
+#![allow(dead_code)]
+
 use crate::claude::streaming::ClaudeStreamingResponse;
 use crate::claude::types::{
     ClaudeAuth, ClaudeChatSession, ClaudeMessage, ClaudeRequest, ClaudeResponse,

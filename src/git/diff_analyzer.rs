@@ -1,5 +1,7 @@
 // ABOUTME: Git diff analysis for detailed change statistics and file-level insights
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use git2::{Diff, DiffOptions, Repository};
 use std::path::Path;

@@ -1,5 +1,7 @@
 // ABOUTME: Git worktree management for creating isolated working directories for sessions
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use git2::{BranchType, Repository};
 use std::path::{Path, PathBuf};

@@ -1,11 +1,12 @@
 // ABOUTME: Syntax highlighting for code blocks in TUI display
 // Provides ANSI color codes for different programming languages
 
+#![allow(dead_code)]
+
 use syntect::easy::HighlightLines;
-use syntect::highlighting::{ThemeSet, Style};
-use syntect::parsing::{SyntaxSet, SyntaxReference};
+use syntect::highlighting::ThemeSet;
+use syntect::parsing::SyntaxSet;
 use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
-use std::collections::HashMap;
 use lazy_static::lazy_static;
 
 lazy_static! {

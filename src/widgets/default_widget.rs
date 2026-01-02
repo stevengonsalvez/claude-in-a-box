@@ -128,7 +128,7 @@ impl MessageWidget for DefaultWidget {
                 .with_metadata("error_code", &code.unwrap_or_default())
             }
 
-            AgentEvent::Usage { input_tokens, output_tokens, cache_tokens, .. } => {
+            AgentEvent::Usage { .. } => {
                 return WidgetOutput::MultiLine(vec![]);
             }
 

@@ -1,5 +1,7 @@
 // ABOUTME: Claude API streaming response handling for real-time chat interface
 
+#![allow(dead_code)]
+
 use crate::claude::types::ClaudeStreamingEvent;
 use anyhow::{Result, anyhow};
 use futures_util::StreamExt;

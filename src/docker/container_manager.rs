@@ -1,5 +1,7 @@
 // ABOUTME: Docker container management using Bollard for creating and managing development containers
 
+#![allow(dead_code)]
+
 use super::{ContainerConfig, ContainerStatus, SessionContainer};
 use anyhow::Result;
 use bollard::Docker;

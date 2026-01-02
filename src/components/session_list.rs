@@ -1,5 +1,7 @@
 // ABOUTME: Session list component for displaying workspaces and sessions in hierarchical view
 
+#![allow(dead_code)]
+
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
@@ -225,7 +227,7 @@ impl SessionListComponent {
             let mut current_index = 0;
 
             // When expand_all is true, we need to count items from all workspaces
-            for (idx, workspace) in state.workspaces.iter().enumerate() {
+            for (idx, _workspace) in state.workspaces.iter().enumerate() {
                 if idx == workspace_idx {
                     // Found the selected workspace
                     current_index += idx; // Add workspace line itself (accounting for skipped sessions)

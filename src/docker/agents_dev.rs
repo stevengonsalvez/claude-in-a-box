@@ -1,6 +1,8 @@
 // ABOUTME: Agents-dev container management module
 // Handles authentication, environment setup, and container operations for agents-dev sessions
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
