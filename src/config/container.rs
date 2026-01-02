@@ -269,10 +269,10 @@ impl ContainerTemplate {
             ImageSource::Image { name } => ContainerConfig::new(name.clone()),
             ImageSource::Dockerfile { .. } => {
                 // For now, we'll build the image separately and use the tag
-                ContainerConfig::new("claude-box:custom".to_string())
+                ContainerConfig::new("agents-box:custom".to_string())
             }
             ImageSource::ClaudeDocker { .. } => {
-                ContainerConfig::new("claude-box:claude-dev".to_string())
+                ContainerConfig::new("agents-box:agents-dev".to_string())
             }
         };
 

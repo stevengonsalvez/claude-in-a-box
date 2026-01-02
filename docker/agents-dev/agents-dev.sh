@@ -304,7 +304,7 @@ docker run -it --rm \
     -v "$HOME/.agents-box/ssh:/home/claude-user/.ssh:rw" \
     $CLAUDE_JSON_MOUNT \
     $ENV_ARGS \
-    -e CLAUDE_BOX_MODE=true \
+    -e AGENTS_BOX_MODE=true \
     -e CLAUDE_CONTINUE_FLAG="$CONTINUE_FLAG" \
     --workdir /workspace \
     --name "agents-box-$(basename "$CURRENT_DIR")-$$" \

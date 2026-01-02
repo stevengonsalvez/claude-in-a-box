@@ -129,7 +129,7 @@ test_container_run() {
     docker run -d \
         --name "${CONTAINER_NAME}" \
         ${MOUNT_OPTS} \
-        -e CLAUDE_BOX_MODE=true \
+        -e AGENTS_BOX_MODE=true \
         "${IMAGE_NAME}" \
         sleep infinity || error "Failed to run container"
 

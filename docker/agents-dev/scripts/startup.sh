@@ -36,11 +36,11 @@ if [ -f /app/.env ]; then
 fi
 
 # Check agents-box session mode
-if [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
+if [ "${AGENTS_BOX_MODE}" = "boss" ]; then
     log "Running in agents-box boss mode"
-elif [ "${CLAUDE_BOX_MODE}" = "interactive" ]; then
+elif [ "${AGENTS_BOX_MODE}" = "interactive" ]; then
     log "Running in agents-box interactive mode"
-elif [ "${CLAUDE_BOX_MODE}" = "true" ]; then
+elif [ "${AGENTS_BOX_MODE}" = "true" ]; then
     # Legacy support
     log "Running in agents-box mode (legacy)"
 fi
@@ -136,7 +136,7 @@ CLI_ARGS="$CLAUDE_CONTINUE_FLAG"
 log "Using Claude CLI with args: $CLI_ARGS"
 
 # Handle boss mode execution
-if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
+if [ "${AGENTS_BOX_MODE}" = "boss" ] && [ -n "${AGENTS_BOX_PROMPT}" ]; then
     # Create log directory
     mkdir -p /workspace/.agents-box/logs
 
@@ -144,13 +144,13 @@ if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
     if [ "${AUTH_OK}" = "true" ]; then
         success "✅ Authentication detected - Claude will work immediately"
         log "🤖 Executing boss mode prompt..."
-        log "Prompt: ${CLAUDE_BOX_PROMPT}"
+        log "Prompt: ${AGENTS_BOX_PROMPT}"
 
         # Boss mode prompt text to append
         BOSS_MODE_PROMPT="Ultrathink and understand our project rules, particularly around testing. You must go test first, and you must work in a way that allows for small known-good increments. You must commit when the code is in a working state, and commit early and often. When committing: - Use conventional commit format (feat:, fix:, refactor:, test:, docs:) - Commit after each logical increment (test passes, feature complete, refactor done) - Generate descriptive commit messages that explain the 'what' and 'why' - Never leave code in a broken state between commits"
 
         # Append boss mode prompt to user prompt
-        ENHANCED_PROMPT="${CLAUDE_BOX_PROMPT} ${BOSS_MODE_PROMPT}"
+        ENHANCED_PROMPT="${AGENTS_BOX_PROMPT} ${BOSS_MODE_PROMPT}"
 
         # Execute Claude with the enhanced prompt and stream-json output
         log "Running: claude --print --output-format stream-json --verbose \"${ENHANCED_PROMPT}\""
@@ -163,9 +163,9 @@ if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
         error "  3. Set ANTHROPIC_API_KEY in environment"
         exit 1
     fi
-elif [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
+elif [ "${AGENTS_BOX_MODE}" = "boss" ]; then
     error "❌ Boss mode requires a prompt!"
-    error "CLAUDE_BOX_PROMPT environment variable is missing or empty"
+    error "AGENTS_BOX_PROMPT environment variable is missing or empty"
     exit 1
 fi
 
