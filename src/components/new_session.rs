@@ -3,7 +3,7 @@
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use crate::app::{
@@ -61,42 +61,71 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
-        // Draw border around entire dialog
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let selection_green = Color::Rgb(100, 200, 100);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" 📁 ", Style::default().fg(gold)),
+            Span::styled("Select Repository", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session");
-        frame.render_widget(block, area);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
+                Constraint::Length(3), // Subtitle
                 Constraint::Min(0),    // Repository list
-                Constraint::Length(3), // Instructions
+                Constraint::Length(2), // Footer
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Select Repository")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        // Subtitle
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Choose a repository to create a new session", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, chunks[0]);
 
-        // Repository list (showing only folder names)
+        // Repository list with modern styling
         let repos: Vec<ListItem> = if session_state.filtered_repos.is_empty() {
             vec![
-                ListItem::new("No repositories found in default paths")
-                    .style(Style::default().fg(Color::Gray)),
-                ListItem::new("Try searching in common directories like:")
-                    .style(Style::default().fg(Color::Gray)),
-                ListItem::new("  ~/projects, ~/code, ~/dev, ~/src")
-                    .style(Style::default().fg(Color::Gray)),
-                ListItem::new("Type to filter or add custom paths")
-                    .style(Style::default().fg(Color::Yellow)),
+                ListItem::new(Line::from(vec![
+                    Span::styled("  ⚠️  ", Style::default().fg(gold)),
+                    Span::styled("No repositories found in default paths", Style::default().fg(muted_gray)),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("     Try searching in common directories like:", Style::default().fg(muted_gray)),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("     ~/projects, ~/code, ~/dev, ~/src", Style::default().fg(cornflower_blue)),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("  💡 ", Style::default().fg(gold)),
+                    Span::styled("Type to filter or add custom paths", Style::default().fg(gold)),
+                ])),
             ]
         } else {
             session_state
@@ -106,37 +135,54 @@ impl NewSessionComponent {
                 .map(|(display_idx, (_, repo))| {
                     let repo_name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
-                    let style = if Some(display_idx) == session_state.selected_repo_index {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    if Some(display_idx) == session_state.selected_repo_index {
+                        ListItem::new(Line::from(vec![
+                            Span::styled("  ▶ ", Style::default().fg(selection_green)),
+                            Span::styled(repo_name, Style::default().fg(selection_green).add_modifier(Modifier::BOLD)),
+                        ]))
                     } else {
-                        Style::default().fg(Color::White)
-                    };
-
-                    ListItem::new(repo_name).style(style)
+                        ListItem::new(Line::from(vec![
+                            Span::styled("    ", Style::default()),
+                            Span::styled(repo_name, Style::default().fg(soft_white)),
+                        ]))
+                    }
                 })
                 .collect()
         };
+
+        let repo_count = session_state.filtered_repos.len();
+        let list_title = Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(format!("Repositories ({})", repo_count), Style::default().fg(cornflower_blue)),
+            Span::styled(" ", Style::default()),
+        ]);
 
         let repo_list = List::new(repos)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::White)),
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                    .title(list_title)
+                    .style(Style::default().bg(dark_bg)),
             )
-            .highlight_style(Style::default().bg(Color::DarkGray));
+            .highlight_style(Style::default().bg(Color::Rgb(40, 40, 60)));
 
         frame.render_widget(repo_list, chunks[1]);
 
-        // Instructions
-        let instructions = Paragraph::new("↑/↓: Navigate • Enter: Select • Esc: Cancel")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[2]);
+        // Modern footer with keyboard hints
+        let footer = Paragraph::new(Line::from(vec![
+            Span::styled("↑↓", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Navigate", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Select", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[2]);
     }
 
     fn render_search_workspace(
@@ -476,127 +522,248 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
-        // Draw border around entire dialog
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let selection_green = Color::Rgb(100, 200, 100);
+        let warning_orange = Color::Rgb(255, 165, 0);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" 🔐 ", Style::default().fg(gold)),
+            Span::styled("Permission Settings", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session");
-        frame.render_widget(block, area);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Length(5), // Description
-                Constraint::Length(5), // Option display
-                Constraint::Length(3), // Instructions
+                Constraint::Length(2), // Subtitle
+                Constraint::Length(6), // Description
+                Constraint::Length(7), // Option cards
+                Constraint::Length(2), // Footer
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Configure Claude Permissions")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        // Subtitle
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Configure how Claude handles command execution", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, chunks[0]);
 
-        // Description
-        let description = Paragraph::new(
-            "Claude can run with or without permission prompts.\n\
-             With prompts: Claude will ask before running commands\n\
-             Without prompts: Claude runs commands immediately (faster)",
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White)),
-        )
-        .style(Style::default().fg(Color::Gray));
+        // Description with info box
+        let desc_lines = vec![
+            Line::from(vec![
+                Span::styled("  ℹ️  ", Style::default().fg(cornflower_blue)),
+                Span::styled("About Permission Prompts", Style::default().fg(cornflower_blue).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  • ", Style::default().fg(muted_gray)),
+                Span::styled("With prompts: ", Style::default().fg(soft_white)),
+                Span::styled("Claude will ask before running commands", Style::default().fg(muted_gray)),
+            ]),
+            Line::from(vec![
+                Span::styled("  • ", Style::default().fg(muted_gray)),
+                Span::styled("Without prompts: ", Style::default().fg(soft_white)),
+                Span::styled("Claude runs commands immediately (faster)", Style::default().fg(muted_gray)),
+            ]),
+        ];
+
+        let description = Paragraph::new(desc_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                    .style(Style::default().bg(dark_bg)),
+            );
         frame.render_widget(description, chunks[1]);
 
-        // Options
-        let option_text = if session_state.skip_permissions {
-            "🚀 Skip permission prompts (--dangerously-skip-permissions)\n\n\
-             Claude will execute commands without asking"
+        // Options with visual selection
+        let (option_icon, option_color, option_title, option_desc, option_flag) = if session_state.skip_permissions {
+            (
+                "🚀",
+                warning_orange,
+                "Skip Permission Prompts",
+                "Claude will execute commands without asking",
+                "--dangerously-skip-permissions",
+            )
         } else {
-            "🛡️  Keep permission prompts (default)\n\n\
-             Claude will ask before executing commands"
+            (
+                "🛡️",
+                selection_green,
+                "Keep Permission Prompts",
+                "Claude will ask before executing commands",
+                "default",
+            )
         };
 
-        let options = Paragraph::new(option_text)
+        let option_lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(format!("    {}  ", option_icon), Style::default().fg(option_color)),
+                Span::styled(option_title, Style::default().fg(option_color).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("       ", Style::default()),
+                Span::styled(option_desc, Style::default().fg(soft_white)),
+            ]),
+            Line::from(vec![
+                Span::styled("       Flag: ", Style::default().fg(muted_gray)),
+                Span::styled(option_flag, Style::default().fg(cornflower_blue).add_modifier(Modifier::ITALIC)),
+            ]),
+        ];
+
+        let option_title_line = Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled("Current Selection", Style::default().fg(option_color)),
+            Span::styled(" ", Style::default()),
+        ]);
+
+        let options = Paragraph::new(option_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title("Current Selection"),
-            )
-            .style(Style::default().fg(Color::White))
-            .alignment(Alignment::Center);
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(option_color))
+                    .title(option_title_line)
+                    .style(Style::default().bg(dark_bg)),
+            );
         frame.render_widget(options, chunks[2]);
 
-        // Instructions
-        let instructions = Paragraph::new("Space: Toggle • Enter: Continue • Esc: Cancel")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[3]);
+        // Modern footer with keyboard hints
+        let footer = Paragraph::new(Line::from(vec![
+            Span::styled("Space", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Toggle", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Continue", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[3]);
     }
 
     fn render_creating(&self, frame: &mut Frame, area: Rect) {
-        // Draw border around entire dialog
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let progress_cyan = Color::Rgb(100, 200, 230);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" ⚙️  ", Style::default().fg(progress_cyan)),
+            Span::styled("Creating Session", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session");
-        frame.render_widget(block, area);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Min(0),    // Progress
-                Constraint::Length(3), // Instructions
+                Constraint::Length(2), // Subtitle
+                Constraint::Min(0),    // Progress content
+                Constraint::Length(2), // Footer
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Creating Session...")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
-
-        // Progress
-        let progress = Paragraph::new(
-            "Creating Git worktree and Docker container...\nThis may take a moment.",
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White)),
-        )
-        .style(Style::default().fg(Color::White))
+        // Subtitle
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Setting up your development environment...", Style::default().fg(muted_gray)),
+        ]))
         .alignment(Alignment::Center);
-        frame.render_widget(progress, chunks[1]);
+        frame.render_widget(subtitle, chunks[0]);
 
-        // Instructions
-        let instructions = Paragraph::new("Please wait... • Esc: Cancel")
+        // Progress content with animated-style spinner dots
+        let progress_lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  🔄 ", Style::default().fg(progress_cyan)),
+                Span::styled("Creating Git worktree", Style::default().fg(soft_white)),
+                Span::styled(" ...", Style::default().fg(progress_cyan)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  🐳 ", Style::default().fg(cornflower_blue)),
+                Span::styled("Initializing Docker container", Style::default().fg(soft_white)),
+                Span::styled(" ...", Style::default().fg(cornflower_blue)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  📦 ", Style::default().fg(gold)),
+                Span::styled("Mounting volumes and configuring environment", Style::default().fg(soft_white)),
+            ]),
+            Line::from(""),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("       This may take a moment...", Style::default().fg(muted_gray).add_modifier(Modifier::ITALIC)),
+            ]),
+        ];
+
+        let progress = Paragraph::new(progress_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[2]);
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                    .style(Style::default().bg(dark_bg)),
+            );
+        frame.render_widget(progress, chunks[1]);
+
+        // Modern footer
+        let footer = Paragraph::new(Line::from(vec![
+            Span::styled("⏳ ", Style::default().fg(progress_cyan)),
+            Span::styled("Please wait", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[2]);
     }
 
     fn render_mode_selection(
@@ -779,65 +946,119 @@ impl NewSessionComponent {
     }
 
     fn render_prompt_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
-        // Draw border around entire dialog
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let file_finder_yellow = Color::Rgb(255, 200, 100);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" 💬 ", Style::default().fg(gold)),
+            Span::styled("Task Prompt", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session - Step 4: Task Prompt");
-        frame.render_widget(block, area);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Length(5), // Instructions
+                Constraint::Length(2), // Subtitle
+                Constraint::Length(6), // Instructions
                 Constraint::Min(0),    // Prompt input area
-                Constraint::Length(3), // Controls
+                Constraint::Length(2), // Controls
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Enter Boss Mode Prompt")
-            .style(Style::default().fg(Color::Yellow).bg(Color::Black))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        // Subtitle
+        let subtitle_text = if session_state.file_finder.is_active {
+            "File finder active - search for files to reference"
+        } else {
+            "Enter the task or prompt for Claude to execute"
+        };
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled(subtitle_text, Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, chunks[0]);
 
         // Instructions - update to mention @ symbol for file finder
-        let instructions_text = if session_state.file_finder.is_active {
+        let instructions_lines = if session_state.file_finder.is_active {
             vec![
-                Line::from("🔍 File Finder Active - Type to filter files:"),
-                Line::from("• ↑/↓: Navigate files"),
-                Line::from("• Enter: Select file • Esc: Cancel file finder"),
-                Line::from("• Type characters to filter by filename"),
+                Line::from(vec![
+                    Span::styled("  🔍 ", Style::default().fg(file_finder_yellow)),
+                    Span::styled("File Finder Active", Style::default().fg(file_finder_yellow).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("↑/↓", Style::default().fg(gold)),
+                    Span::styled(" to navigate files", Style::default().fg(soft_white)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("Enter", Style::default().fg(gold)),
+                    Span::styled(" to select file  •  ", Style::default().fg(soft_white)),
+                    Span::styled("Esc", Style::default().fg(gold)),
+                    Span::styled(" to cancel", Style::default().fg(soft_white)),
+                ]),
             ]
         } else {
             vec![
-                Line::from("Enter the task or prompt for Claude to execute:"),
-                Line::from("• Direct task: \"Analyze this codebase and suggest improvements\""),
-                Line::from(
-                    "• File reference: \"Review the file @src/main.rs\" (type @ for file finder)",
-                ),
-                Line::from("• GitHub issue: \"Fix issue #123\""),
+                Line::from(vec![
+                    Span::styled("  💡 ", Style::default().fg(cornflower_blue)),
+                    Span::styled("Example prompts:", Style::default().fg(cornflower_blue)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("\"Analyze this codebase and suggest improvements\"", Style::default().fg(soft_white).add_modifier(Modifier::ITALIC)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("\"Review the file ", Style::default().fg(soft_white).add_modifier(Modifier::ITALIC)),
+                    Span::styled("@src/main.rs", Style::default().fg(file_finder_yellow)),
+                    Span::styled("\" (type @ for file finder)", Style::default().fg(muted_gray)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("\"Fix issue #123\"", Style::default().fg(soft_white).add_modifier(Modifier::ITALIC)),
+                ]),
             ]
         };
 
-        let instructions = Paragraph::new(instructions_text)
-            .block(Block::default().borders(Borders::ALL).border_style(
-                if session_state.file_finder.is_active {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Blue)
-                },
-            ))
-            .style(if session_state.file_finder.is_active {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default().fg(Color::Cyan)
-            })
-            .alignment(Alignment::Left);
+        let instructions_border = if session_state.file_finder.is_active {
+            file_finder_yellow
+        } else {
+            Color::Rgb(60, 60, 80)
+        };
+
+        let instructions = Paragraph::new(instructions_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(instructions_border))
+                    .style(Style::default().bg(dark_bg)),
+            );
         frame.render_widget(instructions, chunks[1]);
 
         // Split the prompt input area if file finder is active
@@ -860,25 +1081,51 @@ impl NewSessionComponent {
             self.render_text_editor(frame, chunks[2], &session_state.boss_prompt, "Prompt");
         }
 
-        // Controls - update based on file finder state
-        let controls_text = if session_state.file_finder.is_active {
-            "File Finder: ↑/↓ Navigate • Enter: Select • Esc: Cancel • Type: Filter"
+        // Modern footer with keyboard hints
+        let controls = if session_state.file_finder.is_active {
+            Paragraph::new(Line::from(vec![
+                Span::styled("↑↓", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Navigate", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Select", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Type", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Filter", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Cancel", Style::default().fg(muted_gray)),
+            ]))
         } else {
-            "Type to enter prompt • Ctrl+J: New line • arrows: Move cursor • @ for file finder • Enter: Continue • Esc: Cancel"
+            Paragraph::new(Line::from(vec![
+                Span::styled("Type", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Input", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Ctrl+J", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Newline", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("@", Style::default().fg(file_finder_yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(" Files", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Continue", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Cancel", Style::default().fg(muted_gray)),
+            ]))
         };
-
-        let controls = Paragraph::new(controls_text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(controls, chunks[3]);
+        frame.render_widget(controls.alignment(Alignment::Center), chunks[3]);
     }
 
     fn render_file_finder(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        // Modern color palette
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let file_finder_yellow = Color::Rgb(255, 200, 100);
+        let selection_bg = Color::Rgb(80, 70, 40);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -887,44 +1134,65 @@ impl NewSessionComponent {
             ])
             .split(area);
 
-        // Query input
-        let query_display = format!("@{}", session_state.file_finder.query);
-        let query_input = Paragraph::new(query_display)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow))
-                    .title("File Filter"),
-            )
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Left);
+        // Query input with modern styling
+        let query_display = format!("  @{}", session_state.file_finder.query);
+        let query_title = Line::from(vec![
+            Span::styled(" 🔍 ", Style::default().fg(file_finder_yellow)),
+            Span::styled("Filter", Style::default().fg(file_finder_yellow)),
+            Span::styled(" ", Style::default()),
+        ]);
+
+        let query_input = Paragraph::new(Line::from(vec![
+            Span::styled(query_display, Style::default().fg(file_finder_yellow)),
+            Span::styled("▋", Style::default().fg(gold)), // Cursor indicator
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(file_finder_yellow))
+                .title(query_title)
+                .style(Style::default().bg(dark_bg)),
+        );
         frame.render_widget(query_input, chunks[0]);
 
-        // File list
+        // File list with modern styling
         let file_items: Vec<ListItem> = session_state
             .file_finder
             .matches
             .iter()
             .enumerate()
             .map(|(idx, file_match)| {
-                let style = if idx == session_state.file_finder.selected_index {
-                    Style::default().fg(Color::Black).bg(Color::Yellow)
+                if idx == session_state.file_finder.selected_index {
+                    ListItem::new(Line::from(vec![
+                        Span::styled("  ▶ ", Style::default().fg(gold)),
+                        Span::styled(&file_match.relative_path, Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                    ]))
+                    .style(Style::default().bg(selection_bg))
                 } else {
-                    Style::default().fg(Color::White)
-                };
-
-                ListItem::new(file_match.relative_path.as_str()).style(style)
+                    ListItem::new(Line::from(vec![
+                        Span::styled("    ", Style::default()),
+                        Span::styled(&file_match.relative_path, Style::default().fg(soft_white)),
+                    ]))
+                }
             })
             .collect();
+
+        let match_count = session_state.file_finder.matches.len();
+        let list_title = Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled("📄 ", Style::default().fg(muted_gray)),
+            Span::styled(format!("{} matches", match_count), Style::default().fg(muted_gray)),
+            Span::styled(" ", Style::default()),
+        ]);
 
         let file_list = List::new(file_items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow))
-                .title(format!(
-                    "Files ({} matches)",
-                    session_state.file_finder.matches.len()
-                )),
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                .title(list_title)
+                .style(Style::default().bg(dark_bg)),
         );
 
         frame.render_widget(file_list, chunks[1]);
