@@ -410,11 +410,11 @@ impl ImageBuilder {
 
         // Look for docker directory in a few possible locations
         let possible_paths = [
-            exe_dir.join("../docker/claude-dev"),
-            exe_dir.join("../../docker/claude-dev"),
-            exe_dir.join("../../../docker/claude-dev"),
-            PathBuf::from("./docker/claude-dev"),
-            PathBuf::from("../docker/claude-dev"),
+            exe_dir.join("../docker/agents-dev"),
+            exe_dir.join("../../docker/agents-dev"),
+            exe_dir.join("../../../docker/agents-dev"),
+            PathBuf::from("./docker/agents-dev"),
+            PathBuf::from("../docker/agents-dev"),
         ];
 
         for path in &possible_paths {
@@ -424,7 +424,7 @@ impl ImageBuilder {
         }
 
         Err(anyhow::anyhow!(
-            "Could not find claude-dev Dockerfile. Please ensure docker/claude-dev/Dockerfile exists"
+            "Could not find agents-dev Dockerfile. Please ensure docker/agents-dev/Dockerfile exists"
         ))
     }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# ABOUTME: Startup script for claude-dev container
+# ABOUTME: Startup script for agents-dev container
 # Handles environment setup, authentication, and CLI initialization
 
 set -e
@@ -12,19 +12,19 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 log() {
-    echo -e "${BLUE}[claude-box]${NC} $1"
+    echo -e "${BLUE}[agents-box]${NC} $1"
 }
 
 warn() {
-    echo -e "${YELLOW}[claude-box]${NC} $1"
+    echo -e "${YELLOW}[agents-box]${NC} $1"
 }
 
 error() {
-    echo -e "${RED}[claude-box]${NC} $1"
+    echo -e "${RED}[agents-box]${NC} $1"
 }
 
 success() {
-    echo -e "${GREEN}[claude-box]${NC} $1"
+    echo -e "${GREEN}[agents-box]${NC} $1"
 }
 
 # Load environment variables from .env if it exists
@@ -35,14 +35,14 @@ if [ -f /app/.env ]; then
     set +a
 fi
 
-# Check claude-box session mode
+# Check agents-box session mode
 if [ "${CLAUDE_BOX_MODE}" = "boss" ]; then
-    log "Running in claude-box boss mode"
+    log "Running in agents-box boss mode"
 elif [ "${CLAUDE_BOX_MODE}" = "interactive" ]; then
-    log "Running in claude-box interactive mode"
+    log "Running in agents-box interactive mode"
 elif [ "${CLAUDE_BOX_MODE}" = "true" ]; then
     # Legacy support
-    log "Running in claude-box mode (legacy)"
+    log "Running in agents-box mode (legacy)"
 fi
 
 # Check for existing authentication (multiple sources)
@@ -65,7 +65,7 @@ fi
 
 # Check for .claude directory with credentials (if no auth found yet)
 if [ "${AUTH_OK}" = "false" ] && [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
-    AUTH_SOURCES+=(".claude/.credentials.json (claude-in-a-box)")
+    AUTH_SOURCES+=(".claude/.credentials.json (agents-in-a-box)")
     AUTH_OK=true
 fi
 
@@ -74,8 +74,8 @@ if [ "${AUTH_OK}" = "true" ]; then
 else
     warn "No Claude authentication found!"
     warn "Please ensure one of:"
-    warn "  1. Run 'claude-box auth' to set up authentication"
-    warn "  2. Have ~/.claude-in-a-box/auth/.credentials.json (mounted to /home/claude-user/.claude/.credentials.json)"
+    warn "  1. Run 'agents-box auth' to set up authentication"
+    warn "  2. Have ~/.agents-in-a-box/auth/.credentials.json (mounted to /home/claude-user/.claude/.credentials.json)"
     warn "  3. Set ANTHROPIC_API_KEY in environment"
 fi
 
@@ -138,7 +138,7 @@ log "Using Claude CLI with args: $CLI_ARGS"
 # Handle boss mode execution
 if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
     # Create log directory
-    mkdir -p /workspace/.claude-box/logs
+    mkdir -p /workspace/.agents-box/logs
 
     success "Container environment ready!"
     if [ "${AUTH_OK}" = "true" ]; then
@@ -158,8 +158,8 @@ if [ "${CLAUDE_BOX_MODE}" = "boss" ] && [ -n "${CLAUDE_BOX_PROMPT}" ]; then
     else
         error "❌ Boss mode requires authentication!"
         error "Please ensure one of:"
-        error "  1. Run 'claude-box auth' to set up authentication"
-        error "  2. Have ~/.claude-in-a-box/auth/.credentials.json mounted"
+        error "  1. Run 'agents-box auth' to set up authentication"
+        error "  2. Have ~/.agents-in-a-box/auth/.credentials.json mounted"
         error "  3. Set ANTHROPIC_API_KEY in environment"
         exit 1
     fi
@@ -172,7 +172,7 @@ fi
 # If no command specified, run interactive shell
 if [ $# -eq 0 ]; then
     # Create log directory
-    mkdir -p /workspace/.claude-box/logs
+    mkdir -p /workspace/.agents-box/logs
 
     success "Container environment ready!"
     if [ "${AUTH_OK}" = "true" ]; then

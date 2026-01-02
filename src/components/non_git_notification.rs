@@ -23,7 +23,7 @@ impl NonGitNotificationComponent {
             )]),
             Line::from(""),
             Line::from("The current directory is not a Git repository."),
-            Line::from("Claude-in-a-Box requires a Git repository to create development sessions."),
+            Line::from("Agents-in-a-Box requires a Git repository to create development sessions."),
             Line::from(""),
             Line::from("Options:"),
             Line::from(vec![
@@ -42,14 +42,14 @@ impl NonGitNotificationComponent {
             ]),
             Line::from(""),
             Line::from(
-                "Tip: Navigate to a Git repository directory and run claude-in-a-box again.",
+                "Tip: Navigate to a Git repository directory and run agents-in-a-box again.",
             ),
         ];
 
         let paragraph = Paragraph::new(text)
             .block(
                 Block::default()
-                    .title("Claude-in-a-Box")
+                    .title("Agents-in-a-Box")
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Yellow)),
             )

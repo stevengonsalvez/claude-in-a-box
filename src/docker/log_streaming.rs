@@ -168,8 +168,8 @@ impl DockerLogStreamingManager {
         let is_boss_mode = matches!(session_mode, crate::models::SessionMode::Boss);
         // Buffer for partial JSON objects across frames
         let mut boss_json_buffer = String::new();
-        let parser_debug = std::env::var("CLAUDE_BOX_PARSER_DEBUG").is_ok();
-        let buf_limit: usize = std::env::var("CLAUDE_BOX_JSON_BUF_MAX")
+        let parser_debug = std::env::var("AGENTS_BOX_PARSER_DEBUG").is_ok();
+        let buf_limit: usize = std::env::var("AGENTS_BOX_JSON_BUF_MAX")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_JSON_BUF_LIMIT);
@@ -205,7 +205,7 @@ impl DockerLogStreamingManager {
                     // For boss mode, try to extract a JSON slice from the line
                     // Docker logs format: "2025-09-08T19:20:30.123456789Z {"type":"..."}"
                     let mut handled_as_json = false;
-                    let parser_debug = std::env::var("CLAUDE_BOX_PARSER_DEBUG").is_ok();
+                    let parser_debug = std::env::var("AGENTS_BOX_PARSER_DEBUG").is_ok();
 
                     // Prefer robust streaming JSON handling for any line that looks like JSON
                     if let Some(start) = raw_message.find('{') {

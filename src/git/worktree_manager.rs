@@ -41,7 +41,7 @@ pub struct WorktreeManager {
 impl WorktreeManager {
     pub fn new() -> Result<Self> {
         let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let base_dir = home_dir.join(".claude-in-a-box").join("worktrees");
+        let base_dir = home_dir.join(".agents-in-a-box").join("worktrees");
 
         std::fs::create_dir_all(&base_dir).with_context(|| {
             format!(

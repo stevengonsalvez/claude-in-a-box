@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Unified progress updates for session creation operations
-/// This enum replaces the claude-dev specific progress enum and supports all container types
+/// This enum replaces the agents-dev specific progress enum and supports all container types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SessionProgress {
     // Configuration and validation phase
@@ -170,27 +170,27 @@ impl SessionPhase {
     }
 }
 
-// Conversion from ClaudeDevProgress for backward compatibility
-impl From<crate::docker::claude_dev::ClaudeDevProgress> for SessionProgress {
-    fn from(claude_progress: crate::docker::claude_dev::ClaudeDevProgress) -> Self {
-        match claude_progress {
-            crate::docker::claude_dev::ClaudeDevProgress::SyncingAuthentication => {
+// Conversion from AgentsDevProgress for backward compatibility
+impl From<crate::docker::agents_dev::AgentsDevProgress> for SessionProgress {
+    fn from(agents_progress: crate::docker::agents_dev::AgentsDevProgress) -> Self {
+        match agents_progress {
+            crate::docker::agents_dev::AgentsDevProgress::SyncingAuthentication => {
                 SessionProgress::SyncingAuthentication
             }
-            crate::docker::claude_dev::ClaudeDevProgress::CheckingEnvironment => {
+            crate::docker::agents_dev::AgentsDevProgress::CheckingEnvironment => {
                 SessionProgress::CheckingEnvironment
             }
-            crate::docker::claude_dev::ClaudeDevProgress::BuildingImage(msg) => {
+            crate::docker::agents_dev::AgentsDevProgress::BuildingImage(msg) => {
                 SessionProgress::BuildingImage(msg)
             }
-            crate::docker::claude_dev::ClaudeDevProgress::StartingContainer => {
+            crate::docker::agents_dev::AgentsDevProgress::StartingContainer => {
                 SessionProgress::StartingContainer
             }
-            crate::docker::claude_dev::ClaudeDevProgress::ConfiguringGitHub => {
+            crate::docker::agents_dev::AgentsDevProgress::ConfiguringGitHub => {
                 SessionProgress::ConfiguringGitHub
             }
-            crate::docker::claude_dev::ClaudeDevProgress::Ready => SessionProgress::Ready,
-            crate::docker::claude_dev::ClaudeDevProgress::Error(msg) => SessionProgress::Error(msg),
+            crate::docker::agents_dev::AgentsDevProgress::Ready => SessionProgress::Ready,
+            crate::docker::agents_dev::AgentsDevProgress::Error(msg) => SessionProgress::Error(msg),
         }
     }
 }

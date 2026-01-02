@@ -1,6 +1,6 @@
 #!/bin/bash
 # ABOUTME: Standalone test script for Docker build, mounting, and MCP functionality
-# Tests the claude-dev container build process independently of the main application
+# Tests the agents-dev container build process independently of the main application
 
 set -e
 
@@ -29,9 +29,9 @@ warn() {
 }
 
 # Configuration
-IMAGE_NAME="claude-box:test-$(date +%s)"
-CONTAINER_NAME="claude-box-test-$(date +%s)"
-TEST_WORKSPACE="/tmp/claude-box-test-workspace-$(date +%s)"
+IMAGE_NAME="agents-box:test-$(date +%s)"
+CONTAINER_NAME="agents-box-test-$(date +%s)"
+TEST_WORKSPACE="/tmp/agents-box-test-workspace-$(date +%s)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$SCRIPT_DIR"
 
@@ -100,20 +100,20 @@ test_workspace_setup() {
 test_container_run() {
     log "Test 3: Running container with volume mounts"
 
-    # Prepare mount options (following claude-docker pattern with direct .claude.json mount)
+    # Prepare mount options (following agents-docker pattern with direct .claude.json mount)
     MOUNT_OPTS="-v ${TEST_WORKSPACE}:/workspace"
 
-    # Create persistent claude-box directory
-    mkdir -p "$HOME/.claude-box/claude-home"
+    # Create persistent agents-box directory
+    mkdir -p "$HOME/.agents-box/claude-home"
 
     # Copy .claude directory contents to persistent location (except .claude.json)
-    if [ -f "$HOME/.claude/.credentials.json" ] && [ ! -f "$HOME/.claude-box/claude-home/.credentials.json" ]; then
+    if [ -f "$HOME/.claude/.credentials.json" ] && [ ! -f "$HOME/.agents-box/claude-home/.credentials.json" ]; then
         log "Copying .credentials.json to persistent directory"
-        cp "$HOME/.claude/.credentials.json" "$HOME/.claude-box/claude-home/.credentials.json"
+        cp "$HOME/.claude/.credentials.json" "$HOME/.agents-box/claude-home/.credentials.json"
     fi
 
     # Mount persistent .claude directory
-    MOUNT_OPTS="$MOUNT_OPTS -v $HOME/.claude-box/claude-home:/home/claude-user/.claude:rw"
+    MOUNT_OPTS="$MOUNT_OPTS -v $HOME/.agents-box/claude-home:/home/claude-user/.claude:rw"
 
     # Mount .claude.json directly if it exists
     if [ -f "$HOME/.claude.json" ]; then
@@ -212,7 +212,7 @@ test_uid_gid_conflict() {
     log "Test 7: Testing UID/GID conflict handling"
 
     # Try building with UID/GID that might conflict (1000 is common)
-    local TEST_IMAGE="claude-box:test-conflict-$(date +%s)"
+    local TEST_IMAGE="agents-box:test-conflict-$(date +%s)"
 
     docker build \
         --build-arg HOST_UID=1000 \

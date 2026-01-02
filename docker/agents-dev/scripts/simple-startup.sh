@@ -12,19 +12,19 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 log() {
-    echo -e "${BLUE}[claude-box]${NC} $1"
+    echo -e "${BLUE}[agents-box]${NC} $1"
 }
 
 warn() {
-    echo -e "${YELLOW}[claude-box]${NC} $1"
+    echo -e "${YELLOW}[agents-box]${NC} $1"
 }
 
 error() {
-    echo -e "${RED}[claude-box]${NC} $1"
+    echo -e "${RED}[agents-box]${NC} $1"
 }
 
 success() {
-    echo -e "${GREEN}[claude-box]${NC} $1"
+    echo -e "${GREEN}[agents-box]${NC} $1"
 }
 
 # Load environment variables from .env if it exists
@@ -52,7 +52,7 @@ fi
 
 # Check for .claude directory with credentials (if no auth found yet)
 if [ "${AUTH_OK}" = "false" ] && [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
-    AUTH_SOURCES+=(".claude/.credentials.json (claude-in-a-box)")
+    AUTH_SOURCES+=(".claude/.credentials.json (agents-in-a-box)")
     AUTH_OK=true
 fi
 
@@ -98,7 +98,7 @@ fi
 claude config set hasTrustDialogAccepted true >/dev/null 2>&1 || true
 
 # Create log directory
-mkdir -p /workspace/.claude-box/logs
+mkdir -p /workspace/.agents-box/logs
 
 # Prepare the claude session (but don't start it)
 log "Environment prepared. Claude CLI is ready to use!"

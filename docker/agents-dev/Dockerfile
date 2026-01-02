@@ -1,4 +1,4 @@
-# ABOUTME: Claude development environment Dockerfile based on claude-docker
+# ABOUTME: Agents development environment Dockerfile based on agents-docker
 # Provides a complete development environment with Claude CLI and MCP servers
 
 ARG BASE_IMAGE=node:20-slim
@@ -110,9 +110,9 @@ RUN chmod +x /app/scripts/*.sh && \
     chmod +x /app/scripts/oauth-refresh.js
 
 # Copy custom bashrc for interactive sessions
-COPY --chown=claude-user:claude-user scripts/session-bashrc.sh /home/claude-user/.claude-box-bashrc
-RUN echo "# Source Claude-in-a-Box custom bashrc if in interactive session" >> /home/claude-user/.bashrc && \
-    echo '[ -f ~/.claude-box-bashrc ] && source ~/.claude-box-bashrc' >> /home/claude-user/.bashrc
+COPY --chown=claude-user:claude-user scripts/session-bashrc.sh /home/claude-user/.agents-box-bashrc
+RUN echo "# Source Agents-in-a-Box custom bashrc if in interactive session" >> /home/claude-user/.bashrc && \
+    echo '[ -f ~/.agents-box-bashrc ] && source ~/.agents-box-bashrc' >> /home/claude-user/.bashrc
 
 # Install Claude CLI
 ENV PATH="/home/claude-user/.npm-global/bin:$PATH"

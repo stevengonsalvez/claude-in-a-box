@@ -136,7 +136,7 @@ impl ContainerTemplate {
                 environment: {
                     let mut env = HashMap::new();
                     env.insert("NODE_ENV".to_string(), "development".to_string());
-                    env.insert("CLAUDE_BOX_MODE".to_string(), "true".to_string());
+                    env.insert("AGENTS_BOX_MODE".to_string(), "true".to_string());
                     env
                 },
                 user: Some("claude-user".to_string()),

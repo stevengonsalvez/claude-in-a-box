@@ -252,7 +252,7 @@ mod tests {
     fn test_filter_claude_ui_noise_permission_dialog() {
         let input = r#"Some output
 Do you want to work in this folder?
-/Users/stevengonsalvez/.claude-in-a-box/worktrees/by-name/claude-in-a-box--claude-90112e0b--89d6e40c
+/Users/stevengonsalvez/.agents-in-a-box/worktrees/by-name/agents-in-a-box--session-90112e0b--89d6e40c
 
 In order to work in this folder, we need your permission for Claude Code to read, edit, and execute files.
 

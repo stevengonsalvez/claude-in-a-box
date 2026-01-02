@@ -1,4 +1,4 @@
-// ABOUTME: Application state management and view switching logic
+// ABOUTME: Application state management and view switching logic for agents-in-a-box TUI
 
 use crate::app::SessionLoader;
 use crate::claude::client::ClaudeChatManager;
@@ -410,7 +410,7 @@ pub struct ConfirmationDialog {
 #[derive(Debug, Clone)]
 pub enum ConfirmAction {
     DeleteSession(Uuid),
-    KillOtherTmux(String), // Kill a non-claude-in-a-box tmux session by name
+    KillOtherTmux(String), // Kill a non-agents-in-a-box tmux session by name
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -562,7 +562,7 @@ pub struct AppState {
     pub tmux_sessions: HashMap<Uuid, crate::tmux::TmuxSession>,
     pub preview_update_task: Option<tokio::task::JoinHandle<()>>,
 
-    // Other tmux sessions (not managed by claude-in-a-box)
+    // Other tmux sessions (not managed by agents-in-a-box)
     pub other_tmux_sessions: Vec<crate::models::OtherTmuxSession>,
     pub other_tmux_expanded: bool,
     pub selected_other_tmux_index: Option<usize>,
@@ -661,8 +661,8 @@ pub enum AsyncAction {
     ReauthenticateCredentials, // Re-authenticate Claude credentials
     RestartSession(Uuid),      // Restart a stopped session with new container
     CleanupOrphaned,           // Clean up orphaned containers without worktrees
-    AttachToOtherTmux(String), // Attach to a non-claude-in-a-box tmux session by name
-    KillOtherTmux(String),     // Kill a non-claude-in-a-box tmux session by name
+    AttachToOtherTmux(String), // Attach to a non-agents-in-a-box tmux session by name
+    KillOtherTmux(String),     // Kill a non-agents-in-a-box tmux session by name
 }
 
 impl Default for AppState {
@@ -888,16 +888,16 @@ impl AppState {
             None => return false,
         };
 
-        let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        let auth_dir = home_dir.join(".agents-in-a-box/auth");
 
         let has_credentials = auth_dir.join(".credentials.json").exists();
         let has_claude_json = auth_dir.join(".claude.json").exists();
         let has_api_key = std::env::var("ANTHROPIC_API_KEY").is_ok();
-        let has_env_file = home_dir.join(".claude-in-a-box/.env").exists();
+        let has_env_file = home_dir.join(".agents-in-a-box/.env").exists();
 
         // Load .env file if it exists to check for API key
         let has_env_api_key = if has_env_file {
-            std::fs::read_to_string(home_dir.join(".claude-in-a-box/.env"))
+            std::fs::read_to_string(home_dir.join(".agents-in-a-box/.env"))
                 .map(|contents| contents.contains("ANTHROPIC_API_KEY="))
                 .unwrap_or(false)
         } else {
@@ -1013,7 +1013,7 @@ impl AppState {
         info!("Attempting to refresh OAuth tokens");
 
         let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
-        let auth_dir = home_dir.join(".claude-in-a-box").join("auth");
+        let auth_dir = home_dir.join(".agents-in-a-box").join("auth");
         let credentials_path = auth_dir.join(".credentials.json");
 
         // Check if tokens actually need refresh
@@ -1023,16 +1023,16 @@ impl AppState {
         }
 
         // Build the Docker image if needed
-        let image_name = "claude-box:claude-dev";
+        let image_name = "agents-box:agents-dev";
         let image_check = tokio::process::Command::new("docker")
             .args(["image", "inspect", image_name])
             .output()
             .await?;
 
         if !image_check.status.success() {
-            info!("Building claude-dev image for token refresh...");
+            info!("Building agents-dev image for token refresh...");
             let build_status = tokio::process::Command::new("docker")
-                .args(["build", "-t", image_name, "docker/claude-dev"])
+                .args(["build", "-t", image_name, "docker/agents-dev"])
                 .status()
                 .await?;
 
@@ -1137,7 +1137,7 @@ impl AppState {
         let home_dir = dirs::home_dir();
         if let Some(home) = home_dir {
             let credentials_path =
-                home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+                home.join(".agents-in-a-box").join("auth").join(".credentials.json");
 
             // Only attempt refresh if we have OAuth credentials AND Docker is available
             if credentials_path.exists() && Self::oauth_token_needs_refresh(&credentials_path) {
@@ -1165,7 +1165,7 @@ impl AppState {
         info!("Loading Interactive mode sessions");
         self.load_interactive_mode_sessions().await;
 
-        // Load other tmux sessions (not managed by claude-in-a-box)
+        // Load other tmux sessions (not managed by agents-in-a-box)
         info!("Loading other tmux sessions");
         self.load_other_tmux_sessions().await;
 
@@ -1274,7 +1274,7 @@ impl AppState {
         }
     }
 
-    /// Discover tmux sessions that are NOT managed by claude-in-a-box
+    /// Discover tmux sessions that are NOT managed by agents-in-a-box
     /// These are sessions without the "tmux_" prefix
     pub async fn load_other_tmux_sessions(&mut self) {
         use tokio::process::Command;
@@ -1311,7 +1311,7 @@ impl AppState {
                 // Session name may contain colons, so reconstruct from all parts except last two
                 let name = parts[..parts.len() - 2].join(":");
 
-                // Skip claude-in-a-box managed sessions (tmux_ prefix)
+                // Skip agents-in-a-box managed sessions (tmux_ prefix)
                 if name.starts_with("tmux_") {
                     continue;
                 }
@@ -1875,7 +1875,7 @@ impl AppState {
 
         // Generate branch name with UUID
         let branch_base = format!(
-            "claude/{}",
+            "agents-in-a-box/{}",
             uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
         );
 
@@ -1957,7 +1957,7 @@ impl AppState {
 
         // Generate branch name with UUID
         let branch_base = format!(
-            "claude/{}",
+            "agents-in-a-box/{}",
             uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
         );
 
@@ -1999,7 +1999,7 @@ impl AppState {
 
                         // Generate branch name with UUID
                         let branch_base = format!(
-                            "claude/{}",
+                            "agents-in-a-box/{}",
                             uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
                         );
 
@@ -2033,7 +2033,7 @@ impl AppState {
                         // Still transition to search view with empty state
                         self.new_session_state = Some(NewSessionState {
                             branch_name: format!(
-                                "claude/{}",
+                                "agents-in-a-box/{}",
                                 uuid::Uuid::new_v4()
                                     .to_string()
                                     .split('-')
@@ -2052,7 +2052,7 @@ impl AppState {
                 // Still transition to search view with empty state
                 self.new_session_state = Some(NewSessionState {
                     branch_name: format!(
-                        "claude/{}",
+                        "agents-in-a-box/{}",
                         uuid::Uuid::new_v4().to_string().split('-').next().unwrap_or("session")
                     ),
                     ..Default::default()
@@ -2150,7 +2150,7 @@ impl AppState {
 
                 state.step = NewSessionStep::InputBranch;
                 let uuid_str = uuid::Uuid::new_v4().to_string();
-                state.branch_name = format!("claude-session-{}", &uuid_str[..8]);
+                state.branch_name = format!("agents-session-{}", &uuid_str[..8]);
 
                 // Change view from SearchWorkspace to NewSession to show branch input
                 self.current_view = View::NewSession;
@@ -2425,7 +2425,7 @@ impl AppState {
 
             // Check if tokens need refresh (Docker is available at this point)
             if let Some(home) = dirs::home_dir() {
-                let credentials_path = home.join(".claude-in-a-box/auth/.credentials.json");
+                let credentials_path = home.join(".agents-in-a-box/auth/.credentials.json");
                 if credentials_path.exists() && Self::oauth_token_needs_refresh(&credentials_path) {
                     info!("Boss mode selected - OAuth tokens need refresh, attempting refresh");
                     match self.refresh_oauth_tokens().await {
@@ -3034,14 +3034,14 @@ impl AppState {
         info!("Starting cleanup of orphaned containers and state entries");
 
         let container_manager = ContainerManager::new().await?;
-        let containers = container_manager.list_claude_containers().await?;
+        let containers = container_manager.list_agents_containers().await?;
 
         let mut cleaned_up = 0;
 
         // Step 1: Clean up orphaned containers (containers without worktrees)
         for container in containers {
             if let Some(session_id_str) =
-                container.labels.as_ref().and_then(|labels| labels.get("claude-session-id"))
+                container.labels.as_ref().and_then(|labels| labels.get("agents-session-id"))
             {
                 if let Ok(session_id) = uuid::Uuid::parse_str(session_id_str) {
                     // Check if worktree exists for this session
@@ -3258,11 +3258,11 @@ impl AppState {
         }
 
         // First, try to find and remove the container directly
-        let container_name = format!("claude-session-{}", session_id);
+        let container_name = format!("agents-session-{}", session_id);
         let container_manager = ContainerManager::new().await?;
 
         info!("Looking for container: {}", container_name);
-        if let Ok(containers) = container_manager.list_claude_containers().await {
+        if let Ok(containers) = container_manager.list_agents_containers().await {
             for container in containers {
                 if let Some(names) = &container.names {
                     if names.iter().any(|n| n.trim_start_matches('/') == container_name) {
@@ -3448,7 +3448,7 @@ impl AppState {
 
         // Create auth directory
         let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
-        let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        let auth_dir = home_dir.join(".agents-in-a-box/auth");
 
         info!("Creating auth directory: {}", auth_dir.display());
         std::fs::create_dir_all(&auth_dir)?;
@@ -3474,15 +3474,15 @@ impl AppState {
         }
 
         // Check if image exists
-        let image_name = "claude-box:claude-dev";
+        let image_name = "agents-box:agents-dev";
         let image_check = std::process::Command::new("docker")
             .args(["image", "inspect", image_name])
             .output()?;
 
         if !image_check.status.success() {
-            info!("Building claude-dev image...");
+            info!("Building agents-dev image...");
             let build_status = std::process::Command::new("docker")
-                .args(["build", "-t", image_name, "docker/claude-dev"])
+                .args(["build", "-t", image_name, "docker/agents-dev"])
                 .status()?;
 
             if !build_status.success() {
@@ -3632,9 +3632,9 @@ impl AppState {
             return Err("Invalid API key format".into());
         }
 
-        // Create .env file in claude-in-a-box directory
+        // Create .env file in agents-in-a-box directory
         let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
-        let claude_box_dir = home_dir.join(".claude-in-a-box");
+        let claude_box_dir = home_dir.join(".agents-in-a-box");
         std::fs::create_dir_all(&claude_box_dir)?;
 
         let env_path = claude_box_dir.join(".env");
@@ -3699,7 +3699,7 @@ impl AppState {
 
         // Create backup of existing credentials
         let home_dir = dirs::home_dir().ok_or("Could not determine home directory")?;
-        let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        let auth_dir = home_dir.join(".agents-in-a-box/auth");
 
         let credentials_path = auth_dir.join(".credentials.json");
         let claude_json_path = auth_dir.join(".claude.json");
@@ -4219,7 +4219,7 @@ impl App {
         let home_dir = dirs::home_dir();
         if let Some(home) = home_dir {
             let credentials_path =
-                home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+                home.join(".agents-in-a-box").join("auth").join(".credentials.json");
 
             // Only attempt refresh if we have OAuth credentials that need refreshing
             // AND Docker is available (token refresh requires Docker for Boss mode)
@@ -4328,7 +4328,7 @@ impl App {
             let home_dir = dirs::home_dir();
             if let Some(home) = home_dir {
                 let credentials_path =
-                    home.join(".claude-in-a-box").join("auth").join(".credentials.json");
+                    home.join(".agents-in-a-box").join("auth").join(".credentials.json");
 
                 if credentials_path.exists()
                     && AppState::oauth_token_needs_refresh(&credentials_path)

@@ -36,7 +36,7 @@ impl SessionLoader {
         info!("Loading active sessions from Docker containers");
 
         // Get all Claude-managed containers
-        let containers = self.container_manager.list_claude_containers().await?;
+        let containers = self.container_manager.list_agents_containers().await?;
         info!("Found {} Claude-managed containers", containers.len());
 
         // Group sessions by their source repository
@@ -47,7 +47,7 @@ impl SessionLoader {
             let session_id = container
                 .labels
                 .as_ref()
-                .and_then(|labels| labels.get("claude-session-id"))
+                .and_then(|labels| labels.get("agents-session-id"))
                 .and_then(|id| Uuid::parse_str(id).ok());
 
             if let Some(session_id) = session_id {
@@ -258,9 +258,9 @@ impl SessionLoader {
         Ok(workspaces)
     }
 
-    /// Load sessions from persistence (e.g., ~/.claude-box/sessions.json)
+    /// Load sessions from persistence (e.g., ~/.agents-box/sessions.json)
     pub async fn load_from_persistence(&self) -> Result<Vec<Session>> {
-        // TODO: Implement loading from ~/.claude-box/sessions.json
+        // TODO: Implement loading from ~/.agents-box/sessions.json
         // For now, return empty vec
         Ok(vec![])
     }

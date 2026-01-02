@@ -1,4 +1,4 @@
-// ABOUTME: Tmux session management module for claude-in-a-box
+// ABOUTME: Tmux session management module for agents-in-a-box
 //
 // This module provides tmux-based session management as an alternative to
 // Docker containers, enabling:

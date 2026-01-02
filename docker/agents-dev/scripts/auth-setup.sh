@@ -1,5 +1,5 @@
 #!/bin/bash
-# ABOUTME: Authentication setup script for claude-in-a-box
+# ABOUTME: Authentication setup script for agents-in-a-box
 # Runs OAuth login and stores credentials for container sessions
 
 set -e
@@ -15,22 +15,22 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 log() {
-    echo -e "${BLUE}[claude-box auth]${NC} $1"
+    echo -e "${BLUE}[agents-box auth]${NC} $1"
 }
 
 warn() {
-    echo -e "${YELLOW}[claude-box auth]${NC} $1"
+    echo -e "${YELLOW}[agents-box auth]${NC} $1"
 }
 
 error() {
-    echo -e "${RED}[claude-box auth]${NC} $1"
+    echo -e "${RED}[agents-box auth]${NC} $1"
 }
 
 success() {
-    echo -e "${GREEN}[claude-box auth]${NC} $1"
+    echo -e "${GREEN}[agents-box auth]${NC} $1"
 }
 
-log "Starting Claude authentication setup for claude-in-a-box"
+log "Starting Claude authentication setup for agents-in-a-box"
 
 # Set up environment for claude-user
 export PATH="/home/claude-user/.npm-global/bin:$PATH"
@@ -148,17 +148,17 @@ if [ $AUTH_SUCCESS -eq 0 ]; then
 
     # Verify credentials were created
     if [ -f /home/claude-user/.claude/.credentials.json ] && [ -s /home/claude-user/.claude/.credentials.json ]; then
-        success "Credentials saved to ~/.claude-in-a-box/auth/.credentials.json"
+        success "Credentials saved to ~/.agents-in-a-box/auth/.credentials.json"
 
         # The OAuth credentials file contains everything needed for authentication
         # No additional .claude.json configuration file is required
 
         success ""
         success "🎉 Authentication setup complete!"
-        success "You can now use claude-box sessions with these credentials."
+        success "You can now use agents-box sessions with these credentials."
         success ""
         success "To start a development session, run:"
-        success "  claude-box session start"
+        success "  agents-box session start"
     else
         error "Authentication succeeded but credentials file not found!"
         error "This may indicate an issue with the authentication process."

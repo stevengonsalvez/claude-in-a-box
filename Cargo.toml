@@ -1,11 +1,11 @@
 [package]
-name = "claude-box"
+name = "agents-box"
 version = "0.1.0"
 edition = "2021"
-authors = ["Claude-in-a-Box Team"]
+authors = ["Agents-in-a-Box Team"]
 description = "Terminal-based development environment manager for Claude Code containers"
 license = "MIT"
-repository = "https://github.com/your-org/claude-box"
+repository = "https://github.com/your-org/agents-box"
 keywords = ["claude", "docker", "tui", "development", "containers"]
 categories = ["command-line-utilities", "development-tools"]
 

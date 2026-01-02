@@ -30,7 +30,7 @@ impl ClaudeApiClient {
         }
 
         let client = Client::builder()
-            .user_agent("claude-in-a-box/0.1.0")
+            .user_agent("agents-in-a-box/0.1.0")
             .timeout(std::time::Duration::from_secs(60))
             .build()
             .context("Failed to create HTTP client")?;
@@ -49,7 +49,7 @@ impl ClaudeApiClient {
         }
 
         let client = Client::builder()
-            .user_agent("claude-in-a-box/0.1.0")
+            .user_agent("agents-in-a-box/0.1.0")
             .timeout(std::time::Duration::from_secs(60))
             .build()
             .context("Failed to create HTTP client")?;
@@ -224,13 +224,13 @@ impl ClaudeApiClient {
         ])
     }
 
-    /// Load authentication from claude-in-a-box config files
+    /// Load authentication from agents-in-a-box config files
     pub fn load_auth_from_config() -> Result<ClaudeAuth> {
         let home_dir =
             dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
 
         // Try API key from .env file first
-        let env_file = home_dir.join(".claude-in-a-box/.env");
+        let env_file = home_dir.join(".agents-in-a-box/.env");
         if env_file.exists() {
             if let Ok(contents) = std::fs::read_to_string(&env_file) {
                 for line in contents.lines() {
@@ -243,7 +243,7 @@ impl ClaudeApiClient {
         }
 
         // Try OAuth credentials
-        let auth_dir = home_dir.join(".claude-in-a-box/auth");
+        let auth_dir = home_dir.join(".agents-in-a-box/auth");
         let credentials_file = auth_dir.join(".credentials.json");
         let claude_json_file = auth_dir.join(".claude.json");
 

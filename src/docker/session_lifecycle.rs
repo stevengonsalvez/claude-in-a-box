@@ -1,7 +1,7 @@
 // ABOUTME: Session lifecycle management that coordinates worktrees and Docker containers
 
 use super::{
-    ClaudeDevConfig, ClaudeDevProgress, ContainerConfig, ContainerManager, ContainerStatus,
+    AgentsDevConfig, AgentsDevProgress, ContainerConfig, ContainerManager, ContainerStatus,
     SessionContainer, SessionProgress,
 };
 use crate::config::{
@@ -98,37 +98,37 @@ impl SessionLifecycleManager {
         self.create_session_with_logs(request, None).await
     }
 
-    /// Create a new claude-dev session using the native claude_dev module
+    /// Create a new agents-dev session using the native agents_dev module
     ///
     /// **DEPRECATED**: Use `create_session()` instead for unified session creation across all container templates.
     #[deprecated(
         since = "0.1.0",
         note = "Use create_session() instead for unified session creation"
     )]
-    pub async fn create_claude_dev_session(
+    pub async fn create_agents_dev_session(
         &mut self,
         request: SessionRequest,
     ) -> Result<SessionState, SessionLifecycleError> {
         tracing::warn!(
-            "create_claude_dev_session is deprecated. Use create_session() for unified session creation."
+            "create_agents_dev_session is deprecated. Use create_session() for unified session creation."
         );
         self.create_session(request, None).await
     }
 
-    /// Create a new claude-dev session using the native claude_dev module with progress tracking
+    /// Create a new agents-dev session using the native agents_dev module with progress tracking
     ///
     /// **DEPRECATED**: Use `create_session()` with SessionProgress instead for unified session creation.
     #[deprecated(
         since = "0.1.0",
         note = "Use create_session() with SessionProgress instead for unified session creation"
     )]
-    pub async fn create_claude_dev_session_with_logs(
+    pub async fn create_agents_dev_session_with_logs(
         &mut self,
         request: SessionRequest,
-        progress_sender: Option<mpsc::Sender<ClaudeDevProgress>>,
+        progress_sender: Option<mpsc::Sender<AgentsDevProgress>>,
     ) -> Result<SessionState, SessionLifecycleError> {
         info!(
-            "Creating new claude-dev session {} for workspace {}",
+            "Creating new agents-dev session {} for workspace {}",
             request.session_id, request.workspace_name
         );
 
@@ -172,9 +172,9 @@ impl SessionLifecycleManager {
         session.id = request.session_id;
         session.branch_name = request.branch_name.clone();
 
-        // Use claude_dev module to create container
-        let claude_dev_config = ClaudeDevConfig {
-            image_name: "claude-box:claude-dev".to_string(),
+        // Use agents_dev module to create container
+        let agents_dev_config = AgentsDevConfig {
+            image_name: "agents-box:agents-dev".to_string(),
             memory_limit: None,
             gpu_access: None,
             force_rebuild: false,
@@ -184,10 +184,10 @@ impl SessionLifecycleManager {
             env_vars: std::collections::HashMap::new(),
         };
 
-        // Create the claude-dev container using the native module
-        let container_id = match super::create_claude_dev_session(
+        // Create the agents-dev container using the native module
+        let container_id = match super::create_agents_dev_session(
             &worktree_info.path,
-            claude_dev_config,
+            agents_dev_config,
             request.session_id,
             progress_sender,
             mount_claude_config,
@@ -195,7 +195,7 @@ impl SessionLifecycleManager {
         .await
         {
             Ok(id) => {
-                info!("Created claude-dev container: {}", id);
+                info!("Created agents-dev container: {}", id);
                 session.container_id = Some(id.clone());
                 id
             }
@@ -209,7 +209,7 @@ impl SessionLifecycleManager {
                     );
                 }
                 return Err(SessionLifecycleError::ConfigError(format!(
-                    "Failed to create claude-dev container: {}",
+                    "Failed to create agents-dev container: {}",
                     e
                 )));
             }
@@ -248,13 +248,13 @@ impl SessionLifecycleManager {
         let session_state = SessionState {
             session,
             worktree_info: Some(worktree_info),
-            container: None, // claude_dev module manages the container directly
+            container: None, // agents_dev module manages the container directly
         };
 
         self.active_sessions.insert(request.session_id, session_state.clone());
 
         info!(
-            "Successfully created claude-dev session {}",
+            "Successfully created agents-dev session {}",
             request.session_id
         );
         Ok(session_state)
@@ -744,7 +744,7 @@ impl SessionLifecycleManager {
         };
         config
             .environment_vars
-            .insert("CLAUDE_BOX_MODE".to_string(), mode_str.to_string());
+            .insert("AGENTS_BOX_MODE".to_string(), mode_str.to_string());
         info!(
             "Set session mode to '{}' for session {}",
             mode_str, request.session_id
@@ -752,7 +752,7 @@ impl SessionLifecycleManager {
 
         // Set boss prompt if in boss mode
         if let Some(ref prompt) = request.boss_prompt {
-            config.environment_vars.insert("CLAUDE_BOX_PROMPT".to_string(), prompt.clone());
+            config.environment_vars.insert("AGENTS_BOX_PROMPT".to_string(), prompt.clone());
             info!("Set boss prompt for session {}", request.session_id);
         }
 
@@ -788,7 +788,7 @@ impl SessionLifecycleManager {
         use std::fs;
 
         let home_dir = dirs::home_dir().ok_or("Could not find home directory")?;
-        let auth_claude_json = home_dir.join(".claude-in-a-box/auth/.claude.json");
+        let auth_claude_json = home_dir.join(".agents-in-a-box/auth/.claude.json");
 
         if !auth_claude_json.exists() {
             return Err("Auth .claude.json file not found".into());
@@ -873,9 +873,9 @@ impl SessionLifecycleManager {
                     info!("Mounting user's entire .claude directory from ~/.claude");
                 }
 
-                // Then mount claude-in-a-box auth credentials on top
+                // Then mount agents-in-a-box auth credentials on top
                 // This will override any .credentials.json from the host .claude directory
-                let credentials_path = home_dir.join(".claude-in-a-box/auth/.credentials.json");
+                let credentials_path = home_dir.join(".agents-in-a-box/auth/.credentials.json");
                 if credentials_path.exists() {
                     *config = config.clone().with_volume(
                         credentials_path.clone(),
@@ -883,7 +883,7 @@ impl SessionLifecycleManager {
                         true, // read-only for security
                     );
                     info!(
-                        "Mounting claude-in-a-box auth credentials from ~/.claude-in-a-box/auth/.credentials.json"
+                        "Mounting agents-in-a-box auth credentials from ~/.agents-in-a-box/auth/.credentials.json"
                     );
 
                     // ALSO set OAuth token as environment variable for redundancy
@@ -908,12 +908,12 @@ impl SessionLifecycleManager {
                     }
                 } else {
                     warn!(
-                        "mount_claude_config is true but ~/.claude-in-a-box/auth/.credentials.json not found - run 'claude-box auth' first"
+                        "mount_claude_config is true but ~/.agents-in-a-box/auth/.credentials.json not found - run 'agents-box auth' first"
                     );
                 }
 
                 // Check for .claude.json in the auth directory (created during OAuth)
-                let claude_json_auth_path = home_dir.join(".claude-in-a-box/auth/.claude.json");
+                let claude_json_auth_path = home_dir.join(".agents-in-a-box/auth/.claude.json");
                 if claude_json_auth_path.exists() {
                     *config = config.clone().with_volume(
                         claude_json_auth_path,
@@ -921,7 +921,7 @@ impl SessionLifecycleManager {
                         false, // read-write mount for Claude CLI organic updates (theme, etc.)
                     );
                     info!(
-                        "Mounting claude-in-a-box .claude.json from auth directory to ~/.claude.json"
+                        "Mounting agents-in-a-box .claude.json from auth directory to ~/.claude.json"
                     );
                 } else {
                     info!(
@@ -930,14 +930,14 @@ impl SessionLifecycleManager {
                 }
 
                 // Mount .env file if it exists for API key authentication
-                let env_path = home_dir.join(".claude-in-a-box/.env");
+                let env_path = home_dir.join(".agents-in-a-box/.env");
                 if env_path.exists() {
                     *config = config.clone().with_volume(
                         env_path,
                         "/app/.env".to_string(),
                         true, // read-only for security
                     );
-                    info!("Mounting claude-in-a-box .env file for API key authentication");
+                    info!("Mounting agents-in-a-box .env file for API key authentication");
                 }
             }
         } else {
@@ -1074,11 +1074,11 @@ impl SessionLifecycleManager {
 
         // Remove any existing container for this session first
         // This is necessary when restarting a session - we need to clean up the old container
-        let container_name = format!("claude-session-{}", request.session_id);
+        let container_name = format!("agents-session-{}", request.session_id);
         info!("Checking for existing container: {}", container_name);
 
         // Try to remove existing container if it exists
-        if let Ok(containers) = self.container_manager.list_claude_containers().await {
+        if let Ok(containers) = self.container_manager.list_agents_containers().await {
             for existing_container in containers {
                 if let Some(names) = &existing_container.names {
                     if names.iter().any(|n| n.trim_start_matches('/') == container_name) {
@@ -1277,7 +1277,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore] // Requires Docker
-    async fn test_claude_dev_session_lifecycle() {
+    async fn test_agents_dev_session_lifecycle() {
         let mut manager = SessionLifecycleManager::new().await.unwrap();
         let temp_dir = TempDir::new().unwrap();
 
@@ -1288,7 +1288,7 @@ mod tests {
         // Create a test file
         std::fs::write(
             temp_dir.path().join("test.py"),
-            "print('Hello claude-dev!')\n",
+            "print('Hello agents-dev!')\n",
         )
         .unwrap();
 
@@ -1317,13 +1317,13 @@ mod tests {
             "test-branch".to_string(),
         );
 
-        // Create claude-dev session
-        let session_state = manager.create_claude_dev_session(request).await.unwrap();
+        // Create agents-dev session
+        let session_state = manager.create_agents_dev_session(request).await.unwrap();
         assert_eq!(session_state.session.id, session_id);
         assert!(session_state.worktree_info.is_some());
         assert!(session_state.session.container_id.is_some());
 
-        // Session should be running (claude-dev starts automatically)
+        // Session should be running (agents-dev starts automatically)
         let session = manager.get_session(session_id).unwrap();
         assert!(session.session.status.is_running());
 
@@ -1334,7 +1334,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore] // Requires Docker
-    async fn test_claude_dev_session_with_progress() {
+    async fn test_agents_dev_session_with_progress() {
         let mut manager = SessionLifecycleManager::new().await.unwrap();
         let temp_dir = TempDir::new().unwrap();
 
@@ -1377,15 +1377,15 @@ mod tests {
         // Create progress channel
         let (tx, mut rx) = mpsc::channel(100);
 
-        // Create claude-dev session with progress tracking
+        // Create agents-dev session with progress tracking
         let session_task = tokio::spawn(async move {
-            manager.create_claude_dev_session_with_logs(request, Some(tx)).await
+            manager.create_agents_dev_session_with_logs(request, Some(tx)).await
         });
 
         // Collect progress messages
         let mut progress_messages = Vec::new();
         while let Some(progress) = rx.recv().await {
-            let should_break = matches!(progress, ClaudeDevProgress::Ready);
+            let should_break = matches!(progress, AgentsDevProgress::Ready);
             progress_messages.push(progress);
             if should_break {
                 break;
@@ -1403,13 +1403,13 @@ mod tests {
         // Should have authentication sync progress
         let has_auth_sync = progress_messages
             .iter()
-            .any(|p| matches!(p, ClaudeDevProgress::SyncingAuthentication));
+            .any(|p| matches!(p, AgentsDevProgress::SyncingAuthentication));
         assert!(has_auth_sync);
 
         // Should have environment check progress
         let has_env_check = progress_messages
             .iter()
-            .any(|p| matches!(p, ClaudeDevProgress::CheckingEnvironment));
+            .any(|p| matches!(p, AgentsDevProgress::CheckingEnvironment));
         assert!(has_env_check);
     }
 }

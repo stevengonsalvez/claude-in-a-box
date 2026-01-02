@@ -1,4 +1,4 @@
-// ABOUTME: Main entry point for Claude-in-a-Box with TUI and CLI support
+// ABOUTME: Main entry point for Agents-in-a-Box with TUI and CLI support
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -50,7 +50,7 @@ fn cleanup_terminal_with_instance<B: Backend + std::io::Write>(
 }
 
 #[derive(Parser)]
-#[command(name = "claude-box")]
+#[command(name = "agents-box")]
 #[command(about = "Terminal-based development environment manager for Claude Code containers")]
 pub struct Cli {
     #[command(subcommand)]
@@ -91,13 +91,13 @@ async fn main() -> Result<()> {
 }
 
 async fn run_auth_setup() -> Result<()> {
-    println!("🔐 Setting up Claude authentication for claude-in-a-box...");
+    println!("🔐 Setting up Claude authentication for agents-in-a-box...");
     println!();
 
     // Create the auth directory structure
     let home_dir =
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not determine home directory"))?;
-    let claude_box_dir = home_dir.join(".claude-in-a-box");
+    let claude_box_dir = home_dir.join(".agents-in-a-box");
     let auth_dir = claude_box_dir.join("auth");
 
     std::fs::create_dir_all(&auth_dir)
@@ -132,9 +132,9 @@ async fn run_auth_setup() -> Result<()> {
         ));
     }
 
-    println!("🏗️  Building authentication container (claude-dev)...");
+    println!("🏗️  Building authentication container (agents-dev)...");
     let build_status = std::process::Command::new("docker")
-        .args(["build", "-t", "claude-box:claude-dev", "docker/claude-dev"])
+        .args(["build", "-t", "agents-box:agents-dev", "docker/agents-dev"])
         .status()
         .map_err(|e| anyhow::anyhow!("Failed to build container: {}", e))?;
 
@@ -167,7 +167,7 @@ async fn run_auth_setup() -> Result<()> {
             "claude-user",
             "--entrypoint",
             "bash",
-            "claude-box:claude-dev",
+            "agents-box:agents-dev",
             "-c",
             "/app/scripts/auth-setup.sh",
         ])
@@ -179,8 +179,8 @@ async fn run_auth_setup() -> Result<()> {
         println!("🎉 Authentication setup complete!");
         println!("   Credentials saved to: {}", credentials_path.display());
         println!();
-        println!("You can now create claude-box development sessions with:");
-        println!("   claude-box");
+        println!("You can now create agents-box development sessions with:");
+        println!("   agents-box");
     } else {
         println!();
         println!("❌ Authentication setup failed!");
@@ -577,14 +577,14 @@ fn setup_logging() {
 
     // Create log directory if it doesn't exist
     let log_dir = std::env::var("HOME")
-        .map(|home| PathBuf::from(home).join(".claude-in-a-box").join("logs"))
-        .unwrap_or_else(|_| PathBuf::from(".claude-in-a-box/logs"));
+        .map(|home| PathBuf::from(home).join(".agents-in-a-box").join("logs"))
+        .unwrap_or_else(|_| PathBuf::from(".agents-in-a-box/logs"));
 
     let _ = std::fs::create_dir_all(&log_dir);
 
     // Create log file with timestamp
     let log_file = log_dir.join(format!(
-        "claude-in-a-box-{}.log",
+        "agents-in-a-box-{}.log",
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     ));
 
@@ -604,7 +604,7 @@ fn setup_logging() {
         )
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "claude_box=info".into()),
+                .unwrap_or_else(|_| "agents_box=info".into()),
         )
         .init();
 }

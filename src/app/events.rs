@@ -1162,7 +1162,7 @@ impl EventHandler {
                          1. If the OAuth URL didn't appear, check the container logs\n\n\
                          2. Use API Key authentication instead (press Up/Down to switch)\n\n\
                          3. Run authentication manually in a terminal:\n\
-                            docker exec -it claude-box-auth /bin/bash\n\
+                            docker exec -it agents-box-auth /bin/bash\n\
                             claude auth login\n\n\
                          Press 'Esc' to go back."
                             .to_string(),
