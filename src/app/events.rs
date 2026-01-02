@@ -929,8 +929,14 @@ impl EventHandler {
                 }
             }
             AppEvent::AttachTmuxSession => {
-                // Attach to tmux session for the selected session
-                if let Some(session_id) = state.get_selected_session_id() {
+                // Check if we're in the "Other tmux" section
+                if state.is_other_tmux_selected() {
+                    if let Some(other_session) = state.selected_other_tmux_session() {
+                        let session_name = other_session.name.clone();
+                        state.pending_async_action = Some(AsyncAction::AttachToOtherTmux(session_name));
+                    }
+                } else if let Some(session_id) = state.get_selected_session_id() {
+                    // Attach to tmux session for the selected session
                     state.pending_async_action = Some(AsyncAction::AttachToTmuxSession(session_id));
                 }
             }
@@ -980,8 +986,13 @@ impl EventHandler {
                 }
             }
             AppEvent::DeleteSession => {
-                // Show confirmation dialog
-                if let Some(session) = state.selected_session() {
+                // Check if we're in the "Other tmux" section
+                if state.is_other_tmux_selected() {
+                    if let Some(other_session) = state.selected_other_tmux_session() {
+                        state.show_kill_other_tmux_confirmation(other_session.name.clone());
+                    }
+                } else if let Some(session) = state.selected_session() {
+                    // Show confirmation dialog for regular session
                     state.show_delete_confirmation(session.id);
                 }
             }
@@ -1036,6 +1047,10 @@ impl EventHandler {
                             crate::app::state::ConfirmAction::DeleteSession(session_id) => {
                                 state.pending_async_action =
                                     Some(AsyncAction::DeleteSession(session_id));
+                            }
+                            crate::app::state::ConfirmAction::KillOtherTmux(session_name) => {
+                                state.pending_async_action =
+                                    Some(AsyncAction::KillOtherTmux(session_name));
                             }
                         }
                     }

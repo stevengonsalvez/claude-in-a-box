@@ -416,6 +416,67 @@ async fn run_tui_loop(
         }
 
         if last_tick.elapsed() >= tick_rate {
+            // Handle "other" tmux attach action BEFORE app.tick() to get terminal access
+            if let Some(crate::app::state::AsyncAction::AttachToOtherTmux(session_name)) = app.state.pending_async_action.take() {
+                use tracing::{info, error};
+                use crate::app::AttachHandler;
+
+                info!("Handling AttachToOtherTmux for session '{}'", session_name);
+
+                // Create attach handler and attach directly using the session name
+                let mut attach_handler = AttachHandler::new_from_terminal(terminal)?;
+                match attach_handler.attach_to_session(&session_name).await {
+                    Ok(()) => {
+                        info!("Successfully attached and detached from other tmux session '{}'", session_name);
+                    }
+                    Err(e) => {
+                        error!("Failed to attach to other tmux session '{}': {}", session_name, e);
+                        app.state.add_error_notification(format!("Failed to attach: {}", e));
+                    }
+                }
+
+                // Refresh other tmux sessions list after detach
+                app.state.load_other_tmux_sessions().await;
+                app.state.ui_needs_refresh = true;
+            }
+
+            // Handle kill "other" tmux session
+            if let Some(crate::app::state::AsyncAction::KillOtherTmux(session_name)) = app.state.pending_async_action.take() {
+                use tracing::{info, warn};
+                use tokio::process::Command;
+
+                info!("Killing other tmux session '{}'", session_name);
+
+                let output = Command::new("tmux")
+                    .args(["kill-session", "-t", &session_name])
+                    .output()
+                    .await;
+
+                match output {
+                    Ok(o) if o.status.success() => {
+                        info!("Successfully killed tmux session '{}'", session_name);
+                        app.state.add_success_notification(format!("Killed tmux session '{}'", session_name));
+                        // Clear selection if we just killed the selected session
+                        if app.state.selected_other_tmux_session().map(|s| s.name.as_str()) == Some(&session_name) {
+                            app.state.selected_other_tmux_index = None;
+                        }
+                    }
+                    Ok(o) => {
+                        let stderr = String::from_utf8_lossy(&o.stderr);
+                        warn!("Failed to kill tmux session '{}': {}", session_name, stderr);
+                        app.state.add_error_notification(format!("Failed to kill session: {}", stderr));
+                    }
+                    Err(e) => {
+                        warn!("Failed to kill tmux session '{}': {}", session_name, e);
+                        app.state.add_error_notification(format!("Failed to kill session: {}", e));
+                    }
+                }
+
+                // Refresh other tmux sessions list
+                app.state.load_other_tmux_sessions().await;
+                app.state.ui_needs_refresh = true;
+            }
+
             // Handle tmux attach action BEFORE app.tick() to get terminal access
             // This is required because AttachToTmuxSession needs terminal handle for suspend/resume
             if let Some(crate::app::state::AsyncAction::AttachToTmuxSession(session_id)) = app.state.pending_async_action.take() {
