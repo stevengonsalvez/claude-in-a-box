@@ -165,7 +165,7 @@ impl SessionListComponent {
                 "▶"
             };
 
-            let header_style = if is_selected_other && state.selected_other_tmux_index.is_none() {
+            let header_style = if state.selected_workspace_index.is_none() {
                 Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Magenta)

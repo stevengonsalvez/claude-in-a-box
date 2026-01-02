@@ -1308,15 +1308,19 @@ impl AppState {
         for line in sessions_output.lines() {
             let parts: Vec<&str> = line.split(':').collect();
             if parts.len() >= 3 {
-                let name = parts[0].to_string();
+                // Session name may contain colons, so reconstruct from all parts except last two
+                let name = parts[..parts.len() - 2].join(":");
 
                 // Skip claude-in-a-box managed sessions (tmux_ prefix)
                 if name.starts_with("tmux_") {
                     continue;
                 }
 
-                let attached = parts[1] == "1";
-                let windows = parts[2].parse().unwrap_or(1);
+                let attached = parts[parts.len() - 2] == "1";
+                let windows = parts[parts.len() - 1].parse().unwrap_or_else(|e| {
+                    warn!("Failed to parse window count for tmux session '{}': {}. Defaulting to 1.", name, e);
+                    1
+                });
 
                 other_sessions.push(OtherTmuxSession::new(name, attached, windows));
             }
