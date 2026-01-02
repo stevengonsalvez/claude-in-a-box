@@ -145,92 +145,187 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
-        // Draw border around entire dialog
+        // Draw outer border with gradient-like effect using rounded corners
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("Search Repositories");
-        frame.render_widget(block, area);
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .title(Span::styled(
+                " 🔍 Search Repositories ",
+                Style::default()
+                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
                 Constraint::Length(3), // Search input
+                Constraint::Length(1), // Spacer
                 Constraint::Min(0),    // Repository list
-                Constraint::Length(3), // Instructions
+                Constraint::Length(1), // Spacer
+                Constraint::Length(2), // Instructions
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Search Workspaces")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        // Search input with icon and styled placeholder
+        let search_text = if session_state.filter_text.is_empty() {
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    "Type to search repositories...",
+                    Style::default().fg(Color::Rgb(128, 128, 128)).add_modifier(Modifier::ITALIC),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("  ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled(
+                    &session_state.filter_text,
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))), // Cursor
+            ])
+        };
 
-        // Search input - Use a solid background to prevent text bleeding
-        let search_input = Paragraph::new(session_state.filter_text.as_str())
+        let search_input = Paragraph::new(search_text)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title("Filter")
-                    .style(Style::default().bg(Color::Black)),
-            )
-            .style(Style::default().fg(Color::White).bg(Color::Black));
-        frame.render_widget(search_input, chunks[1]);
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(100, 200, 100))) // Green border
+                    .style(Style::default().bg(Color::Rgb(35, 35, 45))),
+            );
+        frame.render_widget(search_input, chunks[0]);
 
-        // Repository list (showing only folder names)
+        // Repository list with enhanced styling
+        let total_repos = session_state.available_repos.len();
+        let filtered_count = session_state.filtered_repos.len();
+
         let repos: Vec<ListItem> = session_state
             .filtered_repos
             .iter()
             .enumerate()
             .map(|(display_idx, (_, repo))| {
                 let repo_name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+                let parent_path = repo.parent()
+                    .and_then(|p| p.to_str())
+                    .map(|s| {
+                        // Truncate long paths
+                        if s.len() > 50 {
+                            format!("...{}", &s[s.len()-47..])
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .unwrap_or_default();
 
-                let style = if Some(display_idx) == session_state.selected_repo_index {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                let is_selected = Some(display_idx) == session_state.selected_repo_index;
+
+                if is_selected {
+                    // Selected item - highlighted with arrow and full styling
+                    let lines = vec![
+                        Line::from(vec![
+                            Span::styled("  ▶ ", Style::default().fg(Color::Rgb(255, 215, 0))),
+                            Span::styled("📁 ", Style::default()),
+                            Span::styled(
+                                repo_name,
+                                Style::default()
+                                    .fg(Color::Rgb(255, 215, 0))
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("      ", Style::default()),
+                            Span::styled(
+                                parent_path,
+                                Style::default().fg(Color::Rgb(150, 150, 150)).add_modifier(Modifier::ITALIC),
+                            ),
+                        ]),
+                    ];
+                    ListItem::new(lines).style(Style::default().bg(Color::Rgb(45, 45, 60)))
                 } else {
-                    Style::default().fg(Color::White)
-                };
-
-                ListItem::new(repo_name).style(style)
+                    // Non-selected item
+                    let lines = vec![
+                        Line::from(vec![
+                            Span::styled("    ", Style::default()),
+                            Span::styled("📂 ", Style::default()),
+                            Span::styled(
+                                repo_name,
+                                Style::default().fg(Color::Rgb(200, 200, 200)),
+                            ),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("      ", Style::default()),
+                            Span::styled(
+                                parent_path,
+                                Style::default().fg(Color::Rgb(100, 100, 100)),
+                            ),
+                        ]),
+                    ];
+                    ListItem::new(lines)
+                }
             })
             .collect();
+
+        // Title with count badge
+        let count_style = if filtered_count < total_repos {
+            Style::default().fg(Color::Rgb(255, 165, 0)) // Orange when filtered
+        } else {
+            Style::default().fg(Color::Rgb(100, 200, 100)) // Green when showing all
+        };
+
+        let title_spans = vec![
+            Span::styled(" Repositories ", Style::default().fg(Color::Rgb(200, 200, 200))),
+            Span::styled(
+                format!("({}/{})", filtered_count, total_repos),
+                count_style.add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+        ];
 
         let repo_list = List::new(repos)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::White))
-                    .title(format!(
-                        "Repositories ({}/{})",
-                        session_state.filtered_repos.len(),
-                        session_state.available_repos.len()
-                    ))
-                    .style(Style::default().bg(Color::Black)),
-            )
-            .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(70, 70, 90)))
+                    .title(Line::from(title_spans))
+                    .style(Style::default().bg(Color::Rgb(30, 30, 40))),
+            );
 
         // Update the list state to match the current selection
         self.search_list_state.select(session_state.selected_repo_index);
 
         frame.render_stateful_widget(repo_list, chunks[2], &mut self.search_list_state);
 
-        // Instructions - Use solid background to prevent text bleeding
-        let instructions =
-            Paragraph::new("Type to filter • ↑/↓: Navigate • Enter: Select • Esc: Cancel")
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Gray)),
-                )
-                .style(Style::default().fg(Color::Gray).bg(Color::Black))
-                .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[3]);
+        // Styled instructions footer
+        let instructions = Line::from(vec![
+            Span::styled("  ⌨️  ", Style::default()),
+            Span::styled("Type", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled(" to filter  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ↑↓ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Navigate  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Select  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+        ]);
+
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+        frame.render_widget(instructions_widget, chunks[4]);
     }
 
     fn render_branch_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
