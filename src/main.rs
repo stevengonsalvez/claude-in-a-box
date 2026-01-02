@@ -1,5 +1,7 @@
 // ABOUTME: Main entry point for Agents-in-a-Box with TUI and CLI support
 
+#![allow(missing_docs)]
+
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use crossterm::{

@@ -1,4 +1,6 @@
-// ABOUTME: Library crate for Claude-in-a-Box exposing public API for testing and external use
+// ABOUTME: Library crate for Agents-in-a-Box exposing public API for testing and external use
+
+#![allow(missing_docs)]
 
 pub mod agent_parsers;
 pub mod app;
