@@ -1,5 +1,7 @@
 // ABOUTME: Event handling system for keyboard input and app actions
 
+#![allow(dead_code)]
+
 use crate::app::{
     AppState,
     state::{AsyncAction, AuthMethod, View},
@@ -140,7 +142,7 @@ impl EventHandler {
     /// Handle mouse events and convert to appropriate app events
     pub fn handle_mouse_event(event: AppEvent, state: &mut AppState) -> Option<AppEvent> {
         match event {
-            AppEvent::MouseClick { x, y } => {
+            AppEvent::MouseClick { x, y: _ } => {
                 // Determine which pane was clicked based on terminal dimensions
                 // The layout splits at 40% for sessions, 60% for logs
                 let term_width = crossterm::terminal::size().unwrap_or((80, 24)).0;
@@ -167,7 +169,7 @@ impl EventHandler {
                     None
                 }
             }
-            AppEvent::MouseDragStart { x, y } => {
+            AppEvent::MouseDragStart { x: _, y: _ } => {
                 // Start text selection in logs pane
                 if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
                     // This will be handled in Phase 2
@@ -176,7 +178,7 @@ impl EventHandler {
                     None
                 }
             }
-            AppEvent::MouseDragging { x, y } => {
+            AppEvent::MouseDragging { x: _, y: _ } => {
                 // Update selection during drag
                 if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
                     // This will be handled in Phase 2
@@ -185,7 +187,7 @@ impl EventHandler {
                     None
                 }
             }
-            AppEvent::MouseDragEnd { x, y } => {
+            AppEvent::MouseDragEnd { x: _, y: _ } => {
                 // Finalize text selection
                 if state.focused_pane == crate::app::state::FocusedPane::LiveLogs {
                     // This will be handled in Phase 2
@@ -308,7 +310,10 @@ impl EventHandler {
             KeyCode::Char('f') => Some(AppEvent::RefreshWorkspaces), // Manual refresh
             KeyCode::Char('n') => Some(AppEvent::NewSession),
             KeyCode::Char('s') => Some(AppEvent::SearchWorkspace),
-            KeyCode::Char('a') => Some(AppEvent::AttachTmuxSession), // Attach to tmux session
+            KeyCode::Char('a') => {
+                tracing::info!("[ACTION] 'a' key pressed - AttachTmuxSession requested");
+                Some(AppEvent::AttachTmuxSession)
+            }
             KeyCode::Char('r') => Some(AppEvent::ReauthenticateCredentials),
             KeyCode::Char('e') => Some(AppEvent::RestartSession),
             KeyCode::Char('d') => Some(AppEvent::DeleteSession),
@@ -929,15 +934,40 @@ impl EventHandler {
                 }
             }
             AppEvent::AttachTmuxSession => {
+                tracing::info!("[ACTION] Processing AttachTmuxSession event");
+                tracing::debug!(
+                    "[ACTION] State: workspace_idx={:?}, session_idx={:?}, is_other_tmux={}, other_tmux_idx={:?}",
+                    state.selected_workspace_index,
+                    state.selected_session_index,
+                    state.is_other_tmux_selected(),
+                    state.selected_other_tmux_index
+                );
+
                 // Check if we're in the "Other tmux" section
                 if state.is_other_tmux_selected() {
                     if let Some(other_session) = state.selected_other_tmux_session() {
                         let session_name = other_session.name.clone();
+                        tracing::info!("[ACTION] Attaching to other tmux session: {}", session_name);
                         state.pending_async_action = Some(AsyncAction::AttachToOtherTmux(session_name));
+                    } else {
+                        tracing::warn!("[ACTION] Other tmux selected but no session found");
                     }
                 } else if let Some(session_id) = state.get_selected_session_id() {
-                    // Attach to tmux session for the selected session
+                    // Get more info about the session for logging
+                    if let Some(session) = state.get_selected_session() {
+                        tracing::info!(
+                            "[ACTION] Attaching to session: id={}, name={}, tmux_name={:?}, status={:?}",
+                            session_id,
+                            session.name,
+                            session.tmux_session_name,
+                            session.status
+                        );
+                    }
                     state.pending_async_action = Some(AsyncAction::AttachToTmuxSession(session_id));
+                } else {
+                    tracing::warn!("[ACTION] AttachTmuxSession: No session selected (workspace_idx={:?}, session_idx={:?})",
+                        state.selected_workspace_index, state.selected_session_index);
+                    state.add_error_notification("No session selected to attach".to_string());
                 }
             }
             AppEvent::DetachSession => {
@@ -1162,7 +1192,7 @@ impl EventHandler {
                          1. If the OAuth URL didn't appear, check the container logs\n\n\
                          2. Use API Key authentication instead (press Up/Down to switch)\n\n\
                          3. Run authentication manually in a terminal:\n\
-                            docker exec -it claude-box-auth /bin/bash\n\
+                            docker exec -it agents-box-auth /bin/bash\n\
                             claude auth login\n\n\
                          Press 'Esc' to go back."
                             .to_string(),

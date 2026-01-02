@@ -1,6 +1,6 @@
 #!/bin/bash
-# ABOUTME: Wrapper script to run claude-dev container with proper mounting and authentication
-# Optimized for claude-in-a-box with GITHUB_TOKEN support and gh CLI integration
+# ABOUTME: Wrapper script to run agents-dev container with proper mounting and authentication
+# Optimized for agents-in-a-box with GITHUB_TOKEN support and gh CLI integration
 
 # Parse command line arguments
 NO_CACHE=""
@@ -12,10 +12,10 @@ ARGS=()
 
 show_help() {
     cat << EOF
-Claude-in-a-Box Development Environment
+Agents-in-a-Box Development Environment
 
 USAGE:
-    ./claude-dev.sh [OPTIONS] [COMMAND]
+    ./agents-dev.sh [OPTIONS] [COMMAND]
 
 OPTIONS:
     --help          Show this help message
@@ -27,14 +27,14 @@ OPTIONS:
 
 AUTHENTICATION:
     Preferred: Set GITHUB_TOKEN environment variable or in .env file
-    Fallback: SSH keys in ~/.claude-box/ssh/
+    Fallback: SSH keys in ~/.agents-box/ssh/
 
 EXAMPLES:
-    ./claude-dev.sh                    # Start Claude CLI in container
-    ./claude-dev.sh --continue         # Continue from last session
-    ./claude-dev.sh --rebuild          # Rebuild and start
-    ./claude-dev.sh --memory 4g        # Start with 4GB memory limit
-    ./claude-dev.sh bash               # Run bash in container
+    ./agents-dev.sh                    # Start Claude CLI in container
+    ./agents-dev.sh --continue         # Continue from last session
+    ./agents-dev.sh --rebuild          # Rebuild and start
+    ./agents-dev.sh --memory 4g        # Start with 4GB memory limit
+    ./agents-dev.sh bash               # Run bash in container
 
 For more information, see the README or documentation.
 EOF
@@ -104,15 +104,15 @@ fi
 
 # Check if we need to rebuild the image
 NEED_REBUILD=false
-IMAGE_NAME="claude-box:claude-dev"
+IMAGE_NAME="agents-box:agents-dev"
 
-if ! docker images | grep -q "claude-box.*claude-dev"; then
-    echo "Building claude-box:claude-dev image for first time..."
+if ! docker images | grep -q "agents-box.*agents-dev"; then
+    echo "Building agents-box:agents-dev image for first time..."
     NEED_REBUILD=true
 fi
 
 if [ "$FORCE_REBUILD" = true ]; then
-    echo "Forcing rebuild of claude-box:claude-dev image..."
+    echo "Forcing rebuild of agents-box:agents-dev image..."
     NEED_REBUILD=true
 fi
 
@@ -129,9 +129,9 @@ if [ "$NEED_REBUILD" = true ]; then
     eval "docker build $NO_CACHE $BUILD_ARGS -t $IMAGE_NAME \"$SCRIPT_DIR\""
 fi
 
-# Ensure the claude-box directories exist (following claude-docker pattern)
-mkdir -p "$HOME/.claude-box/claude-home"
-mkdir -p "$HOME/.claude-box/ssh"
+# Ensure the agents-box directories exist (following agents-docker pattern)
+mkdir -p "$HOME/.agents-box/claude-home"
+mkdir -p "$HOME/.agents-box/ssh"
 
 # Sync authentication files to persistent directory only if needed
 # Check if we need to sync authentication files
@@ -139,7 +139,7 @@ SYNC_NEEDED=false
 
 # Check .claude.json first (primary authentication file)
 if [ -f "$HOME/.claude.json" ]; then
-    if [ ! -f "$HOME/.claude-box/claude-home/.claude.json" ] || [ "$HOME/.claude.json" -nt "$HOME/.claude-box/claude-home/.claude.json" ]; then
+    if [ ! -f "$HOME/.agents-box/claude-home/.claude.json" ] || [ "$HOME/.claude.json" -nt "$HOME/.agents-box/claude-home/.claude.json" ]; then
         SYNC_NEEDED=true
     fi
 fi
@@ -147,9 +147,9 @@ fi
 # Check .claude directory contents
 if [ -d "$HOME/.claude" ]; then
     # Only sync if persistent directory is empty or outdated
-    if [ ! -d "$HOME/.claude-box/claude-home" ] || [ ! -f "$HOME/.claude-box/claude-home/.credentials.json" ]; then
+    if [ ! -d "$HOME/.agents-box/claude-home" ] || [ ! -f "$HOME/.agents-box/claude-home/.credentials.json" ]; then
         SYNC_NEEDED=true
-    elif [ "$HOME/.claude" -nt "$HOME/.claude-box/claude-home" ]; then
+    elif [ "$HOME/.claude" -nt "$HOME/.agents-box/claude-home" ]; then
         SYNC_NEEDED=true
     fi
 fi
@@ -159,23 +159,23 @@ if [ "$SYNC_NEEDED" = true ]; then
 
     # Sync .claude.json if it exists
     if [ -f "$HOME/.claude.json" ]; then
-        cp "$HOME/.claude.json" "$HOME/.claude-box/claude-home/.claude.json"
+        cp "$HOME/.claude.json" "$HOME/.agents-box/claude-home/.claude.json"
     fi
 
     # Sync .claude directory contents if they exist
     if [ -d "$HOME/.claude" ]; then
         # Use rsync for efficient sync, or cp if rsync not available
         if command -v rsync >/dev/null 2>&1; then
-            rsync -a "$HOME/.claude/" "$HOME/.claude-box/claude-home/"
+            rsync -a "$HOME/.claude/" "$HOME/.agents-box/claude-home/"
         else
-            cp -r "$HOME/.claude/." "$HOME/.claude-box/claude-home/" 2>/dev/null || true
+            cp -r "$HOME/.claude/." "$HOME/.agents-box/claude-home/" 2>/dev/null || true
         fi
     fi
 fi
 
 # Log information about persistent Claude home directory
 echo ""
-echo "📁 Claude persistent home directory: ~/.claude-box/claude-home/"
+echo "📁 Claude persistent home directory: ~/.agents-box/claude-home/"
 echo "   This directory contains Claude's settings and authentication"
 echo "   Modify files here to customize Claude's behavior across all sessions"
 echo ""
@@ -207,14 +207,14 @@ else
     echo ""
 
     # Check SSH keys as fallback
-    SSH_KEY_PATH="$HOME/.claude-box/ssh/id_rsa"
-    SSH_PUB_KEY_PATH="$HOME/.claude-box/ssh/id_rsa.pub"
+    SSH_KEY_PATH="$HOME/.agents-box/ssh/id_rsa"
+    SSH_PUB_KEY_PATH="$HOME/.agents-box/ssh/id_rsa.pub"
 
     if [ -f "$SSH_KEY_PATH" ] && [ -f "$SSH_PUB_KEY_PATH" ]; then
         echo "✓ SSH keys found as fallback for git operations"
 
         # Create SSH config if it doesn't exist
-        SSH_CONFIG_PATH="$HOME/.claude-box/ssh/config"
+        SSH_CONFIG_PATH="$HOME/.agents-box/ssh/config"
         if [ ! -f "$SSH_CONFIG_PATH" ]; then
             cat > "$SSH_CONFIG_PATH" << 'EOF'
 Host github.com
@@ -233,7 +233,7 @@ EOF
         fi
     else
         echo "   Alternative: Generate SSH keys:"
-        echo "      ssh-keygen -t rsa -b 4096 -f ~/.claude-box/ssh/id_rsa -N ''"
+        echo "      ssh-keygen -t rsa -b 4096 -f ~/.agents-box/ssh/id_rsa -N ''"
         echo "      Then add public key to GitHub/GitLab"
         echo ""
         echo "   Note: GITHUB_TOKEN is recommended for better integration"
@@ -282,7 +282,7 @@ if [ -n "$TWILIO_FROM_PHONE" ]; then
     ENV_ARGS="$ENV_ARGS -e TWILIO_FROM_PHONE=\"$TWILIO_FROM_PHONE\""
 fi
 
-echo "Starting Claude CLI in claude-box container..."
+echo "Starting Claude CLI in agents-box container..."
 echo "Container: $IMAGE_NAME"
 echo "Workspace: $CURRENT_DIR"
 echo ""
@@ -292,20 +292,20 @@ echo ""
 
 # Mount .claude.json separately if it exists in the persistent directory
 CLAUDE_JSON_MOUNT=""
-if [ -f "$HOME/.claude-box/claude-home/.claude.json" ]; then
-    CLAUDE_JSON_MOUNT="-v $HOME/.claude-box/claude-home/.claude.json:/home/claude-user/.claude.json:rw"
+if [ -f "$HOME/.agents-box/claude-home/.claude.json" ]; then
+    CLAUDE_JSON_MOUNT="-v $HOME/.agents-box/claude-home/.claude.json:/home/claude-user/.claude.json:rw"
     echo "✓ Mounting .claude.json for authentication"
 fi
 
 docker run -it --rm \
     $DOCKER_OPTS \
     -v "$CURRENT_DIR:/workspace" \
-    -v "$HOME/.claude-box/claude-home:/home/claude-user/.claude:rw" \
-    -v "$HOME/.claude-box/ssh:/home/claude-user/.ssh:rw" \
+    -v "$HOME/.agents-box/claude-home:/home/claude-user/.claude:rw" \
+    -v "$HOME/.agents-box/ssh:/home/claude-user/.ssh:rw" \
     $CLAUDE_JSON_MOUNT \
     $ENV_ARGS \
-    -e CLAUDE_BOX_MODE=true \
+    -e AGENTS_BOX_MODE=true \
     -e CLAUDE_CONTINUE_FLAG="$CONTINUE_FLAG" \
     --workdir /workspace \
-    --name "claude-box-$(basename "$CURRENT_DIR")-$$" \
+    --name "agents-box-$(basename "$CURRENT_DIR")-$$" \
     "$IMAGE_NAME" "${ARGS[@]}"

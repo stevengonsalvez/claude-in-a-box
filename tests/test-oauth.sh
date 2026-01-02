@@ -12,7 +12,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-AUTH_DIR="$HOME/.claude-in-a-box/auth"
+AUTH_DIR="$HOME/.agents-in-a-box/auth"
 CREDENTIALS_FILE="$AUTH_DIR/.credentials.json"
 BACKUP_FILE="$AUTH_DIR/.credentials.backup.json"
 
@@ -45,14 +45,14 @@ show_help() {
 check_prerequisites() {
     if [ ! -f "$CREDENTIALS_FILE" ]; then
         echo -e "${RED}Error: No credentials found at $CREDENTIALS_FILE${NC}"
-        echo "Please run 'claude-box auth' first to set up authentication"
+        echo "Please run 'agents-box auth' first to set up authentication"
         exit 1
     fi
 
     # Check if Docker image exists
-    if ! docker image inspect claude-box:claude-dev >/dev/null 2>&1; then
-        echo -e "${RED}Error: Docker image claude-box:claude-dev not found${NC}"
-        echo "Please build the container first: docker build -t claude-box:claude-dev docker/claude-dev"
+    if ! docker image inspect agents-box:claude-dev >/dev/null 2>&1; then
+        echo -e "${RED}Error: Docker image agents-box:claude-dev not found${NC}"
+        echo "Please build the container first: docker build -t agents-box:claude-dev docker/claude-dev"
         exit 1
     fi
 }
@@ -122,7 +122,7 @@ run_refresh() {
         -w "/home/claude-user" \
         --user "claude-user" \
         --entrypoint "node" \
-        claude-box:claude-dev \
+        agents-box:claude-dev \
         /app/scripts/oauth-refresh.js
 
     return $?

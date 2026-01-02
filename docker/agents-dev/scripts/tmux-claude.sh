@@ -1,5 +1,5 @@
 #!/bin/bash
-# ABOUTME: Manages tmux sessions for Claude-in-a-Box
+# ABOUTME: Manages tmux sessions for Agents-in-a-Box
 # Attaches to existing Claude session or creates a new one with proper nesting handling
 
 SESSION_NAME="claude-session"
@@ -27,9 +27,9 @@ else
     echo "Press Ctrl-b then d to detach without stopping Claude"
 
     # Create log directory if it doesn't exist
-    mkdir -p /workspace/.claude-box/logs
+    mkdir -p /workspace/.agents-box/logs
 
-    LOG_FILE="/workspace/.claude-box/logs/claude-$(date +%Y%m%d-%H%M%S).log"
+    LOG_FILE="/workspace/.agents-box/logs/claude-$(date +%Y%m%d-%H%M%S).log"
 
     # Create new tmux session
     if [ -n "$TMUX" ]; then

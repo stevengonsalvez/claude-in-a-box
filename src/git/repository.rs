@@ -1,5 +1,7 @@
 // ABOUTME: Git repository operations and management utilities
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use git2::{Repository, Status, StatusOptions};
 use std::path::Path;

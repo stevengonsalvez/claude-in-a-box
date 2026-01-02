@@ -3,7 +3,7 @@
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use crate::app::{
@@ -61,42 +61,71 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
-        // Draw border around entire dialog
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let selection_green = Color::Rgb(100, 200, 100);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" 📁 ", Style::default().fg(gold)),
+            Span::styled("Select Repository", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session");
-        frame.render_widget(block, area);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
+                Constraint::Length(3), // Subtitle
                 Constraint::Min(0),    // Repository list
-                Constraint::Length(3), // Instructions
+                Constraint::Length(2), // Footer
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Select Repository")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        // Subtitle
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Choose a repository to create a new session", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, chunks[0]);
 
-        // Repository list (showing only folder names)
+        // Repository list with modern styling
         let repos: Vec<ListItem> = if session_state.filtered_repos.is_empty() {
             vec![
-                ListItem::new("No repositories found in default paths")
-                    .style(Style::default().fg(Color::Gray)),
-                ListItem::new("Try searching in common directories like:")
-                    .style(Style::default().fg(Color::Gray)),
-                ListItem::new("  ~/projects, ~/code, ~/dev, ~/src")
-                    .style(Style::default().fg(Color::Gray)),
-                ListItem::new("Type to filter or add custom paths")
-                    .style(Style::default().fg(Color::Yellow)),
+                ListItem::new(Line::from(vec![
+                    Span::styled("  ⚠️  ", Style::default().fg(gold)),
+                    Span::styled("No repositories found in default paths", Style::default().fg(muted_gray)),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("     Try searching in common directories like:", Style::default().fg(muted_gray)),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("     ~/projects, ~/code, ~/dev, ~/src", Style::default().fg(cornflower_blue)),
+                ])),
+                ListItem::new(Line::from(vec![
+                    Span::styled("  💡 ", Style::default().fg(gold)),
+                    Span::styled("Type to filter or add custom paths", Style::default().fg(gold)),
+                ])),
             ]
         } else {
             session_state
@@ -106,37 +135,54 @@ impl NewSessionComponent {
                 .map(|(display_idx, (_, repo))| {
                     let repo_name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
 
-                    let style = if Some(display_idx) == session_state.selected_repo_index {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    if Some(display_idx) == session_state.selected_repo_index {
+                        ListItem::new(Line::from(vec![
+                            Span::styled("  ▶ ", Style::default().fg(selection_green)),
+                            Span::styled(repo_name, Style::default().fg(selection_green).add_modifier(Modifier::BOLD)),
+                        ]))
                     } else {
-                        Style::default().fg(Color::White)
-                    };
-
-                    ListItem::new(repo_name).style(style)
+                        ListItem::new(Line::from(vec![
+                            Span::styled("    ", Style::default()),
+                            Span::styled(repo_name, Style::default().fg(soft_white)),
+                        ]))
+                    }
                 })
                 .collect()
         };
+
+        let repo_count = session_state.filtered_repos.len();
+        let list_title = Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled(format!("Repositories ({})", repo_count), Style::default().fg(cornflower_blue)),
+            Span::styled(" ", Style::default()),
+        ]);
 
         let repo_list = List::new(repos)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::White)),
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                    .title(list_title)
+                    .style(Style::default().bg(dark_bg)),
             )
-            .highlight_style(Style::default().bg(Color::DarkGray));
+            .highlight_style(Style::default().bg(Color::Rgb(40, 40, 60)));
 
         frame.render_widget(repo_list, chunks[1]);
 
-        // Instructions
-        let instructions = Paragraph::new("↑/↓: Navigate • Enter: Select • Esc: Cancel")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[2]);
+        // Modern footer with keyboard hints
+        let footer = Paragraph::new(Line::from(vec![
+            Span::styled("↑↓", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Navigate", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Select", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[2]);
     }
 
     fn render_search_workspace(
@@ -145,167 +191,329 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
-        // Draw border around entire dialog
+        // Draw outer border with gradient-like effect using rounded corners
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("Search Repositories");
-        frame.render_widget(block, area);
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .title(Span::styled(
+                " 🔍 Search Repositories ",
+                Style::default()
+                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
                 Constraint::Length(3), // Search input
+                Constraint::Length(1), // Spacer
                 Constraint::Min(0),    // Repository list
-                Constraint::Length(3), // Instructions
+                Constraint::Length(1), // Spacer
+                Constraint::Length(2), // Instructions
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Search Workspaces")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        // Search input with icon and styled placeholder
+        let search_text = if session_state.filter_text.is_empty() {
+            Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::styled(
+                    "Type to search repositories...",
+                    Style::default().fg(Color::Rgb(128, 128, 128)).add_modifier(Modifier::ITALIC),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("  ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled(
+                    &session_state.filter_text,
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))), // Cursor
+            ])
+        };
 
-        // Search input - Use a solid background to prevent text bleeding
-        let search_input = Paragraph::new(session_state.filter_text.as_str())
+        let search_input = Paragraph::new(search_text)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title("Filter")
-                    .style(Style::default().bg(Color::Black)),
-            )
-            .style(Style::default().fg(Color::White).bg(Color::Black));
-        frame.render_widget(search_input, chunks[1]);
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(100, 200, 100))) // Green border
+                    .style(Style::default().bg(Color::Rgb(35, 35, 45))),
+            );
+        frame.render_widget(search_input, chunks[0]);
 
-        // Repository list (showing only folder names)
+        // Repository list with enhanced styling
+        let total_repos = session_state.available_repos.len();
+        let filtered_count = session_state.filtered_repos.len();
+
         let repos: Vec<ListItem> = session_state
             .filtered_repos
             .iter()
             .enumerate()
             .map(|(display_idx, (_, repo))| {
                 let repo_name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+                let parent_path = repo.parent()
+                    .and_then(|p| p.to_str())
+                    .map(|s| {
+                        // Truncate long paths
+                        if s.len() > 50 {
+                            format!("...{}", &s[s.len()-47..])
+                        } else {
+                            s.to_string()
+                        }
+                    })
+                    .unwrap_or_default();
 
-                let style = if Some(display_idx) == session_state.selected_repo_index {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                let is_selected = Some(display_idx) == session_state.selected_repo_index;
+
+                if is_selected {
+                    // Selected item - highlighted with arrow and full styling
+                    let lines = vec![
+                        Line::from(vec![
+                            Span::styled("  ▶ ", Style::default().fg(Color::Rgb(255, 215, 0))),
+                            Span::styled("📁 ", Style::default()),
+                            Span::styled(
+                                repo_name,
+                                Style::default()
+                                    .fg(Color::Rgb(255, 215, 0))
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("      ", Style::default()),
+                            Span::styled(
+                                parent_path,
+                                Style::default().fg(Color::Rgb(150, 150, 150)).add_modifier(Modifier::ITALIC),
+                            ),
+                        ]),
+                    ];
+                    ListItem::new(lines).style(Style::default().bg(Color::Rgb(45, 45, 60)))
                 } else {
-                    Style::default().fg(Color::White)
-                };
-
-                ListItem::new(repo_name).style(style)
+                    // Non-selected item
+                    let lines = vec![
+                        Line::from(vec![
+                            Span::styled("    ", Style::default()),
+                            Span::styled("📂 ", Style::default()),
+                            Span::styled(
+                                repo_name,
+                                Style::default().fg(Color::Rgb(200, 200, 200)),
+                            ),
+                        ]),
+                        Line::from(vec![
+                            Span::styled("      ", Style::default()),
+                            Span::styled(
+                                parent_path,
+                                Style::default().fg(Color::Rgb(100, 100, 100)),
+                            ),
+                        ]),
+                    ];
+                    ListItem::new(lines)
+                }
             })
             .collect();
+
+        // Title with count badge
+        let count_style = if filtered_count < total_repos {
+            Style::default().fg(Color::Rgb(255, 165, 0)) // Orange when filtered
+        } else {
+            Style::default().fg(Color::Rgb(100, 200, 100)) // Green when showing all
+        };
+
+        let title_spans = vec![
+            Span::styled(" Repositories ", Style::default().fg(Color::Rgb(200, 200, 200))),
+            Span::styled(
+                format!("({}/{})", filtered_count, total_repos),
+                count_style.add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+        ];
 
         let repo_list = List::new(repos)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::White))
-                    .title(format!(
-                        "Repositories ({}/{})",
-                        session_state.filtered_repos.len(),
-                        session_state.available_repos.len()
-                    ))
-                    .style(Style::default().bg(Color::Black)),
-            )
-            .highlight_style(Style::default().bg(Color::DarkGray).fg(Color::Yellow));
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(70, 70, 90)))
+                    .title(Line::from(title_spans))
+                    .style(Style::default().bg(Color::Rgb(30, 30, 40))),
+            );
 
         // Update the list state to match the current selection
         self.search_list_state.select(session_state.selected_repo_index);
 
         frame.render_stateful_widget(repo_list, chunks[2], &mut self.search_list_state);
 
-        // Instructions - Use solid background to prevent text bleeding
-        let instructions =
-            Paragraph::new("Type to filter • ↑/↓: Navigate • Enter: Select • Esc: Cancel")
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Gray)),
-                )
-                .style(Style::default().fg(Color::Gray).bg(Color::Black))
-                .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[3]);
+        // Styled instructions footer
+        let instructions = Line::from(vec![
+            Span::styled("  ⌨️  ", Style::default()),
+            Span::styled("Type", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled(" to filter  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ↑↓ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Navigate  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Select  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+        ]);
+
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+        frame.render_widget(instructions_widget, chunks[4]);
     }
 
     fn render_branch_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
-        // Draw border around entire dialog
+        // Draw outer border with modern styling
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session");
-        frame.render_widget(block, area);
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .title(Span::styled(
+                " 🌿 New Session ",
+                Style::default()
+                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Length(5), // Repository info
+                Constraint::Length(6), // Repository info card
+                Constraint::Length(1), // Spacer
                 Constraint::Length(3), // Branch input
-                Constraint::Length(3), // Instructions
+                Constraint::Length(1), // Spacer
+                Constraint::Length(2), // Instructions
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Enter Branch Name")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
-
-        // Repository info
-        let repo_info = if let Some(selected_idx) = session_state.selected_repo_index {
+        // Repository info card with icon
+        let (repo_name, repo_path) = if let Some(selected_idx) = session_state.selected_repo_index {
             if let Some((_, repo)) = session_state.filtered_repos.get(selected_idx) {
-                let repo_name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
-                format!(
-                    "Repository: {}\nPath: {}",
-                    repo_name,
-                    repo.to_string_lossy()
-                )
+                let name = repo.file_name().and_then(|n| n.to_str()).unwrap_or("unknown");
+                let path = repo.to_string_lossy().to_string();
+                // Truncate long paths
+                let display_path = if path.len() > 60 {
+                    format!("...{}", &path[path.len()-57..])
+                } else {
+                    path
+                };
+                (name.to_string(), display_path)
             } else {
-                "Repository: Unknown".to_string()
+                ("Unknown".to_string(), "".to_string())
             }
         } else {
-            "Repository: None selected".to_string()
+            ("None selected".to_string(), "".to_string())
         };
 
-        let repo_display = Paragraph::new(repo_info)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::White)),
-            )
-            .style(Style::default().fg(Color::White));
-        frame.render_widget(repo_display, chunks[1]);
+        let repo_lines = vec![
+            Line::from(vec![
+                Span::styled("  📁 ", Style::default()),
+                Span::styled("Repository", Style::default().fg(Color::Rgb(150, 150, 150))),
+            ]),
+            Line::from(vec![
+                Span::styled("     ", Style::default()),
+                Span::styled(
+                    &repo_name,
+                    Style::default()
+                        .fg(Color::Rgb(100, 200, 255)) // Light blue
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  📍 ", Style::default()),
+                Span::styled("Path", Style::default().fg(Color::Rgb(150, 150, 150))),
+            ]),
+            Line::from(vec![
+                Span::styled("     ", Style::default()),
+                Span::styled(
+                    repo_path,
+                    Style::default().fg(Color::Rgb(180, 180, 180)).add_modifier(Modifier::ITALIC),
+                ),
+            ]),
+        ];
 
-        // Branch input
-        let branch_input = Paragraph::new(session_state.branch_name.as_str())
+        let repo_display = Paragraph::new(repo_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title("Branch Name"),
-            )
-            .style(Style::default().fg(Color::White));
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(70, 70, 90)))
+                    .style(Style::default().bg(Color::Rgb(30, 30, 40))),
+            );
+        frame.render_widget(repo_display, chunks[0]);
+
+        // Branch input with icon and cursor
+        let branch_text = if session_state.branch_name.is_empty() {
+            Line::from(vec![
+                Span::styled("  🔀 ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled(
+                    "agents-in-a-box/",
+                    Style::default().fg(Color::Rgb(128, 128, 128)).add_modifier(Modifier::ITALIC),
+                ),
+                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled("  🔀 ", Style::default().fg(Color::Rgb(100, 200, 100))),
+                Span::styled(
+                    &session_state.branch_name,
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("█", Style::default().fg(Color::Rgb(100, 200, 100))),
+            ])
+        };
+
+        let branch_input = Paragraph::new(branch_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(100, 200, 100))) // Green border
+                    .title(Span::styled(
+                        " Branch Name ",
+                        Style::default().fg(Color::Rgb(100, 200, 100)),
+                    ))
+                    .style(Style::default().bg(Color::Rgb(35, 35, 45))),
+            );
         frame.render_widget(branch_input, chunks[2]);
 
-        // Instructions
-        let instructions = Paragraph::new("Type branch name • Enter: Create Session • Esc: Cancel")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[3]);
+        // Styled instructions footer
+        let instructions = Line::from(vec![
+            Span::styled("  ⌨️  ", Style::default()),
+            Span::styled("Type", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled(" branch name  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Create Session  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+        ]);
+
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+        frame.render_widget(instructions_widget, chunks[4]);
     }
 
     fn render_permissions_config(
@@ -314,127 +522,248 @@ impl NewSessionComponent {
         area: Rect,
         session_state: &NewSessionState,
     ) {
-        // Draw border around entire dialog
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let selection_green = Color::Rgb(100, 200, 100);
+        let warning_orange = Color::Rgb(255, 165, 0);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" 🔐 ", Style::default().fg(gold)),
+            Span::styled("Permission Settings", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session");
-        frame.render_widget(block, area);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Length(5), // Description
-                Constraint::Length(5), // Option display
-                Constraint::Length(3), // Instructions
+                Constraint::Length(2), // Subtitle
+                Constraint::Length(6), // Description
+                Constraint::Length(7), // Option cards
+                Constraint::Length(2), // Footer
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Configure Claude Permissions")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        // Subtitle
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Configure how Claude handles command execution", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, chunks[0]);
 
-        // Description
-        let description = Paragraph::new(
-            "Claude can run with or without permission prompts.\n\
-             With prompts: Claude will ask before running commands\n\
-             Without prompts: Claude runs commands immediately (faster)",
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White)),
-        )
-        .style(Style::default().fg(Color::Gray));
+        // Description with info box
+        let desc_lines = vec![
+            Line::from(vec![
+                Span::styled("  ℹ️  ", Style::default().fg(cornflower_blue)),
+                Span::styled("About Permission Prompts", Style::default().fg(cornflower_blue).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  • ", Style::default().fg(muted_gray)),
+                Span::styled("With prompts: ", Style::default().fg(soft_white)),
+                Span::styled("Claude will ask before running commands", Style::default().fg(muted_gray)),
+            ]),
+            Line::from(vec![
+                Span::styled("  • ", Style::default().fg(muted_gray)),
+                Span::styled("Without prompts: ", Style::default().fg(soft_white)),
+                Span::styled("Claude runs commands immediately (faster)", Style::default().fg(muted_gray)),
+            ]),
+        ];
+
+        let description = Paragraph::new(desc_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                    .style(Style::default().bg(dark_bg)),
+            );
         frame.render_widget(description, chunks[1]);
 
-        // Options
-        let option_text = if session_state.skip_permissions {
-            "🚀 Skip permission prompts (--dangerously-skip-permissions)\n\n\
-             Claude will execute commands without asking"
+        // Options with visual selection
+        let (option_icon, option_color, option_title, option_desc, option_flag) = if session_state.skip_permissions {
+            (
+                "🚀",
+                warning_orange,
+                "Skip Permission Prompts",
+                "Claude will execute commands without asking",
+                "--dangerously-skip-permissions",
+            )
         } else {
-            "🛡️  Keep permission prompts (default)\n\n\
-             Claude will ask before executing commands"
+            (
+                "🛡️",
+                selection_green,
+                "Keep Permission Prompts",
+                "Claude will ask before executing commands",
+                "default",
+            )
         };
 
-        let options = Paragraph::new(option_text)
+        let option_lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(format!("    {}  ", option_icon), Style::default().fg(option_color)),
+                Span::styled(option_title, Style::default().fg(option_color).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("       ", Style::default()),
+                Span::styled(option_desc, Style::default().fg(soft_white)),
+            ]),
+            Line::from(vec![
+                Span::styled("       Flag: ", Style::default().fg(muted_gray)),
+                Span::styled(option_flag, Style::default().fg(cornflower_blue).add_modifier(Modifier::ITALIC)),
+            ]),
+        ];
+
+        let option_title_line = Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled("Current Selection", Style::default().fg(option_color)),
+            Span::styled(" ", Style::default()),
+        ]);
+
+        let options = Paragraph::new(option_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title("Current Selection"),
-            )
-            .style(Style::default().fg(Color::White))
-            .alignment(Alignment::Center);
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(option_color))
+                    .title(option_title_line)
+                    .style(Style::default().bg(dark_bg)),
+            );
         frame.render_widget(options, chunks[2]);
 
-        // Instructions
-        let instructions = Paragraph::new("Space: Toggle • Enter: Continue • Esc: Cancel")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[3]);
+        // Modern footer with keyboard hints
+        let footer = Paragraph::new(Line::from(vec![
+            Span::styled("Space", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Toggle", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Continue", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[3]);
     }
 
     fn render_creating(&self, frame: &mut Frame, area: Rect) {
-        // Draw border around entire dialog
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let progress_cyan = Color::Rgb(100, 200, 230);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" ⚙️  ", Style::default().fg(progress_cyan)),
+            Span::styled("Creating Session", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session");
-        frame.render_widget(block, area);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Min(0),    // Progress
-                Constraint::Length(3), // Instructions
+                Constraint::Length(2), // Subtitle
+                Constraint::Min(0),    // Progress content
+                Constraint::Length(2), // Footer
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Creating Session...")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
-
-        // Progress
-        let progress = Paragraph::new(
-            "Creating Git worktree and Docker container...\nThis may take a moment.",
-        )
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::White)),
-        )
-        .style(Style::default().fg(Color::White))
+        // Subtitle
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled("Setting up your development environment...", Style::default().fg(muted_gray)),
+        ]))
         .alignment(Alignment::Center);
-        frame.render_widget(progress, chunks[1]);
+        frame.render_widget(subtitle, chunks[0]);
 
-        // Instructions
-        let instructions = Paragraph::new("Please wait... • Esc: Cancel")
+        // Progress content with animated-style spinner dots
+        let progress_lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  🔄 ", Style::default().fg(progress_cyan)),
+                Span::styled("Creating Git worktree", Style::default().fg(soft_white)),
+                Span::styled(" ...", Style::default().fg(progress_cyan)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  🐳 ", Style::default().fg(cornflower_blue)),
+                Span::styled("Initializing Docker container", Style::default().fg(soft_white)),
+                Span::styled(" ...", Style::default().fg(cornflower_blue)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  📦 ", Style::default().fg(gold)),
+                Span::styled("Mounting volumes and configuring environment", Style::default().fg(soft_white)),
+            ]),
+            Line::from(""),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("       This may take a moment...", Style::default().fg(muted_gray).add_modifier(Modifier::ITALIC)),
+            ]),
+        ];
+
+        let progress = Paragraph::new(progress_lines)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[2]);
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                    .style(Style::default().bg(dark_bg)),
+            );
+        frame.render_widget(progress, chunks[1]);
+
+        // Modern footer
+        let footer = Paragraph::new(Line::from(vec![
+            Span::styled("⏳ ", Style::default().fg(progress_cyan)),
+            Span::styled("Please wait", Style::default().fg(muted_gray)),
+            Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+            Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(footer, chunks[2]);
     }
 
     fn render_mode_selection(
@@ -445,183 +774,291 @@ impl NewSessionComponent {
     ) {
         use crate::models::SessionMode;
 
-        // Draw border around entire dialog
+        // Draw outer border with modern styling
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session - Step 3: Choose Mode");
-        frame.render_widget(block, area);
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .title(Span::styled(
+                " 🎯 Choose Session Mode ",
+                Style::default()
+                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Min(0),    // Mode selection
-                Constraint::Length(3), // Instructions
+                Constraint::Length(8), // Interactive mode card
+                Constraint::Length(1), // Spacer
+                Constraint::Length(8), // Boss mode card
+                Constraint::Length(1), // Spacer
+                Constraint::Length(2), // Instructions
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Select Session Mode")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        let is_interactive = session_state.mode == SessionMode::Interactive;
+        let is_boss = session_state.mode == SessionMode::Boss;
 
-        // Mode selection
-        let mode_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(chunks[1]);
-
-        // Interactive mode option
-        let interactive_style = if session_state.mode == SessionMode::Interactive {
-            Style::default().bg(Color::DarkGray).fg(Color::White)
+        // Interactive mode card
+        let interactive_border_color = if is_interactive {
+            Color::Rgb(100, 200, 100) // Green when selected
         } else {
-            Style::default().fg(Color::White)
+            Color::Rgb(70, 70, 90) // Gray when not
+        };
+
+        let interactive_bg = if is_interactive {
+            Color::Rgb(35, 45, 35) // Slightly green tint
+        } else {
+            Color::Rgb(30, 30, 40)
         };
 
         let interactive_text = vec![
-            Line::from(vec![Span::styled(
-                "● Interactive Mode",
-                interactive_style.add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                "  Traditional development with shell access",
-                interactive_style,
-            )]),
-            Line::from(vec![Span::styled(
-                "  Full Claude CLI features and MCP servers",
-                interactive_style,
-            )]),
-            Line::from(vec![Span::styled(
-                "  Attach to container for development",
-                interactive_style,
-            )]),
+            Line::from(vec![
+                Span::styled(
+                    if is_interactive { "  ▶ " } else { "    " },
+                    Style::default().fg(Color::Rgb(100, 200, 100)),
+                ),
+                Span::styled("🖥️  ", Style::default()),
+                Span::styled(
+                    "Interactive Mode",
+                    Style::default()
+                        .fg(if is_interactive { Color::Rgb(100, 200, 100) } else { Color::Rgb(200, 200, 200) })
+                        .add_modifier(Modifier::BOLD),
+                ),
+                if is_interactive {
+                    Span::styled("  ✓", Style::default().fg(Color::Rgb(100, 200, 100)))
+                } else {
+                    Span::raw("")
+                },
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(100, 149, 237))),
+                Span::styled(" Traditional development with shell access", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(100, 149, 237))),
+                Span::styled(" Full Claude CLI features and MCP servers", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(100, 149, 237))),
+                Span::styled(" Attach to container for development", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
         ];
 
         let interactive_para = Paragraph::new(interactive_text)
-            .block(Block::default().borders(Borders::ALL).border_style(
-                if session_state.mode == SessionMode::Interactive {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default().fg(Color::Gray)
-                },
-            ))
-            .alignment(Alignment::Left);
-        frame.render_widget(interactive_para, mode_chunks[0]);
-
-        // Boss mode option
-        let boss_style = if session_state.mode == SessionMode::Boss {
-            Style::default().bg(Color::DarkGray).fg(Color::White)
-        } else {
-            Style::default().fg(Color::White)
-        };
-
-        let boss_text = vec![
-            Line::from(vec![Span::styled(
-                "● Boss Mode",
-                boss_style.add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                "  Non-interactive task execution",
-                boss_style,
-            )]),
-            Line::from(vec![Span::styled(
-                "  Direct prompt execution with text output",
-                boss_style,
-            )]),
-            Line::from(vec![Span::styled(
-                "  Results streamed to TUI logs",
-                boss_style,
-            )]),
-        ];
-
-        let boss_para = Paragraph::new(boss_text)
-            .block(Block::default().borders(Borders::ALL).border_style(
-                if session_state.mode == SessionMode::Boss {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default().fg(Color::Gray)
-                },
-            ))
-            .alignment(Alignment::Left);
-        frame.render_widget(boss_para, mode_chunks[1]);
-
-        // Instructions
-        let instructions = Paragraph::new("↑/↓: Switch Mode • Enter: Continue • Esc: Cancel")
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[2]);
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(interactive_border_color))
+                    .style(Style::default().bg(interactive_bg)),
+            );
+        frame.render_widget(interactive_para, chunks[0]);
+
+        // Boss mode card
+        let boss_border_color = if is_boss {
+            Color::Rgb(255, 165, 0) // Orange when selected
+        } else {
+            Color::Rgb(70, 70, 90) // Gray when not
+        };
+
+        let boss_bg = if is_boss {
+            Color::Rgb(45, 40, 30) // Slightly orange tint
+        } else {
+            Color::Rgb(30, 30, 40)
+        };
+
+        let boss_text = vec![
+            Line::from(vec![
+                Span::styled(
+                    if is_boss { "  ▶ " } else { "    " },
+                    Style::default().fg(Color::Rgb(255, 165, 0)),
+                ),
+                Span::styled("🤖 ", Style::default()),
+                Span::styled(
+                    "Boss Mode",
+                    Style::default()
+                        .fg(if is_boss { Color::Rgb(255, 165, 0) } else { Color::Rgb(200, 200, 200) })
+                        .add_modifier(Modifier::BOLD),
+                ),
+                if is_boss {
+                    Span::styled("  ✓", Style::default().fg(Color::Rgb(255, 165, 0)))
+                } else {
+                    Span::raw("")
+                },
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
+                Span::styled(" Non-interactive task execution", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
+                Span::styled(" Direct prompt execution with text output", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
+                Span::styled(" Results streamed to TUI logs", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+        ];
+
+        let boss_para = Paragraph::new(boss_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(boss_border_color))
+                    .style(Style::default().bg(boss_bg)),
+            );
+        frame.render_widget(boss_para, chunks[2]);
+
+        // Styled instructions footer
+        let instructions = Line::from(vec![
+            Span::styled("  ↑↓ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Switch Mode  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Continue  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+        ]);
+
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+        frame.render_widget(instructions_widget, chunks[4]);
     }
 
     fn render_prompt_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
-        // Draw border around entire dialog
+        // Modern color palette
+        let cornflower_blue = Color::Rgb(100, 149, 237);
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let file_finder_yellow = Color::Rgb(255, 200, 100);
+
+        // Clear background
+        let background = Block::default().style(Style::default().bg(dark_bg));
+        frame.render_widget(background, area);
+
+        // Main dialog with rounded border
+        let title_line = Line::from(vec![
+            Span::styled(" 💬 ", Style::default().fg(gold)),
+            Span::styled("Task Prompt", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+            Span::styled(" ", Style::default()),
+        ]);
+
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session - Step 4: Task Prompt");
-        frame.render_widget(block, area);
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(cornflower_blue))
+            .title(title_line)
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(dark_bg));
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Length(5), // Instructions
+                Constraint::Length(2), // Subtitle
+                Constraint::Length(6), // Instructions
                 Constraint::Min(0),    // Prompt input area
-                Constraint::Length(3), // Controls
+                Constraint::Length(2), // Controls
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Enter Boss Mode Prompt")
-            .style(Style::default().fg(Color::Yellow).bg(Color::Black))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        // Subtitle
+        let subtitle_text = if session_state.file_finder.is_active {
+            "File finder active - search for files to reference"
+        } else {
+            "Enter the task or prompt for Claude to execute"
+        };
+        let subtitle = Paragraph::new(Line::from(vec![
+            Span::styled(subtitle_text, Style::default().fg(muted_gray)),
+        ]))
+        .alignment(Alignment::Center);
+        frame.render_widget(subtitle, chunks[0]);
 
         // Instructions - update to mention @ symbol for file finder
-        let instructions_text = if session_state.file_finder.is_active {
+        let instructions_lines = if session_state.file_finder.is_active {
             vec![
-                Line::from("🔍 File Finder Active - Type to filter files:"),
-                Line::from("• ↑/↓: Navigate files"),
-                Line::from("• Enter: Select file • Esc: Cancel file finder"),
-                Line::from("• Type characters to filter by filename"),
+                Line::from(vec![
+                    Span::styled("  🔍 ", Style::default().fg(file_finder_yellow)),
+                    Span::styled("File Finder Active", Style::default().fg(file_finder_yellow).add_modifier(Modifier::BOLD)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("↑/↓", Style::default().fg(gold)),
+                    Span::styled(" to navigate files", Style::default().fg(soft_white)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("Enter", Style::default().fg(gold)),
+                    Span::styled(" to select file  •  ", Style::default().fg(soft_white)),
+                    Span::styled("Esc", Style::default().fg(gold)),
+                    Span::styled(" to cancel", Style::default().fg(soft_white)),
+                ]),
             ]
         } else {
             vec![
-                Line::from("Enter the task or prompt for Claude to execute:"),
-                Line::from("• Direct task: \"Analyze this codebase and suggest improvements\""),
-                Line::from(
-                    "• File reference: \"Review the file @src/main.rs\" (type @ for file finder)",
-                ),
-                Line::from("• GitHub issue: \"Fix issue #123\""),
+                Line::from(vec![
+                    Span::styled("  💡 ", Style::default().fg(cornflower_blue)),
+                    Span::styled("Example prompts:", Style::default().fg(cornflower_blue)),
+                ]),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("\"Analyze this codebase and suggest improvements\"", Style::default().fg(soft_white).add_modifier(Modifier::ITALIC)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("\"Review the file ", Style::default().fg(soft_white).add_modifier(Modifier::ITALIC)),
+                    Span::styled("@src/main.rs", Style::default().fg(file_finder_yellow)),
+                    Span::styled("\" (type @ for file finder)", Style::default().fg(muted_gray)),
+                ]),
+                Line::from(vec![
+                    Span::styled("  • ", Style::default().fg(muted_gray)),
+                    Span::styled("\"Fix issue #123\"", Style::default().fg(soft_white).add_modifier(Modifier::ITALIC)),
+                ]),
             ]
         };
 
-        let instructions = Paragraph::new(instructions_text)
-            .block(Block::default().borders(Borders::ALL).border_style(
-                if session_state.file_finder.is_active {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default().fg(Color::Blue)
-                },
-            ))
-            .style(if session_state.file_finder.is_active {
-                Style::default().fg(Color::Yellow)
-            } else {
-                Style::default().fg(Color::Cyan)
-            })
-            .alignment(Alignment::Left);
+        let instructions_border = if session_state.file_finder.is_active {
+            file_finder_yellow
+        } else {
+            Color::Rgb(60, 60, 80)
+        };
+
+        let instructions = Paragraph::new(instructions_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(instructions_border))
+                    .style(Style::default().bg(dark_bg)),
+            );
         frame.render_widget(instructions, chunks[1]);
 
         // Split the prompt input area if file finder is active
@@ -644,25 +1081,51 @@ impl NewSessionComponent {
             self.render_text_editor(frame, chunks[2], &session_state.boss_prompt, "Prompt");
         }
 
-        // Controls - update based on file finder state
-        let controls_text = if session_state.file_finder.is_active {
-            "File Finder: ↑/↓ Navigate • Enter: Select • Esc: Cancel • Type: Filter"
+        // Modern footer with keyboard hints
+        let controls = if session_state.file_finder.is_active {
+            Paragraph::new(Line::from(vec![
+                Span::styled("↑↓", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Navigate", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Select", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Type", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Filter", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Cancel", Style::default().fg(muted_gray)),
+            ]))
         } else {
-            "Type to enter prompt • Ctrl+J: New line • arrows: Move cursor • @ for file finder • Enter: Continue • Esc: Cancel"
+            Paragraph::new(Line::from(vec![
+                Span::styled("Type", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Input", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Ctrl+J", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Newline", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("@", Style::default().fg(file_finder_yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(" Files", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Enter", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Continue", Style::default().fg(muted_gray)),
+                Span::styled("  │  ", Style::default().fg(Color::Rgb(60, 60, 80))),
+                Span::styled("Esc", Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                Span::styled(" Cancel", Style::default().fg(muted_gray)),
+            ]))
         };
-
-        let controls = Paragraph::new(controls_text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(controls, chunks[3]);
+        frame.render_widget(controls.alignment(Alignment::Center), chunks[3]);
     }
 
     fn render_file_finder(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
+        // Modern color palette
+        let dark_bg = Color::Rgb(25, 25, 35);
+        let gold = Color::Rgb(255, 215, 0);
+        let soft_white = Color::Rgb(220, 220, 230);
+        let muted_gray = Color::Rgb(120, 120, 140);
+        let file_finder_yellow = Color::Rgb(255, 200, 100);
+        let selection_bg = Color::Rgb(80, 70, 40);
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -671,44 +1134,65 @@ impl NewSessionComponent {
             ])
             .split(area);
 
-        // Query input
-        let query_display = format!("@{}", session_state.file_finder.query);
-        let query_input = Paragraph::new(query_display)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow))
-                    .title("File Filter"),
-            )
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Left);
+        // Query input with modern styling
+        let query_display = format!("  @{}", session_state.file_finder.query);
+        let query_title = Line::from(vec![
+            Span::styled(" 🔍 ", Style::default().fg(file_finder_yellow)),
+            Span::styled("Filter", Style::default().fg(file_finder_yellow)),
+            Span::styled(" ", Style::default()),
+        ]);
+
+        let query_input = Paragraph::new(Line::from(vec![
+            Span::styled(query_display, Style::default().fg(file_finder_yellow)),
+            Span::styled("▋", Style::default().fg(gold)), // Cursor indicator
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(file_finder_yellow))
+                .title(query_title)
+                .style(Style::default().bg(dark_bg)),
+        );
         frame.render_widget(query_input, chunks[0]);
 
-        // File list
+        // File list with modern styling
         let file_items: Vec<ListItem> = session_state
             .file_finder
             .matches
             .iter()
             .enumerate()
             .map(|(idx, file_match)| {
-                let style = if idx == session_state.file_finder.selected_index {
-                    Style::default().fg(Color::Black).bg(Color::Yellow)
+                if idx == session_state.file_finder.selected_index {
+                    ListItem::new(Line::from(vec![
+                        Span::styled("  ▶ ", Style::default().fg(gold)),
+                        Span::styled(&file_match.relative_path, Style::default().fg(gold).add_modifier(Modifier::BOLD)),
+                    ]))
+                    .style(Style::default().bg(selection_bg))
                 } else {
-                    Style::default().fg(Color::White)
-                };
-
-                ListItem::new(file_match.relative_path.as_str()).style(style)
+                    ListItem::new(Line::from(vec![
+                        Span::styled("    ", Style::default()),
+                        Span::styled(&file_match.relative_path, Style::default().fg(soft_white)),
+                    ]))
+                }
             })
             .collect();
+
+        let match_count = session_state.file_finder.matches.len();
+        let list_title = Line::from(vec![
+            Span::styled(" ", Style::default()),
+            Span::styled("📄 ", Style::default().fg(muted_gray)),
+            Span::styled(format!("{} matches", match_count), Style::default().fg(muted_gray)),
+            Span::styled(" ", Style::default()),
+        ]);
 
         let file_list = List::new(file_items).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow))
-                .title(format!(
-                    "Files ({} matches)",
-                    session_state.file_finder.matches.len()
-                )),
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Rgb(60, 60, 80)))
+                .title(list_title)
+                .style(Style::default().bg(dark_bg)),
         );
 
         frame.render_widget(file_list, chunks[1]);

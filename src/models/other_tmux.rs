@@ -1,9 +1,9 @@
-// ABOUTME: Model for tmux sessions not managed by claude-in-a-box
+// ABOUTME: Model for tmux sessions not managed by agents-in-a-box
 
 use serde::{Deserialize, Serialize};
 
 /// Represents a tmux session that exists on the system but was not
-/// created by claude-in-a-box (i.e., doesn't have the "tmux_" prefix)
+/// created by agents-in-a-box (i.e., doesn't have the "tmux_" prefix)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OtherTmuxSession {
     /// The tmux session name

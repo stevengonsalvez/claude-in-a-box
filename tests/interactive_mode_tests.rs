@@ -63,8 +63,8 @@ fn cleanup_claude_tmux_sessions() {
 
 // Helper function to spawn the app
 fn spawn_app() -> Result<rexpect::session::PtySession, rexpect::error::Error> {
-    let binary_path = if std::path::Path::new("target/debug/claude-box").exists() {
-        "target/debug/claude-box"
+    let binary_path = if std::path::Path::new("target/debug/agents-box").exists() {
+        "target/debug/agents-box"
     } else {
         "cargo"
     };

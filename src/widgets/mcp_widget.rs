@@ -2,7 +2,7 @@
 // Handles MCP server interactions and displays their results
 
 use crate::agent_parsers::AgentEvent;
-use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
+use crate::components::live_logs_stream::LogEntryLevel;
 use serde_json::Value;
 use uuid::Uuid;
 

@@ -5,9 +5,7 @@ use super::types::{
     AgentEvent, AgentOutputParser, McpServerInfo, ParserState, StructuredPayload, TodoItem,
     ToolCallInfo,
 };
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
 use tracing::{debug, warn};
 
 /// Parser for Claude's stream-json output format

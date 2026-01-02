@@ -1,5 +1,5 @@
 #!/bin/bash
-# Custom bashrc for Claude-in-a-Box sessions
+# Custom bashrc for Agents-in-a-Box sessions
 
 # Source the default bashrc if it exists
 if [ -f /etc/bash.bashrc ]; then
@@ -27,7 +27,7 @@ case "$-" in
         ;;
 esac
 echo "╔══════════════════════════════════════════════════════════════════╗"
-echo "║              Welcome to Claude-in-a-Box Session                  ║"
+echo "║              Welcome to Agents-in-a-Box Session                  ║"
 echo "╠══════════════════════════════════════════════════════════════════╣"
 echo "║                                                                  ║"
 echo "║  🚀 Claude CLI is ready to use!                                 ║"
@@ -53,8 +53,8 @@ echo "║                                                                  ║"
 echo "╚══════════════════════════════════════════════════════════════════╝"
 echo
 
-# Set a custom prompt to indicate we're in a Claude-in-a-Box session
-export PS1="\[\033[01;32m\][claude-box]\[\033[00m\] \[\033[01;34m\]\w\[\033[00m\] $ "
+# Set a custom prompt to indicate we're in an Agents-in-a-Box session
+export PS1="\[\033[01;32m\][agents-box]\[\033[00m\] \[\033[01;34m\]\w\[\033[00m\] $ "
 
 # Add helpful aliases
 alias cls='clear'

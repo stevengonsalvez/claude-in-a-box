@@ -1,5 +1,7 @@
-// ABOUTME: Claude-dev container management module
-// Handles authentication, environment setup, and container operations for claude-dev sessions
+// ABOUTME: Agents-dev container management module
+// Handles authentication, environment setup, and container operations for agents-dev sessions
+
+#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -13,9 +15,9 @@ use uuid::Uuid;
 use super::builder::ImageBuilder;
 use super::container_manager::ContainerManager;
 
-/// Configuration for claude-dev container setup
+/// Configuration for agents-dev container setup
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClaudeDevConfig {
+pub struct AgentsDevConfig {
     /// Container image name
     pub image_name: String,
     /// Memory limit (e.g., "4g", "2048m")
@@ -34,10 +36,10 @@ pub struct ClaudeDevConfig {
     pub env_vars: HashMap<String, String>,
 }
 
-impl Default for ClaudeDevConfig {
+impl Default for AgentsDevConfig {
     fn default() -> Self {
         Self {
-            image_name: "claude-box:claude-dev".to_string(),
+            image_name: "agents-box:agents-dev".to_string(),
             memory_limit: None,
             gpu_access: None,
             force_rebuild: false,
@@ -49,7 +51,7 @@ impl Default for ClaudeDevConfig {
     }
 }
 
-/// Authentication status for claude-dev
+/// Authentication status for agents-dev
 #[derive(Debug, Clone)]
 pub struct AuthenticationStatus {
     pub claude_json_exists: bool,
@@ -59,9 +61,9 @@ pub struct AuthenticationStatus {
     pub sources: Vec<String>,
 }
 
-/// Progress updates for claude-dev operations
+/// Progress updates for agents-dev operations
 #[derive(Debug, Clone)]
-pub enum ClaudeDevProgress {
+pub enum AgentsDevProgress {
     SyncingAuthentication,
     CheckingEnvironment,
     BuildingImage(String),
@@ -71,22 +73,22 @@ pub enum ClaudeDevProgress {
     Error(String),
 }
 
-/// Main claude-dev container manager
-pub struct ClaudeDevManager {
-    config: ClaudeDevConfig,
+/// Main agents-dev container manager
+pub struct AgentsDevManager {
+    config: AgentsDevConfig,
     container_manager: ContainerManager,
     image_builder: ImageBuilder,
     claude_home_dir: PathBuf,
     ssh_dir: PathBuf,
 }
 
-impl ClaudeDevManager {
-    /// Create new claude-dev manager
-    pub async fn new(config: ClaudeDevConfig) -> Result<Self> {
+impl AgentsDevManager {
+    /// Create new agents-dev manager
+    pub async fn new(config: AgentsDevConfig) -> Result<Self> {
         let container_manager = ContainerManager::new().await?;
         let image_builder = ImageBuilder::new().await?;
 
-        // Setup claude-box directories
+        // Setup agents-box directories
         let home_dir = dirs::home_dir().context("Failed to get home directory")?;
         // Mount the actual .claude directory for proper authentication
         let claude_home_dir = home_dir.join(".claude");
@@ -152,10 +154,10 @@ impl ClaudeDevManager {
     /// Check authentication files exist (no syncing needed since we mount directly)
     pub async fn sync_authentication_files(
         &self,
-        progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+        progress_tx: Option<mpsc::Sender<AgentsDevProgress>>,
     ) -> Result<()> {
         if let Some(ref tx) = progress_tx {
-            let _ = tx.send(ClaudeDevProgress::SyncingAuthentication).await;
+            let _ = tx.send(AgentsDevProgress::SyncingAuthentication).await;
         }
 
         // Just verify authentication files exist
@@ -174,10 +176,10 @@ impl ClaudeDevManager {
     /// Setup environment variables and GitHub CLI configuration
     pub async fn setup_environment(
         &self,
-        progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+        progress_tx: Option<mpsc::Sender<AgentsDevProgress>>,
     ) -> Result<()> {
         if let Some(ref tx) = progress_tx {
-            let _ = tx.send(ClaudeDevProgress::CheckingEnvironment).await;
+            let _ = tx.send(AgentsDevProgress::CheckingEnvironment).await;
         }
 
         // Check for GITHUB_TOKEN
@@ -218,10 +220,10 @@ impl ClaudeDevManager {
         Ok(())
     }
 
-    /// Build claude-dev Docker image if needed
+    /// Build agents-dev Docker image if needed
     pub async fn build_image_if_needed(
         &self,
-        progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+        progress_tx: Option<mpsc::Sender<AgentsDevProgress>>,
     ) -> Result<()> {
         let need_rebuild =
             self.config.force_rebuild || !self.image_exists(&self.config.image_name).await?;
@@ -229,13 +231,13 @@ impl ClaudeDevManager {
         if need_rebuild {
             if let Some(ref tx) = progress_tx {
                 let _ = tx
-                    .send(ClaudeDevProgress::BuildingImage(
+                    .send(AgentsDevProgress::BuildingImage(
                         "Starting build...".to_string(),
                     ))
                     .await;
             }
 
-            info!("Building claude-dev image: {}", self.config.image_name);
+            info!("Building agents-dev image: {}", self.config.image_name);
 
             // Get current user UID/GID
             let uid = nix::unistd::getuid().as_raw();
@@ -253,7 +255,7 @@ impl ClaudeDevManager {
             }
 
             // Build the image
-            let dockerfile_dir = PathBuf::from("docker/claude-dev");
+            let dockerfile_dir = PathBuf::from("docker/agents-dev");
             let build_options = super::builder::BuildOptions {
                 dockerfile_path: Some(dockerfile_dir.join("Dockerfile")),
                 context_path: dockerfile_dir,
@@ -273,7 +275,7 @@ impl ClaudeDevManager {
                 tokio::spawn(async move {
                     while let Some(log) = build_rx.recv().await {
                         if let Some(ref tx) = progress_tx_clone {
-                            let _ = tx.send(ClaudeDevProgress::BuildingImage(log)).await;
+                            let _ = tx.send(AgentsDevProgress::BuildingImage(log)).await;
                         }
                     }
                 });
@@ -283,7 +285,7 @@ impl ClaudeDevManager {
                 .build_image(&self.config.image_name, &build_options, Some(build_tx))
                 .await?;
 
-            info!("Successfully built claude-dev image");
+            info!("Successfully built agents-dev image");
         } else {
             debug!(
                 "Image {} already exists, skipping build",
@@ -294,25 +296,25 @@ impl ClaudeDevManager {
         Ok(())
     }
 
-    /// Run claude-dev container
+    /// Run agents-dev container
     pub async fn run_container(
         &self,
         workspace_path: &Path,
         session_id: Uuid,
-        progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+        progress_tx: Option<mpsc::Sender<AgentsDevProgress>>,
         mount_claude_config: bool,
     ) -> Result<String> {
         if let Some(ref tx) = progress_tx {
-            let _ = tx.send(ClaudeDevProgress::StartingContainer).await;
+            let _ = tx.send(AgentsDevProgress::StartingContainer).await;
         }
 
-        info!("Starting claude-dev container");
+        info!("Starting agents-dev container");
         info!("Container: {}", self.config.image_name);
         info!("Workspace: {}", workspace_path.display());
 
         // Prepare container configuration
         let mut env_vars = self.config.env_vars.clone();
-        env_vars.insert("CLAUDE_BOX_MODE".to_string(), "true".to_string());
+        env_vars.insert("AGENTS_BOX_MODE".to_string(), "true".to_string());
 
         // Add continue flag if requested
         if self.config.continue_session {
@@ -365,7 +367,7 @@ impl ClaudeDevManager {
 
         // Container run options
         let mut labels = std::collections::HashMap::new();
-        labels.insert("claude-session-id".to_string(), session_id.to_string());
+        labels.insert("agents-session-id".to_string(), session_id.to_string());
 
         let run_options = super::container_manager::RunOptions {
             image: self.config.image_name.clone(),
@@ -386,18 +388,18 @@ impl ClaudeDevManager {
         };
 
         // Generate container name with session ID
-        let container_name = format!("claude-session-{}", session_id);
+        let container_name = format!("agents-session-{}", session_id);
 
         // Run the container
         let container_id =
             self.container_manager.run_container(&container_name, &run_options).await?;
 
         if let Some(ref tx) = progress_tx {
-            let _ = tx.send(ClaudeDevProgress::Ready).await;
+            let _ = tx.send(AgentsDevProgress::Ready).await;
         }
 
         info!(
-            "Claude-dev container started successfully: {}",
+            "Agents-dev container started successfully: {}",
             container_id
         );
         Ok(container_id)
@@ -476,15 +478,15 @@ Host gitlab.com
     }
 }
 
-/// Helper function to create a claude-dev session
-pub async fn create_claude_dev_session(
+/// Helper function to create an agents-dev session
+pub async fn create_agents_dev_session(
     workspace_path: &Path,
-    config: ClaudeDevConfig,
+    config: AgentsDevConfig,
     session_id: Uuid,
-    progress_tx: Option<mpsc::Sender<ClaudeDevProgress>>,
+    progress_tx: Option<mpsc::Sender<AgentsDevProgress>>,
     mount_claude_config: bool,
 ) -> Result<String> {
-    let manager = ClaudeDevManager::new(config).await?;
+    let manager = AgentsDevManager::new(config).await?;
 
     // Sync authentication files
     manager.sync_authentication_files(progress_tx.clone()).await?;

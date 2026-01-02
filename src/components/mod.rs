@@ -30,4 +30,5 @@ pub use logs_viewer::LogsViewerComponent;
 pub use new_session::NewSessionComponent;
 pub use non_git_notification::NonGitNotificationComponent;
 pub use session_list::SessionListComponent;
+#[allow(unused_imports)]
 pub use tmux_preview::{PreviewMode, TmuxPreviewPane};

@@ -178,7 +178,7 @@ impl LogFormatter {
     /// Format source badge
     fn format_source_badge(&self, source: &LogSource) -> Option<Span> {
         match source {
-            LogSource::ClaudeBox => Some(Span::styled(
+            LogSource::AgentsBox => Some(Span::styled(
                 "[📦]",
                 Style::default().fg(Color::Cyan)
             )),

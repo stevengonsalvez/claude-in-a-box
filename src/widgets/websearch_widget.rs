@@ -4,7 +4,6 @@
 use super::{MessageWidget, WidgetOutput, ToolResult, helpers, result_parser};
 use crate::agent_parsers::AgentEvent;
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
-use serde_json::Value;
 use uuid::Uuid;
 
 pub struct WebSearchWidget;
@@ -125,7 +124,7 @@ impl MessageWidget for WebSearchWidget {
     }
 
     fn render_with_result(&self, event: AgentEvent, result: Option<ToolResult>, container_name: &str, session_id: Uuid) -> WidgetOutput {
-        if let AgentEvent::ToolCall { id, name: _, input, description } = event {
+        if let AgentEvent::ToolCall { id, name: _, input, description: _ } = event {
             let mut header_entries = Vec::new();
             let mut content_entries = Vec::new();
 

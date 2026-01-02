@@ -1,9 +1,8 @@
 // ABOUTME: Widget for rendering multiple file edit operations
 // Displays multiple edits to a single file in a clean, organized format
 
-use crate::agent_parsers::{AgentEvent, types::StructuredPayload};
-use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
-use serde_json::Value;
+use crate::agent_parsers::AgentEvent;
+use crate::components::live_logs_stream::LogEntryLevel;
 use uuid::Uuid;
 
 use super::{MessageWidget, WidgetOutput, ToolResult, helpers};

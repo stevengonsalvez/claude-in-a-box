@@ -1,4 +1,4 @@
-// ABOUTME: Tmux session management module for claude-in-a-box
+// ABOUTME: Tmux session management module for agents-in-a-box
 //
 // This module provides tmux-based session management as an alternative to
 // Docker containers, enabling:
@@ -13,7 +13,10 @@ pub mod process_detection;
 pub mod pty_wrapper;
 pub mod session;
 
+#[allow(unused_imports)]
 pub use capture::CaptureOptions;
 pub use process_detection::ClaudeProcessDetector;
+#[allow(unused_imports)]
 pub use pty_wrapper::PtyWrapper;
+#[allow(unused_imports)]
 pub use session::{AttachState, TmuxSession};

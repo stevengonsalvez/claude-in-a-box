@@ -1,7 +1,7 @@
 // ABOUTME: Unit tests for AppState to ensure navigation and state management work correctly
 
-use claude_box::app::AppState;
-use claude_box::models::{Session, SessionStatus, Workspace};
+use agents_box::app::AppState;
+use agents_box::models::{Session, SessionStatus, Workspace};
 use std::path::PathBuf;
 
 fn create_test_state() -> AppState {

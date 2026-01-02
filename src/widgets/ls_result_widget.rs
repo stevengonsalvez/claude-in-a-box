@@ -2,7 +2,7 @@
 // Displays directory trees and file listings in a structured format
 
 use crate::agent_parsers::AgentEvent;
-use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
+use crate::components::live_logs_stream::LogEntryLevel;
 use uuid::Uuid;
 
 use super::{MessageWidget, WidgetOutput, helpers};

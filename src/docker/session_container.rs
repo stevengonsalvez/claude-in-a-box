@@ -1,5 +1,7 @@
 // ABOUTME: Session container data structures and configuration
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;

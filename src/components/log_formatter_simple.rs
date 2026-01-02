@@ -1,6 +1,8 @@
 // ABOUTME: Simplified log formatter for TUI display with beautiful visual styling
 // Stateless formatting to avoid complex borrow checker issues
 
+#![allow(dead_code)]
+
 use super::log_parser::{LogCategory, LogLevel, ParsedLog};
 use chrono::{DateTime, Duration, Utc};
 use ratatui::style::{Color, Modifier, Style};

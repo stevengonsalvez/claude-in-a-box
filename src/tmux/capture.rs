@@ -4,6 +4,8 @@
 // including full scrollback history, visible pane content, and ANSI escape
 // sequence preservation.
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -161,14 +163,14 @@ pub async fn capture_pane(session_name: &str, options: CaptureOptions) -> Result
     }
 
     // Add start line if specified
-    let mut start_arg = String::new();
+    let start_arg;
     if let Some(start) = &options.start_line {
         start_arg = format!("-S{}", start);
         args.push(&start_arg);
     }
 
     // Add end line if specified
-    let mut end_arg = String::new();
+    let end_arg;
     if let Some(end) = &options.end_line {
         end_arg = format!("-E{}", end);
         args.push(&end_arg);
@@ -252,7 +254,7 @@ mod tests {
     fn test_filter_claude_ui_noise_permission_dialog() {
         let input = r#"Some output
 Do you want to work in this folder?
-/Users/stevengonsalvez/.claude-in-a-box/worktrees/by-name/claude-in-a-box--claude-90112e0b--89d6e40c
+/Users/stevengonsalvez/.agents-in-a-box/worktrees/by-name/agents-in-a-box--session-90112e0b--89d6e40c
 
 In order to work in this folder, we need your permission for Claude Code to read, edit, and execute files.
 

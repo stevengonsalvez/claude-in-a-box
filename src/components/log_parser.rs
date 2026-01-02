@@ -1,6 +1,8 @@
 // ABOUTME: Advanced log parser for beautifying Docker container logs in TUI
 // Handles pattern detection, ANSI stripping, and intelligent log categorization
 
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -37,7 +39,7 @@ pub enum LogCategory {
 /// Log sources
 #[derive(Debug, Clone)]
 pub enum LogSource {
-    ClaudeBox,
+    AgentsBox,
     ClaudeSession(String),
     Docker,
     System,
@@ -70,9 +72,9 @@ lazy_static! {
         r"\[claude/([a-f0-9-]+)\]"
     ).unwrap();
 
-    // Claude-box tag pattern
-    static ref CLAUDE_BOX_TAG: Regex = Regex::new(
-        r"\[claude-box\]"
+    // Agents-box tag pattern
+    static ref AGENTS_BOX_TAG: Regex = Regex::new(
+        r"\[agents-box\]"
     ).unwrap();
 
     // Log level patterns
@@ -183,10 +185,10 @@ impl LogParser {
             return (LogSource::ClaudeSession(session_id), cleaned);
         }
 
-        // Check for claude-box tag
-        if CLAUDE_BOX_TAG.is_match(message) {
-            let cleaned = CLAUDE_BOX_TAG.replace(message, "").trim().to_string();
-            return (LogSource::ClaudeBox, cleaned);
+        // Check for agents-box tag
+        if AGENTS_BOX_TAG.is_match(message) {
+            let cleaned = AGENTS_BOX_TAG.replace(message, "").trim().to_string();
+            return (LogSource::AgentsBox, cleaned);
         }
 
         // Check for docker prefix
@@ -374,8 +376,8 @@ mod tests {
     fn test_source_detection() {
         let parser = LogParser::new();
 
-        let (source, _) = parser.detect_source("[claude-box] Starting");
-        assert!(matches!(source, LogSource::ClaudeBox));
+        let (source, _) = parser.detect_source("[agents-box] Starting");
+        assert!(matches!(source, LogSource::AgentsBox));
 
         let (source, _) = parser.detect_source("[claude/abc123] Ready");
         assert!(matches!(source, LogSource::ClaudeSession(_)));

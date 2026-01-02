@@ -1,6 +1,8 @@
 // ABOUTME: MCP (Model Context Protocol) server configuration
 // Manages MCP server definitions and installation
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

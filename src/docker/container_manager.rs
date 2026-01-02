@@ -1,5 +1,7 @@
 // ABOUTME: Docker container management using Bollard for creating and managing development containers
 
+#![allow(dead_code)]
+
 use super::{ContainerConfig, ContainerStatus, SessionContainer};
 use anyhow::Result;
 use bollard::Docker;
@@ -258,7 +260,7 @@ impl ContainerManager {
         info!("Creating container for session {}", session_id);
 
         // Generate a container name
-        let container_name = format!("claude-session-{}", session_id);
+        let container_name = format!("agents-session-{}", session_id);
 
         // Check if container already exists
         if self.container_exists(&container_name).await? {
@@ -332,8 +334,8 @@ impl ContainerManager {
             host_config: Some(host_config),
             labels: Some({
                 let mut labels = HashMap::new();
-                labels.insert("claude-session-id".to_string(), session_id.to_string());
-                labels.insert("claude-managed".to_string(), "true".to_string());
+                labels.insert("agents-session-id".to_string(), session_id.to_string());
+                labels.insert("agents-managed".to_string(), "true".to_string());
                 labels
             }),
             ..Default::default()
@@ -570,14 +572,14 @@ impl ContainerManager {
         Ok(logs)
     }
 
-    pub async fn list_claude_containers(&self) -> Result<Vec<ContainerSummary>, ContainerError> {
+    pub async fn list_agents_containers(&self) -> Result<Vec<ContainerSummary>, ContainerError> {
         let containers = self
             .docker
             .list_containers(Some(ListContainersOptions::<String> {
                 all: true,
                 filters: {
                     let mut filters = HashMap::new();
-                    filters.insert("label".to_string(), vec!["claude-managed=true".to_string()]);
+                    filters.insert("label".to_string(), vec!["agents-managed=true".to_string()]);
                     filters
                 },
                 ..Default::default()
@@ -627,12 +629,12 @@ impl ContainerManager {
             return Ok(());
         }
 
-        // Check if this is a local build image (claude-box:*)
-        if image.starts_with("claude-box:") {
+        // Check if this is a local build image (agents-box:*)
+        if image.starts_with("agents-box:") {
             info!("Building local image {}", image);
 
             // Extract template name from image tag
-            let template_name = image.strip_prefix("claude-box:").unwrap_or("claude-dev");
+            let template_name = image.strip_prefix("agents-box:").unwrap_or("agents-dev");
 
             // Get the appropriate template
             let app_config = crate::config::AppConfig::load().map_err(|e| {
@@ -806,8 +808,8 @@ impl ContainerManager {
             host_config: Some(host_config),
             labels: Some({
                 let mut labels = HashMap::new();
-                labels.insert("claude-managed".to_string(), "true".to_string());
-                labels.insert("claude-dev".to_string(), "true".to_string());
+                labels.insert("agents-managed".to_string(), "true".to_string());
+                labels.insert("agents-dev".to_string(), "true".to_string());
                 // Add any custom labels
                 for (key, value) in &options.labels {
                     labels.insert(key.clone(), value.clone());

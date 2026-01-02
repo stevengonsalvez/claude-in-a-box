@@ -1,5 +1,7 @@
 // ABOUTME: Session data model representing a Claude Code container instance with git worktree
 
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -100,7 +102,7 @@ impl Session {
         boss_prompt: Option<String>,
     ) -> Self {
         let now = Utc::now();
-        let branch_name = format!("claude/{}", name.replace(' ', "-").to_lowercase());
+        let branch_name = format!("agents-in-a-box/{}", name.replace(' ', "-").to_lowercase());
 
         Self {
             id: Uuid::new_v4(),

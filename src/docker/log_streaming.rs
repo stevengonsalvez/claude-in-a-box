@@ -1,16 +1,15 @@
 // ABOUTME: Docker log streaming manager for real-time container log collection
 // Streams logs from Docker containers to the live logs UI component
 
-use crate::agent_parsers::{AgentOutputParser, ParserFactory};
+#![allow(dead_code)]
+
+use crate::agent_parsers::AgentOutputParser;
 use crate::components::live_logs_stream::{LogEntry, LogEntryLevel};
 use crate::components::log_parser::LogParser;
 use crate::docker::ContainerManager;
-use crate::widgets::WidgetOutput;
 use anyhow::{Result, anyhow};
 use bollard::container::{LogOutput, LogsOptions};
 use futures_util::StreamExt;
-use serde::Deserialize;
-use serde_json::Value;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -165,11 +164,11 @@ impl DockerLogStreamingManager {
 
         // JSON streaming parser (used for Boss Mode, but safe to try for any session)
         let mut agent_parser: Option<Box<dyn AgentOutputParser>> = None;
-        let is_boss_mode = matches!(session_mode, crate::models::SessionMode::Boss);
+        let _is_boss_mode = matches!(session_mode, crate::models::SessionMode::Boss);
         // Buffer for partial JSON objects across frames
         let mut boss_json_buffer = String::new();
-        let parser_debug = std::env::var("CLAUDE_BOX_PARSER_DEBUG").is_ok();
-        let buf_limit: usize = std::env::var("CLAUDE_BOX_JSON_BUF_MAX")
+        let _parser_debug = std::env::var("AGENTS_BOX_PARSER_DEBUG").is_ok();
+        let buf_limit: usize = std::env::var("AGENTS_BOX_JSON_BUF_MAX")
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(DEFAULT_JSON_BUF_LIMIT);
@@ -205,7 +204,7 @@ impl DockerLogStreamingManager {
                     // For boss mode, try to extract a JSON slice from the line
                     // Docker logs format: "2025-09-08T19:20:30.123456789Z {"type":"..."}"
                     let mut handled_as_json = false;
-                    let parser_debug = std::env::var("CLAUDE_BOX_PARSER_DEBUG").is_ok();
+                    let parser_debug = std::env::var("AGENTS_BOX_PARSER_DEBUG").is_ok();
 
                     // Prefer robust streaming JSON handling for any line that looks like JSON
                     if let Some(start) = raw_message.find('{') {
@@ -495,7 +494,6 @@ impl DockerLogStreamingManager {
         message_router: &mut crate::widgets::MessageRouter,
     ) -> Vec<LogEntry> {
         // Use the message router to render the event
-        use crate::widgets::WidgetOutput;
 
         // Render the event using the appropriate widget
         let output = message_router.route_event(event, container_name, session_id);
@@ -695,12 +693,7 @@ impl DockerLogStreamingManager {
             .with_metadata("event_type", "error")
             .with_metadata("error_code", &code.unwrap_or_default()),
 
-            AgentEvent::Usage {
-                input_tokens,
-                output_tokens,
-                cache_tokens,
-                ..
-            } => {
+            AgentEvent::Usage { .. } => {
                 return LogEntry::new(
                     LogEntryLevel::Debug,
                     container_name.to_string(),

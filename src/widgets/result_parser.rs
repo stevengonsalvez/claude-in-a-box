@@ -37,7 +37,7 @@ pub fn parse_markdown_to_logs(
                 }
 
                 match tag {
-                    Tag::Heading(level, _, _) => {
+                    Tag::Heading(_level, _, _) => {
                         // Add spacing before headings
                         if !entries.is_empty() {
                             entries.push(create_text_entry(
@@ -210,7 +210,7 @@ fn format_code_block(
     // Check if we should use highlighting (only for known languages)
     let use_highlighting = language.is_some() &&
         std::env::var("NO_COLOR").is_err() && // Respect NO_COLOR env var
-        std::env::var("CLAUDE_BOX_SYNTAX_HIGHLIGHT").unwrap_or_else(|_| "true".to_string()) == "true";
+        std::env::var("AGENTS_BOX_SYNTAX_HIGHLIGHT").unwrap_or_else(|_| "true".to_string()) == "true";
 
     // Format code lines with optional syntax highlighting
     let formatted_lines = if use_highlighting {

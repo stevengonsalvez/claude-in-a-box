@@ -12,7 +12,7 @@ pub fn spawn_app_visual() -> Result<PtySession, rexpect::error::Error> {
         let script = format!(
             r#"
             tell application "Terminal"
-                do script "cd {} && ./target/debug/claude-box"
+                do script "cd {} && ./target/debug/agents-box"
                 activate
             end tell
             "#,
@@ -41,8 +41,8 @@ pub fn spawn_app_visual() -> Result<PtySession, rexpect::error::Error> {
 
 /// Spawn the application silently (normal headless mode)
 pub fn spawn_app_silent() -> Result<PtySession, rexpect::error::Error> {
-    let binary_path = if std::path::Path::new("target/debug/claude-box").exists() {
-        "target/debug/claude-box"
+    let binary_path = if std::path::Path::new("target/debug/agents-box").exists() {
+        "target/debug/agents-box"
     } else {
         "cargo"
     };

@@ -1,6 +1,8 @@
 // ABOUTME: Common types for agent output parsing - unified representation across different AI agents
 // This module defines the common event types that all agent parsers convert to
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;

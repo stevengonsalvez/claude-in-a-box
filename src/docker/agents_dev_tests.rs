@@ -1,9 +1,9 @@
-// ABOUTME: Comprehensive tests for claude_dev module functionality
+// ABOUTME: Comprehensive tests for agents_dev module functionality
 // Tests authentication, environment setup, image building, and container operations
 
 #[cfg(test)]
 mod tests {
-    use super::super::claude_dev::*;
+    use super::super::agents_dev::*;
     use anyhow::Result;
     use std::collections::HashMap;
     use std::env;
@@ -21,13 +21,13 @@ mod tests {
         // Create a simple test file
         fs::write(
             workspace_path.join("README.md"),
-            "# Test Workspace\n\nThis is a test workspace for claude-dev testing.",
+            "# Test Workspace\n\nThis is a test workspace for agents-dev testing.",
         )?;
 
         // Create a simple Python script
         fs::write(
             workspace_path.join("test_script.py"),
-            "#!/usr/bin/env python3\nprint('Hello from claude-dev test!')\n",
+            "#!/usr/bin/env python3\nprint('Hello from agents-dev test!')\n",
         )?;
 
         // Create a package.json for Node.js projects
@@ -40,9 +40,9 @@ mod tests {
     }
 
     // Helper function to create test config
-    fn create_test_config() -> ClaudeDevConfig {
-        ClaudeDevConfig {
-            image_name: "claude-box:claude-dev-test".to_string(),
+    fn create_test_config() -> AgentsDevConfig {
+        AgentsDevConfig {
+            image_name: "agents-box:agents-dev-test".to_string(),
             memory_limit: Some("2g".to_string()),
             gpu_access: None,
             force_rebuild: false,
@@ -58,9 +58,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_claude_dev_manager_creation() -> Result<()> {
+    async fn test_agents_dev_manager_creation() -> Result<()> {
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         // Verify manager was created successfully
         // Check that authentication status works (implies directories exist)
@@ -73,7 +73,7 @@ mod tests {
     #[tokio::test]
     async fn test_authentication_status_check() -> Result<()> {
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         let auth_status = manager.get_authentication_status()?;
 
@@ -95,7 +95,7 @@ mod tests {
     #[tokio::test]
     async fn test_sync_authentication_files() -> Result<()> {
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         // Create a test .claude.json file
         let home_dir = dirs::home_dir().unwrap();
@@ -115,7 +115,7 @@ mod tests {
     #[tokio::test]
     async fn test_environment_setup() -> Result<()> {
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         // Test environment setup
         let result = manager.setup_environment(None).await;
@@ -129,7 +129,7 @@ mod tests {
         let mut config = create_test_config();
         config.env_vars.insert("GITHUB_TOKEN".to_string(), "test_token".to_string());
 
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         // Test environment setup with GitHub token
         let result = manager.setup_environment(None).await;
@@ -141,7 +141,7 @@ mod tests {
     #[tokio::test]
     async fn test_progress_tracking() -> Result<()> {
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         let (tx, mut rx) = mpsc::channel(10);
 
@@ -151,7 +151,7 @@ mod tests {
         // Collect progress messages
         let mut progress_messages = Vec::new();
         while let Some(progress) = rx.recv().await {
-            let should_break = matches!(progress, ClaudeDevProgress::Ready);
+            let should_break = matches!(progress, AgentsDevProgress::Ready);
             progress_messages.push(progress);
             if should_break {
                 break;
@@ -172,7 +172,7 @@ mod tests {
     #[ignore] // Requires Docker and may take time to build
     async fn test_image_building() -> Result<()> {
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         // Test image building (this will skip if image already exists)
         let result = manager.build_image_if_needed(None).await;
@@ -186,9 +186,9 @@ mod tests {
     async fn test_image_building_with_progress() -> Result<()> {
         let mut config = create_test_config();
         config.force_rebuild = true; // Force rebuild to test progress
-        config.image_name = "claude-box:claude-dev-test-rebuild".to_string();
+        config.image_name = "agents-box:agents-dev-test-rebuild".to_string();
 
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         let (tx, mut rx) = mpsc::channel(100);
 
@@ -198,7 +198,7 @@ mod tests {
         // Collect progress messages
         let mut progress_messages = Vec::new();
         while let Some(progress) = rx.recv().await {
-            let should_break = matches!(progress, ClaudeDevProgress::Ready);
+            let should_break = matches!(progress, AgentsDevProgress::Ready);
             progress_messages.push(progress);
             if should_break {
                 break;
@@ -212,7 +212,7 @@ mod tests {
         // Should have received build progress messages
         let has_build_progress = progress_messages
             .iter()
-            .any(|p| matches!(p, ClaudeDevProgress::BuildingImage(_)));
+            .any(|p| matches!(p, AgentsDevProgress::BuildingImage(_)));
         assert!(has_build_progress);
 
         Ok(())
@@ -223,7 +223,7 @@ mod tests {
     async fn test_container_running() -> Result<()> {
         let temp_workspace = create_test_workspace()?;
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         // Test container running
         let session_id = uuid::Uuid::new_v4();
@@ -253,7 +253,7 @@ mod tests {
     async fn test_container_running_with_progress() -> Result<()> {
         let temp_workspace = create_test_workspace()?;
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         let (tx, mut rx) = mpsc::channel(10);
 
@@ -267,7 +267,7 @@ mod tests {
         // Collect progress messages
         let mut progress_messages = Vec::new();
         while let Some(progress) = rx.recv().await {
-            let should_break = matches!(progress, ClaudeDevProgress::Ready);
+            let should_break = matches!(progress, AgentsDevProgress::Ready);
             progress_messages.push(progress);
             if should_break {
                 break;
@@ -283,7 +283,7 @@ mod tests {
 
         let has_container_progress = progress_messages
             .iter()
-            .any(|p| matches!(p, ClaudeDevProgress::StartingContainer));
+            .any(|p| matches!(p, AgentsDevProgress::StartingContainer));
         assert!(has_container_progress);
 
         if let Ok(container_id) = result {
@@ -296,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore] // Requires Docker
-    async fn test_full_claude_dev_session() -> Result<()> {
+    async fn test_full_agents_dev_session() -> Result<()> {
         let temp_workspace = create_test_workspace()?;
         let config = create_test_config();
 
@@ -310,7 +310,7 @@ mod tests {
                 // Add timeout to prevent hanging
                 tokio::time::timeout(
                     std::time::Duration::from_secs(60),
-                    create_claude_dev_session(&workspace_path, config, session_id, Some(tx), true),
+                    create_agents_dev_session(&workspace_path, config, session_id, Some(tx), true),
                 )
                 .await
             }
@@ -321,7 +321,7 @@ mod tests {
         let progress_timeout = std::time::Duration::from_secs(65);
         let progress_result = tokio::time::timeout(progress_timeout, async {
             while let Some(progress) = rx.recv().await {
-                let should_break = matches!(progress, ClaudeDevProgress::Ready);
+                let should_break = matches!(progress, AgentsDevProgress::Ready);
                 progress_messages.push(progress);
                 if should_break {
                     break;
@@ -332,7 +332,7 @@ mod tests {
 
         // Check if progress collection timed out
         if progress_result.is_err() {
-            println!("Skipping test_full_claude_dev_session: Docker operations timed out");
+            println!("Skipping test_full_agents_dev_session: Docker operations timed out");
             return Ok(());
         }
 
@@ -348,19 +348,19 @@ mod tests {
                         // Should have authentication sync progress
                         let has_auth_sync = progress_messages
                             .iter()
-                            .any(|p| matches!(p, ClaudeDevProgress::SyncingAuthentication));
+                            .any(|p| matches!(p, AgentsDevProgress::SyncingAuthentication));
                         assert!(has_auth_sync);
 
                         // Should have environment check progress
                         let has_env_check = progress_messages
                             .iter()
-                            .any(|p| matches!(p, ClaudeDevProgress::CheckingEnvironment));
+                            .any(|p| matches!(p, AgentsDevProgress::CheckingEnvironment));
                         assert!(has_env_check);
 
                         // Should have container start progress
                         let has_container_start = progress_messages
                             .iter()
-                            .any(|p| matches!(p, ClaudeDevProgress::StartingContainer));
+                            .any(|p| matches!(p, AgentsDevProgress::StartingContainer));
                         assert!(has_container_start);
 
                         // Cleanup
@@ -375,7 +375,7 @@ mod tests {
                 }
             }
             Err(_timeout) => {
-                println!("Skipping test_full_claude_dev_session: Docker operations timed out");
+                println!("Skipping test_full_agents_dev_session: Docker operations timed out");
                 return Ok(());
             }
         }
@@ -386,14 +386,14 @@ mod tests {
     #[tokio::test]
     async fn test_config_validation() -> Result<()> {
         // Test default config
-        let default_config = ClaudeDevConfig::default();
-        assert_eq!(default_config.image_name, "claude-box:claude-dev");
+        let default_config = AgentsDevConfig::default();
+        assert_eq!(default_config.image_name, "agents-box:agents-dev");
         assert!(!default_config.force_rebuild);
         assert!(!default_config.no_cache);
         assert!(!default_config.continue_session);
 
         // Test custom config
-        let custom_config = ClaudeDevConfig {
+        let custom_config = AgentsDevConfig {
             image_name: "custom-image".to_string(),
             memory_limit: Some("4g".to_string()),
             gpu_access: Some("all".to_string()),
@@ -426,7 +426,7 @@ mod tests {
         let timeout_duration = std::time::Duration::from_secs(30);
         let result = tokio::time::timeout(
             timeout_duration,
-            create_claude_dev_session(&invalid_path, config, session_id, None, true),
+            create_agents_dev_session(&invalid_path, config, session_id, None, true),
         )
         .await;
 
@@ -450,7 +450,7 @@ mod tests {
     #[tokio::test]
     async fn test_authentication_status_with_env_vars() -> Result<()> {
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         // Test with environment variables
         env::set_var("ANTHROPIC_API_KEY", "test_key");
@@ -473,25 +473,25 @@ mod tests {
     fn test_progress_enum_variants() {
         // Test all progress variants
         let progress_variants = vec![
-            ClaudeDevProgress::SyncingAuthentication,
-            ClaudeDevProgress::CheckingEnvironment,
-            ClaudeDevProgress::BuildingImage("test".to_string()),
-            ClaudeDevProgress::StartingContainer,
-            ClaudeDevProgress::ConfiguringGitHub,
-            ClaudeDevProgress::Ready,
-            ClaudeDevProgress::Error("test error".to_string()),
+            AgentsDevProgress::SyncingAuthentication,
+            AgentsDevProgress::CheckingEnvironment,
+            AgentsDevProgress::BuildingImage("test".to_string()),
+            AgentsDevProgress::StartingContainer,
+            AgentsDevProgress::ConfiguringGitHub,
+            AgentsDevProgress::Ready,
+            AgentsDevProgress::Error("test error".to_string()),
         ];
 
         // All variants should be valid
         for progress in progress_variants {
             match progress {
-                ClaudeDevProgress::SyncingAuthentication => {}
-                ClaudeDevProgress::CheckingEnvironment => {}
-                ClaudeDevProgress::BuildingImage(msg) => assert_eq!(msg, "test"),
-                ClaudeDevProgress::StartingContainer => {}
-                ClaudeDevProgress::ConfiguringGitHub => {}
-                ClaudeDevProgress::Ready => {}
-                ClaudeDevProgress::Error(msg) => assert_eq!(msg, "test error"),
+                AgentsDevProgress::SyncingAuthentication => {}
+                AgentsDevProgress::CheckingEnvironment => {}
+                AgentsDevProgress::BuildingImage(msg) => assert_eq!(msg, "test"),
+                AgentsDevProgress::StartingContainer => {}
+                AgentsDevProgress::ConfiguringGitHub => {}
+                AgentsDevProgress::Ready => {}
+                AgentsDevProgress::Error(msg) => assert_eq!(msg, "test error"),
             }
         }
     }
@@ -499,7 +499,7 @@ mod tests {
     #[tokio::test]
     async fn test_ssh_config_generation() -> Result<()> {
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         // SSH config generation is tested indirectly through environment setup
         // when no GITHUB_TOKEN is provided
@@ -514,7 +514,7 @@ mod tests {
     async fn test_container_reaches_running_state() -> Result<()> {
         let temp_workspace = create_test_workspace()?;
         let config = create_test_config();
-        let manager = ClaudeDevManager::new(config).await?;
+        let manager = AgentsDevManager::new(config).await?;
 
         let session_id = uuid::Uuid::new_v4();
 
@@ -558,20 +558,20 @@ mod tests {
         let _temp_workspace1 = create_test_workspace()?;
         let _temp_workspace2 = create_test_workspace()?;
 
-        let config1 = ClaudeDevConfig {
-            image_name: "claude-box:claude-dev-test-1".to_string(),
+        let config1 = AgentsDevConfig {
+            image_name: "agents-box:agents-dev-test-1".to_string(),
             ..create_test_config()
         };
 
-        let config2 = ClaudeDevConfig {
-            image_name: "claude-box:claude-dev-test-2".to_string(),
+        let config2 = AgentsDevConfig {
+            image_name: "agents-box:agents-dev-test-2".to_string(),
             ..create_test_config()
         };
 
         // Test that multiple managers can be created concurrently
-        let manager1_task = tokio::spawn(async move { ClaudeDevManager::new(config1).await });
+        let manager1_task = tokio::spawn(async move { AgentsDevManager::new(config1).await });
 
-        let manager2_task = tokio::spawn(async move { ClaudeDevManager::new(config2).await });
+        let manager2_task = tokio::spawn(async move { AgentsDevManager::new(config2).await });
 
         let (result1, result2) = tokio::join!(manager1_task, manager2_task);
 

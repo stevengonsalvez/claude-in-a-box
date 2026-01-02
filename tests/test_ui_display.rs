@@ -1,7 +1,7 @@
 // ABOUTME: Test UI display components including menu bar and help text
 
-use claude_box::app::{App, state::View};
-use claude_box::components::LayoutComponent;
+use agents_box::app::{App, state::View};
+use agents_box::components::LayoutComponent;
 use ratatui::{Terminal, backend::TestBackend};
 
 #[tokio::test]

@@ -1,5 +1,7 @@
-// ABOUTME: Configuration management for claude-in-a-box
+// ABOUTME: Configuration management for agents-in-a-box
 // Handles application config, container defaults, and MCP server definitions
+
+#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use dirs;
@@ -164,7 +166,7 @@ fn default_container_template() -> String {
 }
 
 fn default_branch_prefix() -> String {
-    "claude/".to_string()
+    "agents/".to_string()
 }
 
 fn default_theme() -> String {
@@ -246,16 +248,16 @@ impl AppConfig {
 
         // 1. Local project config
         if let Ok(cwd) = std::env::current_dir() {
-            paths.push(cwd.join(".claude-in-a-box").join("config.toml"));
+            paths.push(cwd.join(".agents-box").join("config.toml"));
         }
 
-        // 2. User config (~/.claude-box/config.toml)
+        // 2. User config (~/.agents-in-a-box/config.toml)
         if let Ok(config_dir) = Self::get_user_config_dir() {
             paths.push(config_dir.join("config.toml"));
         }
 
         // 3. System config
-        paths.push(PathBuf::from("/etc/claude-in-a-box/config.toml"));
+        paths.push(PathBuf::from("/etc/agents-in-a-box/config.toml"));
 
         paths
     }
@@ -263,7 +265,7 @@ impl AppConfig {
     /// Get user configuration directory
     fn get_user_config_dir() -> Result<PathBuf> {
         let home_dir = dirs::home_dir().context("Failed to get home directory")?;
-        let config_dir = home_dir.join(".claude-in-a-box").join("config");
+        let config_dir = home_dir.join(".agents-in-a-box").join("config");
         Ok(config_dir)
     }
 
@@ -355,7 +357,7 @@ impl Default for AppConfig {
 pub fn load_from_env() -> HashMap<String, String> {
     std::env::vars()
         .filter(|(k, _)| {
-            k.starts_with("CLAUDE_BOX_") || k.starts_with("CLAUDE_") || k.starts_with("ANTHROPIC_")
+            k.starts_with("AGENTS_BOX_") || k.starts_with("CLAUDE_") || k.starts_with("ANTHROPIC_")
         })
         .collect()
 }
@@ -397,7 +399,7 @@ pub struct MountConfig {
 impl ProjectConfig {
     /// Load project configuration from a directory
     pub fn load_from_dir(dir: &Path) -> Result<Option<Self>> {
-        let config_path = dir.join(".claude-in-a-box").join("project.toml");
+        let config_path = dir.join(".agents-box").join("project.toml");
         if !config_path.exists() {
             return Ok(None);
         }
@@ -409,7 +411,7 @@ impl ProjectConfig {
 
     /// Save project configuration to a directory
     pub fn save_to_dir(&self, dir: &Path) -> Result<()> {
-        let config_dir = dir.join(".claude-in-a-box");
+        let config_dir = dir.join(".agents-box");
         fs::create_dir_all(&config_dir)?;
 
         let config_path = config_dir.join("project.toml");

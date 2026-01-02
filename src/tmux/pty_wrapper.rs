@@ -5,6 +5,8 @@
 // - Terminal resize support
 // - Clean abstraction over portable-pty
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use portable_pty::{CommandBuilder, MasterPty, PtySize};
 use std::sync::{Arc, Mutex as StdMutex};

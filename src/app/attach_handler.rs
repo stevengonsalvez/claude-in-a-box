@@ -107,7 +107,24 @@ impl<'a> AttachHandler<'a> {
     /// # Returns
     /// * `Result<()>` - Success or an error
     async fn execute_tmux_attach(&self, session_name: &str) -> Result<()> {
-        tracing::info!("Attaching to tmux session: {}", session_name);
+        tracing::info!("[ATTACH] Executing tmux attach-session for '{}'", session_name);
+
+        // First verify the session exists
+        let check = Command::new("tmux")
+            .arg("has-session")
+            .arg("-t")
+            .arg(session_name)
+            .output()
+            .await
+            .context("Failed to check if tmux session exists")?;
+
+        if !check.status.success() {
+            let stderr = String::from_utf8_lossy(&check.stderr);
+            tracing::error!("[ATTACH] tmux session '{}' does not exist: {}", session_name, stderr);
+            anyhow::bail!("tmux session '{}' does not exist", session_name);
+        }
+
+        tracing::info!("[ATTACH] Session '{}' exists, attaching...", session_name);
 
         // Execute tmux attach-session
         // Note: We use tokio::process::Command which will inherit stdin/stdout/stderr
@@ -120,13 +137,14 @@ impl<'a> AttachHandler<'a> {
             .context("Failed to execute tmux attach-session")?;
 
         if !status.success() {
+            tracing::error!("[ATTACH] tmux attach-session failed with exit code: {:?}", status.code());
             anyhow::bail!(
                 "tmux attach-session failed with exit code: {:?}",
                 status.code()
             );
         }
 
-        tracing::info!("Detached from tmux session: {}", session_name);
+        tracing::info!("[ATTACH] Successfully detached from tmux session: {}", session_name);
         Ok(())
     }
 }

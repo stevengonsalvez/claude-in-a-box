@@ -1,6 +1,8 @@
 // ABOUTME: Container template definitions for different development environments
 // Provides pre-configured templates including claude-docker based setup
 
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -136,7 +138,7 @@ impl ContainerTemplate {
                 environment: {
                     let mut env = HashMap::new();
                     env.insert("NODE_ENV".to_string(), "development".to_string());
-                    env.insert("CLAUDE_BOX_MODE".to_string(), "true".to_string());
+                    env.insert("AGENTS_BOX_MODE".to_string(), "true".to_string());
                     env
                 },
                 user: Some("claude-user".to_string()),
@@ -267,10 +269,10 @@ impl ContainerTemplate {
             ImageSource::Image { name } => ContainerConfig::new(name.clone()),
             ImageSource::Dockerfile { .. } => {
                 // For now, we'll build the image separately and use the tag
-                ContainerConfig::new("claude-box:custom".to_string())
+                ContainerConfig::new("agents-box:custom".to_string())
             }
             ImageSource::ClaudeDocker { .. } => {
-                ContainerConfig::new("claude-box:claude-dev".to_string())
+                ContainerConfig::new("agents-box:agents-dev".to_string())
             }
         };
 

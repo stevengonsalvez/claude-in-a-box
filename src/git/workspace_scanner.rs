@@ -1,5 +1,7 @@
 // ABOUTME: Workspace detection and validation for git repositories
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use git2::Repository;
 use std::fs;

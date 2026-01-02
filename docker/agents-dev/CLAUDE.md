@@ -1,6 +1,6 @@
 # Claude Development Environment
 
-This project is set up with a Claude-in-a-Box development environment.
+This project is set up with an Agents-in-a-Box development environment.
 
 ## Available Tools
 
@@ -32,7 +32,7 @@ Provides access to library documentation and code examples:
 
 ## Environment Information
 
-- **Container**: claude-dev template
+- **Container**: agents-dev template
 - **Base Image**: node:20-slim
 - **User**: claude-user (UID/GID matched to host)
 - **Working Directory**: /workspace
@@ -84,14 +84,14 @@ claude-ask "Explain this error: $(cat error.log)"
 
 To customize this environment for your project:
 
-1. Create `.claude-in-a-box/project.toml` in your project root
+1. Create `.agents-in-a-box/project.toml` in your project root
 2. Specify container template, environment variables, and additional mounts
-3. Restart your claude-box session to apply changes
+3. Restart your agents-box session to apply changes
 
 Example project configuration:
 
 ```toml
-container_template = "claude-dev"
+container_template = "agents-dev"
 mount_claude_config = true
 
 [environment]

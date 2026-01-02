@@ -3,7 +3,7 @@
 # Provides start, stop, restart, status, and attach functionality
 
 SESSION_NAME="claude-session"
-LOG_DIR="/workspace/.claude-box/logs"
+LOG_DIR="/workspace/.agents-box/logs"
 
 # Colors
 RED='\033[0;31m'
