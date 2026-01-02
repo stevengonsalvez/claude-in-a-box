@@ -147,6 +147,71 @@ impl SessionListComponent {
             }
         }
 
+        // Add "Other tmux" section if there are other tmux sessions
+        if !state.other_tmux_sessions.is_empty() {
+            // Add separator line
+            if !items.is_empty() {
+                items.push(ListItem::new("").style(Style::default()));
+            }
+
+            let session_count = state.other_tmux_sessions.len();
+            let is_selected_other = state.selected_workspace_index.is_none()
+                && state.selected_other_tmux_index.is_some();
+
+            // Header for other tmux section
+            let other_symbol = if state.other_tmux_expanded {
+                "▼"
+            } else {
+                "▶"
+            };
+
+            let header_style = if state.selected_workspace_index.is_none() {
+                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Magenta)
+            };
+
+            items.push(
+                ListItem::new(format!("{} Other tmux ·{}", other_symbol, session_count))
+                    .style(header_style),
+            );
+
+            // Show other tmux sessions if expanded
+            if state.other_tmux_expanded {
+                let session_len = state.other_tmux_sessions.len();
+                for (idx, other_session) in state.other_tmux_sessions.iter().enumerate() {
+                    let is_selected = is_selected_other
+                        && state.selected_other_tmux_index == Some(idx);
+                    let is_last = idx == session_len - 1;
+
+                    let tree_prefix = if is_last { "└─" } else { "├─" };
+                    let status = other_session.status_indicator();
+
+                    let windows_text = if other_session.windows > 1 {
+                        format!(" ({}w)", other_session.windows)
+                    } else {
+                        String::new()
+                    };
+
+                    let session_style = if is_selected {
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    } else if other_session.attached {
+                        Style::default().fg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::Gray)
+                    };
+
+                    items.push(
+                        ListItem::new(format!(
+                            "  {} {} {}{}",
+                            tree_prefix, status, other_session.name, windows_text
+                        ))
+                        .style(session_style),
+                    );
+                }
+            }
+        }
+
         if items.is_empty() {
             items
                 .push(ListItem::new("No workspaces found").style(Style::default().fg(Color::Gray)));
@@ -181,9 +246,59 @@ impl SessionListComponent {
             }
 
             self.list_state.select(Some(current_index));
+        } else if state.selected_other_tmux_index.is_some() {
+            // Selection is in "Other tmux" section
+            let mut current_index = 0;
+
+            // Count all workspace items first
+            for workspace in &state.workspaces {
+                current_index += 1; // Workspace header
+                if state.expand_all_workspaces {
+                    current_index += workspace.sessions.len();
+                }
+            }
+
+            // Add separator + "Other tmux" header
+            if !state.workspaces.is_empty() && !state.other_tmux_sessions.is_empty() {
+                current_index += 1; // Empty separator line
+            }
+            current_index += 1; // "Other tmux" header
+
+            // Add offset for selected other session
+            if let Some(other_idx) = state.selected_other_tmux_index {
+                current_index += other_idx;
+            }
+
+            self.list_state.select(Some(current_index));
         } else {
             self.list_state.select(None);
         }
+    }
+
+    /// Calculate total visible items for navigation
+    pub fn total_visible_items(state: &AppState) -> usize {
+        let mut count = 0;
+
+        // Count workspace items
+        for workspace in &state.workspaces {
+            count += 1; // Workspace header
+            if state.expand_all_workspaces {
+                count += workspace.sessions.len();
+            }
+        }
+
+        // Count "Other tmux" section items
+        if !state.other_tmux_sessions.is_empty() {
+            if !state.workspaces.is_empty() {
+                count += 1; // Empty separator line
+            }
+            count += 1; // "Other tmux" header
+            if state.other_tmux_expanded {
+                count += state.other_tmux_sessions.len();
+            }
+        }
+
+        count
     }
 }
 

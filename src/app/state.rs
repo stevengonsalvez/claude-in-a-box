@@ -410,6 +410,7 @@ pub struct ConfirmationDialog {
 #[derive(Debug, Clone)]
 pub enum ConfirmAction {
     DeleteSession(Uuid),
+    KillOtherTmux(String), // Kill a non-claude-in-a-box tmux session by name
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -560,6 +561,11 @@ pub struct AppState {
     // Tmux integration
     pub tmux_sessions: HashMap<Uuid, crate::tmux::TmuxSession>,
     pub preview_update_task: Option<tokio::task::JoinHandle<()>>,
+
+    // Other tmux sessions (not managed by claude-in-a-box)
+    pub other_tmux_sessions: Vec<crate::models::OtherTmuxSession>,
+    pub other_tmux_expanded: bool,
+    pub selected_other_tmux_index: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -655,6 +661,8 @@ pub enum AsyncAction {
     ReauthenticateCredentials, // Re-authenticate Claude credentials
     RestartSession(Uuid),      // Restart a stopped session with new container
     CleanupOrphaned,           // Clean up orphaned containers without worktrees
+    AttachToOtherTmux(String), // Attach to a non-claude-in-a-box tmux session by name
+    KillOtherTmux(String),     // Kill a non-claude-in-a-box tmux session by name
 }
 
 impl Default for AppState {
@@ -698,6 +706,11 @@ impl Default for AppState {
             // Initialize tmux integration
             tmux_sessions: HashMap::new(),
             preview_update_task: None,
+
+            // Initialize other tmux sessions
+            other_tmux_sessions: Vec::new(),
+            other_tmux_expanded: true, // Default to expanded
+            selected_other_tmux_index: None,
         }
     }
 }
@@ -1152,6 +1165,10 @@ impl AppState {
         info!("Loading Interactive mode sessions");
         self.load_interactive_mode_sessions().await;
 
+        // Load other tmux sessions (not managed by claude-in-a-box)
+        info!("Loading other tmux sessions");
+        self.load_other_tmux_sessions().await;
+
         // Set initial selection
         if !self.workspaces.is_empty() {
             self.selected_workspace_index = Some(0);
@@ -1257,6 +1274,62 @@ impl AppState {
         }
     }
 
+    /// Discover tmux sessions that are NOT managed by claude-in-a-box
+    /// These are sessions without the "tmux_" prefix
+    pub async fn load_other_tmux_sessions(&mut self) {
+        use tokio::process::Command;
+        use crate::models::OtherTmuxSession;
+
+        info!("Discovering other tmux sessions");
+
+        // Get all tmux sessions with format: name:attached:windows
+        let output = match Command::new("tmux")
+            .args(["list-sessions", "-F", "#{session_name}:#{session_attached}:#{session_windows}"])
+            .output()
+            .await
+        {
+            Ok(o) => o,
+            Err(e) => {
+                debug!("Failed to list tmux sessions: {} (tmux might not be running)", e);
+                self.other_tmux_sessions.clear();
+                return;
+            }
+        };
+
+        if !output.status.success() {
+            debug!("No tmux sessions found (tmux might not be running)");
+            self.other_tmux_sessions.clear();
+            return;
+        }
+
+        let sessions_output = String::from_utf8_lossy(&output.stdout);
+        let mut other_sessions = Vec::new();
+
+        for line in sessions_output.lines() {
+            let parts: Vec<&str> = line.split(':').collect();
+            if parts.len() >= 3 {
+                // Session name may contain colons, so reconstruct from all parts except last two
+                let name = parts[..parts.len() - 2].join(":");
+
+                // Skip claude-in-a-box managed sessions (tmux_ prefix)
+                if name.starts_with("tmux_") {
+                    continue;
+                }
+
+                let attached = parts[parts.len() - 2] == "1";
+                let windows = parts[parts.len() - 1].parse().unwrap_or_else(|e| {
+                    warn!("Failed to parse window count for tmux session '{}': {}. Defaulting to 1.", name, e);
+                    1
+                });
+
+                other_sessions.push(OtherTmuxSession::new(name, attached, windows));
+            }
+        }
+
+        info!("Discovered {} other tmux sessions", other_sessions.len());
+        self.other_tmux_sessions = other_sessions;
+    }
+
     pub fn load_mock_data(&mut self) {
         let mut workspace1 = Workspace::new(
             "project1".to_string(),
@@ -1346,29 +1419,69 @@ impl AppState {
     }
 
     pub fn next_session(&mut self) {
+        // Check if we're in the "Other tmux" section
+        if self.selected_other_tmux_index.is_some() {
+            // Navigate within other tmux sessions
+            let current = self.selected_other_tmux_index.unwrap_or(0);
+            if current + 1 < self.other_tmux_sessions.len() {
+                self.selected_other_tmux_index = Some(current + 1);
+            }
+            // At the end - stay at last item (no wrap)
+            return;
+        }
+
         if let Some(workspace_idx) = self.selected_workspace_index {
             if let Some(workspace) = self.workspaces.get(workspace_idx) {
                 if !workspace.sessions.is_empty() {
                     let current = self.selected_session_index.unwrap_or(0);
-                    self.selected_session_index = Some((current + 1) % workspace.sessions.len());
-                    // Queue container logs fetch for the newly selected session
-                    self.queue_logs_fetch();
+                    if current + 1 < workspace.sessions.len() {
+                        // Move to next session in this workspace
+                        self.selected_session_index = Some(current + 1);
+                        self.queue_logs_fetch();
+                    } else if !self.other_tmux_sessions.is_empty() {
+                        // At last session - move to "Other tmux" section
+                        self.selected_workspace_index = None;
+                        self.selected_session_index = None;
+                        self.selected_other_tmux_index = Some(0);
+                    }
+                    // Else: stay at last session
                 }
             }
         }
     }
 
     pub fn previous_session(&mut self) {
+        // Check if we're in the "Other tmux" section
+        if let Some(other_idx) = self.selected_other_tmux_index {
+            if other_idx > 0 {
+                // Move up within other tmux sessions
+                self.selected_other_tmux_index = Some(other_idx - 1);
+            } else {
+                // At first other_tmux session - move back to workspaces
+                if !self.workspaces.is_empty() {
+                    let last_workspace_idx = self.workspaces.len() - 1;
+                    self.selected_workspace_index = Some(last_workspace_idx);
+                    let last_session_idx = self.workspaces[last_workspace_idx].sessions.len().saturating_sub(1);
+                    self.selected_session_index = if self.workspaces[last_workspace_idx].sessions.is_empty() {
+                        None
+                    } else {
+                        Some(last_session_idx)
+                    };
+                    self.selected_other_tmux_index = None;
+                    self.queue_logs_fetch();
+                }
+            }
+            return;
+        }
+
         if let Some(workspace_idx) = self.selected_workspace_index {
             if let Some(workspace) = self.workspaces.get(workspace_idx) {
                 if !workspace.sessions.is_empty() {
                     let current = self.selected_session_index.unwrap_or(0);
-                    self.selected_session_index = Some(if current == 0 {
-                        workspace.sessions.len() - 1
-                    } else {
-                        current - 1
-                    });
-                    // Queue container logs fetch for the newly selected session
+                    if current > 0 {
+                        self.selected_session_index = Some(current - 1);
+                    }
+                    // At first session - stay (no wrap to other tmux from top)
                     self.queue_logs_fetch();
                 }
             }
@@ -1417,6 +1530,22 @@ impl AppState {
         self.expand_all_workspaces = !self.expand_all_workspaces;
     }
 
+    /// Toggle the expand/collapse state of the "Other tmux" section
+    pub fn toggle_other_tmux_expanded(&mut self) {
+        self.other_tmux_expanded = !self.other_tmux_expanded;
+    }
+
+    /// Get the currently selected other tmux session, if any
+    pub fn selected_other_tmux_session(&self) -> Option<&crate::models::OtherTmuxSession> {
+        self.selected_other_tmux_index
+            .and_then(|idx| self.other_tmux_sessions.get(idx))
+    }
+
+    /// Check if the selection is in the "Other tmux" section
+    pub fn is_other_tmux_selected(&self) -> bool {
+        self.selected_other_tmux_index.is_some() && self.selected_workspace_index.is_none()
+    }
+
     pub fn toggle_claude_chat(&mut self) {
         if self.current_view == View::ClaudeChat {
             // Close Claude chat popup and return to main view
@@ -1439,6 +1568,17 @@ impl AppState {
             title: "Delete Session".to_string(),
             message: "Are you sure you want to delete this session? This will stop the container and remove the git worktree.".to_string(),
             confirm_action: ConfirmAction::DeleteSession(session_id),
+            selected_option: false, // Default to "No"
+        });
+    }
+
+    /// Show confirmation dialog for killing an "other" tmux session
+    pub fn show_kill_other_tmux_confirmation(&mut self, session_name: String) {
+        info!("Showing kill confirmation for other tmux session: {}", session_name);
+        self.confirmation_dialog = Some(ConfirmationDialog {
+            title: "Kill tmux Session".to_string(),
+            message: format!("Are you sure you want to kill tmux session '{}'?", session_name),
+            confirm_action: ConfirmAction::KillOtherTmux(session_name),
             selected_option: false, // Default to "No"
         });
     }
@@ -3283,6 +3423,16 @@ impl AppState {
                             e
                         ));
                     }
+                }
+                AsyncAction::AttachToOtherTmux(_session_name) => {
+                    // NOTE: This action must be handled in main.rs where terminal access is available
+                    warn!("AttachToOtherTmux action should be handled in main loop, not here");
+                    self.ui_needs_refresh = true;
+                }
+                AsyncAction::KillOtherTmux(_session_name) => {
+                    // NOTE: This action must be handled in main.rs where terminal access is available
+                    warn!("KillOtherTmux action should be handled in main loop, not here");
+                    self.ui_needs_refresh = true;
                 }
             }
         }
