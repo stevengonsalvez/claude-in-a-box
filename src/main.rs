@@ -421,16 +421,18 @@ async fn run_tui_loop(
                 use tracing::{info, error};
                 use crate::app::AttachHandler;
 
-                info!("Handling AttachToOtherTmux for session '{}'", session_name);
+                info!("[ACTION] Handling AttachToOtherTmux for session '{}'", session_name);
 
                 // Create attach handler and attach directly using the session name
+                info!("[ACTION] Creating attach handler for other tmux session '{}'", session_name);
                 let mut attach_handler = AttachHandler::new_from_terminal(terminal)?;
+                info!("[ACTION] Attach handler created, calling attach_to_session...");
                 match attach_handler.attach_to_session(&session_name).await {
                     Ok(()) => {
-                        info!("Successfully attached and detached from other tmux session '{}'", session_name);
+                        info!("[ACTION] Successfully attached and detached from other tmux session '{}'", session_name);
                     }
                     Err(e) => {
-                        error!("Failed to attach to other tmux session '{}': {}", session_name, e);
+                        error!("[ACTION] Failed to attach to other tmux session '{}': {}", session_name, e);
                         app.state.add_error_notification(format!("Failed to attach: {}", e));
                     }
                 }
@@ -480,10 +482,11 @@ async fn run_tui_loop(
             // Handle tmux attach action BEFORE app.tick() to get terminal access
             // This is required because AttachToTmuxSession needs terminal handle for suspend/resume
             if let Some(crate::app::state::AsyncAction::AttachToTmuxSession(session_id)) = app.state.pending_async_action.take() {
-                use tracing::{info, error};
+                use tracing::{info, error, debug};
                 use crate::app::AttachHandler;
 
-                info!("Handling AttachToTmuxSession for session {}", session_id);
+                info!("[ACTION] Handling AttachToTmuxSession for session {}", session_id);
+                debug!("[ACTION] Looking for session in {} workspaces", app.state.workspaces.len());
 
                 // Get session to find tmux session name
                 let tmux_session_name = if let Some(session) = app.state.workspaces
@@ -491,16 +494,19 @@ async fn run_tui_loop(
                     .flat_map(|w| &w.sessions)
                     .find(|s| s.id == session_id)
                 {
+                    debug!("[ACTION] Found session: name='{}', status={:?}, tmux_name={:?}",
+                        session.name, session.status, session.tmux_session_name);
                     if let Some(ref name) = session.tmux_session_name {
+                        info!("[ACTION] Using tmux session name: {}", name);
                         name.clone()
                     } else {
-                        error!("No tmux session name found for session {}", session_id);
-                        app.state.add_error_notification("Session has no tmux session".to_string());
+                        error!("[ACTION] No tmux session name found for session {} (name={})", session_id, session.name);
+                        app.state.add_error_notification(format!("Session '{}' has no tmux session", session.name));
                         app.state.ui_needs_refresh = true;
                         continue; // Skip to next iteration
                     }
                 } else {
-                    error!("Session {} not found", session_id);
+                    error!("[ACTION] Session {} not found in workspaces", session_id);
                     app.state.add_error_notification("Session not found".to_string());
                     app.state.ui_needs_refresh = true;
                     continue; // Skip to next iteration
@@ -517,13 +523,15 @@ async fn run_tui_loop(
                 }
 
                 // Create attach handler and attach directly
+                info!("[ACTION] Creating attach handler for tmux session '{}'", tmux_session_name);
                 let mut attach_handler = AttachHandler::new_from_terminal(terminal)?;
+                info!("[ACTION] Attach handler created, calling attach_to_session...");
                 match attach_handler.attach_to_session(&tmux_session_name).await {
                     Ok(()) => {
-                        info!("Successfully attached and detached from tmux session {}", session_id);
+                        info!("[ACTION] Successfully attached and detached from tmux session '{}'", tmux_session_name);
                     }
                     Err(e) => {
-                        error!("Failed to attach to tmux session {}: {}", session_id, e);
+                        error!("[ACTION] Failed to attach to tmux session '{}': {}", tmux_session_name, e);
                         app.state.add_error_notification(format!("Failed to attach: {}", e));
                     }
                 }
