@@ -607,121 +607,175 @@ impl NewSessionComponent {
     ) {
         use crate::models::SessionMode;
 
-        // Draw border around entire dialog
+        // Draw outer border with modern styling
         let block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title("New Session - Step 3: Choose Mode");
-        frame.render_widget(block, area);
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(Color::Rgb(100, 149, 237))) // Cornflower blue
+            .title(Span::styled(
+                " 🎯 Choose Session Mode ",
+                Style::default()
+                    .fg(Color::Rgb(255, 215, 0)) // Gold
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35))); // Dark background
+        frame.render_widget(block.clone(), area);
 
         // Inner area for content
-        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let inner = block.inner(area);
 
         let chunks = Layout::default()
             .direction(Direction::Vertical)
+            .margin(1)
             .constraints([
-                Constraint::Length(3), // Title
-                Constraint::Min(0),    // Mode selection
-                Constraint::Length(3), // Instructions
+                Constraint::Length(8), // Interactive mode card
+                Constraint::Length(1), // Spacer
+                Constraint::Length(8), // Boss mode card
+                Constraint::Length(1), // Spacer
+                Constraint::Length(2), // Instructions
             ])
             .split(inner);
 
-        // Title
-        let title = Paragraph::new("Select Session Mode")
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
-        frame.render_widget(title, chunks[0]);
+        let is_interactive = session_state.mode == SessionMode::Interactive;
+        let is_boss = session_state.mode == SessionMode::Boss;
 
-        // Mode selection
-        let mode_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-            .split(chunks[1]);
-
-        // Interactive mode option
-        let interactive_style = if session_state.mode == SessionMode::Interactive {
-            Style::default().bg(Color::DarkGray).fg(Color::White)
+        // Interactive mode card
+        let interactive_border_color = if is_interactive {
+            Color::Rgb(100, 200, 100) // Green when selected
         } else {
-            Style::default().fg(Color::White)
+            Color::Rgb(70, 70, 90) // Gray when not
+        };
+
+        let interactive_bg = if is_interactive {
+            Color::Rgb(35, 45, 35) // Slightly green tint
+        } else {
+            Color::Rgb(30, 30, 40)
         };
 
         let interactive_text = vec![
-            Line::from(vec![Span::styled(
-                "● Interactive Mode",
-                interactive_style.add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                "  Traditional development with shell access",
-                interactive_style,
-            )]),
-            Line::from(vec![Span::styled(
-                "  Full Claude CLI features and MCP servers",
-                interactive_style,
-            )]),
-            Line::from(vec![Span::styled(
-                "  Attach to container for development",
-                interactive_style,
-            )]),
+            Line::from(vec![
+                Span::styled(
+                    if is_interactive { "  ▶ " } else { "    " },
+                    Style::default().fg(Color::Rgb(100, 200, 100)),
+                ),
+                Span::styled("🖥️  ", Style::default()),
+                Span::styled(
+                    "Interactive Mode",
+                    Style::default()
+                        .fg(if is_interactive { Color::Rgb(100, 200, 100) } else { Color::Rgb(200, 200, 200) })
+                        .add_modifier(Modifier::BOLD),
+                ),
+                if is_interactive {
+                    Span::styled("  ✓", Style::default().fg(Color::Rgb(100, 200, 100)))
+                } else {
+                    Span::raw("")
+                },
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(100, 149, 237))),
+                Span::styled(" Traditional development with shell access", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(100, 149, 237))),
+                Span::styled(" Full Claude CLI features and MCP servers", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(100, 149, 237))),
+                Span::styled(" Attach to container for development", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
         ];
 
         let interactive_para = Paragraph::new(interactive_text)
-            .block(Block::default().borders(Borders::ALL).border_style(
-                if session_state.mode == SessionMode::Interactive {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default().fg(Color::Gray)
-                },
-            ))
-            .alignment(Alignment::Left);
-        frame.render_widget(interactive_para, mode_chunks[0]);
-
-        // Boss mode option
-        let boss_style = if session_state.mode == SessionMode::Boss {
-            Style::default().bg(Color::DarkGray).fg(Color::White)
-        } else {
-            Style::default().fg(Color::White)
-        };
-
-        let boss_text = vec![
-            Line::from(vec![Span::styled(
-                "● Boss Mode",
-                boss_style.add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                "  Non-interactive task execution",
-                boss_style,
-            )]),
-            Line::from(vec![Span::styled(
-                "  Direct prompt execution with text output",
-                boss_style,
-            )]),
-            Line::from(vec![Span::styled(
-                "  Results streamed to TUI logs",
-                boss_style,
-            )]),
-        ];
-
-        let boss_para = Paragraph::new(boss_text)
-            .block(Block::default().borders(Borders::ALL).border_style(
-                if session_state.mode == SessionMode::Boss {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default().fg(Color::Gray)
-                },
-            ))
-            .alignment(Alignment::Left);
-        frame.render_widget(boss_para, mode_chunks[1]);
-
-        // Instructions
-        let instructions = Paragraph::new("↑/↓: Switch Mode • Enter: Continue • Esc: Cancel")
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
-        frame.render_widget(instructions, chunks[2]);
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(interactive_border_color))
+                    .style(Style::default().bg(interactive_bg)),
+            );
+        frame.render_widget(interactive_para, chunks[0]);
+
+        // Boss mode card
+        let boss_border_color = if is_boss {
+            Color::Rgb(255, 165, 0) // Orange when selected
+        } else {
+            Color::Rgb(70, 70, 90) // Gray when not
+        };
+
+        let boss_bg = if is_boss {
+            Color::Rgb(45, 40, 30) // Slightly orange tint
+        } else {
+            Color::Rgb(30, 30, 40)
+        };
+
+        let boss_text = vec![
+            Line::from(vec![
+                Span::styled(
+                    if is_boss { "  ▶ " } else { "    " },
+                    Style::default().fg(Color::Rgb(255, 165, 0)),
+                ),
+                Span::styled("🤖 ", Style::default()),
+                Span::styled(
+                    "Boss Mode",
+                    Style::default()
+                        .fg(if is_boss { Color::Rgb(255, 165, 0) } else { Color::Rgb(200, 200, 200) })
+                        .add_modifier(Modifier::BOLD),
+                ),
+                if is_boss {
+                    Span::styled("  ✓", Style::default().fg(Color::Rgb(255, 165, 0)))
+                } else {
+                    Span::raw("")
+                },
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
+                Span::styled(" Non-interactive task execution", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
+                Span::styled(" Direct prompt execution with text output", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+            Line::from(vec![
+                Span::styled("      ", Style::default()),
+                Span::styled("•", Style::default().fg(Color::Rgb(255, 165, 0))),
+                Span::styled(" Results streamed to TUI logs", Style::default().fg(Color::Rgb(180, 180, 180))),
+            ]),
+        ];
+
+        let boss_para = Paragraph::new(boss_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(ratatui::widgets::BorderType::Rounded)
+                    .border_style(Style::default().fg(boss_border_color))
+                    .style(Style::default().bg(boss_bg)),
+            );
+        frame.render_widget(boss_para, chunks[2]);
+
+        // Styled instructions footer
+        let instructions = Line::from(vec![
+            Span::styled("  ↑↓ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Switch Mode  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  ⏎ ", Style::default().fg(Color::Rgb(100, 200, 100))),
+            Span::styled("Continue  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+            Span::styled("│", Style::default().fg(Color::Rgb(70, 70, 90))),
+            Span::styled("  Esc ", Style::default().fg(Color::Rgb(255, 100, 100))),
+            Span::styled("Cancel  ", Style::default().fg(Color::Rgb(128, 128, 128))),
+        ]);
+
+        let instructions_widget = Paragraph::new(instructions)
+            .alignment(Alignment::Center)
+            .style(Style::default().bg(Color::Rgb(25, 25, 35)));
+        frame.render_widget(instructions_widget, chunks[4]);
     }
 
     fn render_prompt_input(&self, frame: &mut Frame, area: Rect, session_state: &NewSessionState) {
