@@ -12,8 +12,20 @@ use ansi_to_tui::IntoText;
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
+    text::{Line, Span},
+    widgets::{Block, Borders, BorderType, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
 };
+
+// Premium color palette (TUI Style Guide)
+const CORNFLOWER_BLUE: Color = Color::Rgb(100, 149, 237);
+const GOLD: Color = Color::Rgb(255, 215, 0);
+const SELECTION_GREEN: Color = Color::Rgb(100, 200, 100);
+const WARNING_ORANGE: Color = Color::Rgb(255, 165, 0);
+const DARK_BG: Color = Color::Rgb(25, 25, 35);
+const PANEL_BG: Color = Color::Rgb(30, 30, 40);
+const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
+const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
+const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use crate::app::AppState;
 use crate::models::Session;
@@ -213,47 +225,76 @@ impl TmuxPreviewPane {
 
     /// Render notice when user is attached to session
     fn render_attached_notice(&self, frame: &mut Frame, area: Rect) {
-        let paragraph = Paragraph::new(
-            "You are currently attached to this session.\n\n\
-            Press Ctrl+Q to detach and return to this view.",
-        )
-        .block(
-            Block::default()
-                .title("Session Preview [ATTACHED]")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Green)),
-        )
-        .style(
-            Style::default()
-                .fg(Color::Green)
-                .add_modifier(Modifier::BOLD),
-        )
-        .alignment(Alignment::Center)
-        .wrap(Wrap { trim: true });
+        let content = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "You are currently attached to this tmux session",
+                Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("To detach: ", Style::default().fg(SOFT_WHITE)),
+                Span::styled("Ctrl+B", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                Span::styled(" then ", Style::default().fg(SOFT_WHITE)),
+                Span::styled("D", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "(Press Ctrl+B first, release, then press D)",
+                Style::default().fg(MUTED_GRAY).add_modifier(Modifier::ITALIC),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(content)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(SELECTION_GREEN))
+                    .style(Style::default().bg(DARK_BG))
+                    .title(Line::from(vec![
+                        Span::styled(" 🔗 ", Style::default().fg(GOLD)),
+                        Span::styled("Session Preview ", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                        Span::styled("[ATTACHED]", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
+                    ])),
+            )
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
 
         frame.render_widget(paragraph, area);
     }
 
     /// Render the footer with keyboard hints
     fn render_footer(&self, frame: &mut Frame, area: Rect) {
-        let footer_text = match self.preview_mode {
-            PreviewMode::Normal => {
-                "Press 'a' to attach | Shift+↑/↓ to enter scroll mode | 'k' to kill session"
-            }
-            PreviewMode::Scroll => {
-                "↑↓ to scroll | PgUp/PgDn for fast scroll | ESC to exit scroll mode"
-            }
+        let footer_line = match self.preview_mode {
+            PreviewMode::Normal => Line::from(vec![
+                Span::styled("a", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                Span::styled(" attach ", Style::default().fg(SOFT_WHITE)),
+                Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                Span::styled(" Shift+↑↓", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                Span::styled(" scroll mode ", Style::default().fg(SOFT_WHITE)),
+                Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                Span::styled(" k", Style::default().fg(Color::Rgb(230, 100, 100)).add_modifier(Modifier::BOLD)),
+                Span::styled(" kill ", Style::default().fg(SOFT_WHITE)),
+                Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                Span::styled(" Ctrl+B D", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
+                Span::styled(" detach from tmux", Style::default().fg(MUTED_GRAY)),
+            ]),
+            PreviewMode::Scroll => Line::from(vec![
+                Span::styled("↑↓", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                Span::styled(" scroll ", Style::default().fg(SOFT_WHITE)),
+                Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                Span::styled(" PgUp/PgDn", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                Span::styled(" fast scroll ", Style::default().fg(SOFT_WHITE)),
+                Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                Span::styled(" Esc", Style::default().fg(WARNING_ORANGE).add_modifier(Modifier::BOLD)),
+                Span::styled(" exit scroll mode", Style::default().fg(SOFT_WHITE)),
+            ]),
         };
 
-        let footer_style = match self.preview_mode {
-            PreviewMode::Normal => Style::default().fg(Color::DarkGray),
-            PreviewMode::Scroll => Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
-        };
-
-        let paragraph = Paragraph::new(footer_text)
-            .style(footer_style)
+        let paragraph = Paragraph::new(footer_line)
+            .style(Style::default().bg(PANEL_BG))
             .alignment(Alignment::Center);
 
         frame.render_widget(paragraph, area);
