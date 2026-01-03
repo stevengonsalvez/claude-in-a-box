@@ -2830,13 +2830,13 @@ impl AppState {
         repo_path: &std::path::Path,
         branch_name: &str,
         session_id: Uuid,
-        _skip_permissions: bool, // Not used for Interactive mode
+        skip_permissions: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         use crate::interactive::InteractiveSessionManager;
 
         info!(
-            "Creating Interactive mode session {} for branch '{}'",
-            session_id, branch_name
+            "Creating Interactive mode session {} for branch '{}' (skip_permissions={})",
+            session_id, branch_name, skip_permissions
         );
 
         // Create a channel for logs
@@ -2880,6 +2880,7 @@ impl AppState {
                 repo_path.to_path_buf(),
                 branch_name.to_string(),
                 None, // base_branch
+                skip_permissions,
             )
             .await;
 

@@ -96,10 +96,11 @@ impl InteractiveSessionManager {
         workspace_path: PathBuf,
         branch_name: String,
         base_branch: Option<String>,
+        skip_permissions: bool,
     ) -> Result<InteractiveSession, InteractiveSessionError> {
         info!(
-            "Creating Interactive session {} for branch '{}' in workspace '{}'",
-            session_id, branch_name, workspace_name
+            "Creating Interactive session {} for branch '{}' in workspace '{}' (skip_permissions={})",
+            session_id, branch_name, workspace_name, skip_permissions
         );
 
         // Check if session already exists
@@ -126,8 +127,8 @@ impl InteractiveSessionManager {
         self.start_tmux_session(&tmux_session_name, &worktree_info.path).await?;
 
         // Step 4: Start claude CLI in tmux session
-        info!("Starting claude CLI in tmux session");
-        self.start_claude_in_tmux(&tmux_session_name).await?;
+        info!("Starting claude CLI in tmux session (skip_permissions={})", skip_permissions);
+        self.start_claude_in_tmux(&tmux_session_name, skip_permissions).await?;
 
         // Step 5: Create session record
         let session = InteractiveSession {
@@ -423,12 +424,21 @@ impl InteractiveSessionManager {
     }
 
     /// Start claude CLI in the tmux session
-    async fn start_claude_in_tmux(&self, session_name: &str) -> Result<(), InteractiveSessionError> {
+    async fn start_claude_in_tmux(&self, session_name: &str, skip_permissions: bool) -> Result<(), InteractiveSessionError> {
+        // Build the claude command with appropriate flags
+        let claude_cmd = if skip_permissions {
+            "claude --dangerously-skip-permissions"
+        } else {
+            "claude"
+        };
+
+        info!("Starting claude with command: {}", claude_cmd);
+
         // Send command to tmux to start claude
         let output = Command::new("tmux")
             .args([
                 "send-keys", "-t", session_name,
-                "claude", "C-m"  // C-m = Enter key
+                claude_cmd, "C-m"  // C-m = Enter key
             ])
             .output()
             .await?;
@@ -440,7 +450,7 @@ impl InteractiveSessionManager {
             ));
         }
 
-        info!("Started claude CLI in tmux session: {}", session_name);
+        info!("Started claude CLI in tmux session: {} (skip_permissions={})", session_name, skip_permissions);
         Ok(())
     }
 }
