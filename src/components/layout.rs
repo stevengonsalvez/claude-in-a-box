@@ -3,8 +3,20 @@
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Paragraph},
+    text::{Line, Span},
+    widgets::{Block, Borders, BorderType, Paragraph},
 };
+
+// Premium color palette (TUI Style Guide)
+const CORNFLOWER_BLUE: Color = Color::Rgb(100, 149, 237);
+const GOLD: Color = Color::Rgb(255, 215, 0);
+const SELECTION_GREEN: Color = Color::Rgb(100, 200, 100);
+const WARNING_ORANGE: Color = Color::Rgb(255, 165, 0);
+const DARK_BG: Color = Color::Rgb(25, 25, 35);
+const PANEL_BG: Color = Color::Rgb(30, 30, 40);
+const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
+const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
+const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use super::{
     AttachedTerminalComponent, AuthSetupComponent, ClaudeChatComponent,
@@ -158,49 +170,47 @@ impl LayoutComponent {
     }
 
     fn render_menu_bar(&self, frame: &mut Frame, area: Rect) {
-        // Grouped command bar with separators
-        use ratatui::text::{Line, Span};
-
+        // Premium styled command bar with separators
         let menu_spans = vec![
             // Navigation group
-            Span::styled("[n]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("ew ", Style::default().fg(Color::White)),
-            Span::styled("[s]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("earch ", Style::default().fg(Color::White)),
-            Span::styled("[E]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("xpand ", Style::default().fg(Color::White)),
-            Span::styled("[Tab]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("focus", Style::default().fg(Color::White)),
-            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            Span::styled("n", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled("ew ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("s", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled("earch ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("E", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled("xpand ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("Tab", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+            Span::styled(" focus", Style::default().fg(MUTED_GRAY)),
+            Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
             // Actions group
-            Span::styled("[a]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("ttach ", Style::default().fg(Color::White)),
-            Span::styled("[e]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled("restart ", Style::default().fg(Color::White)),
-            Span::styled("[d]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled("elete", Style::default().fg(Color::White)),
-            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            Span::styled("a", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled("ttach ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("e", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled(" restart ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("d", Style::default().fg(Color::Rgb(230, 100, 100)).add_modifier(Modifier::BOLD)),
+            Span::styled("elete", Style::default().fg(MUTED_GRAY)),
+            Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
             // Git group
-            Span::styled("[g]", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-            Span::styled("it ", Style::default().fg(Color::White)),
-            Span::styled("[p]", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-            Span::styled("commit", Style::default().fg(Color::White)),
-            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            Span::styled("g", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
+            Span::styled("it ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("p", Style::default().fg(CORNFLOWER_BLUE).add_modifier(Modifier::BOLD)),
+            Span::styled(" commit", Style::default().fg(MUTED_GRAY)),
+            Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
             // Tools group
-            Span::styled("[c]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("laude ", Style::default().fg(Color::White)),
-            Span::styled("[f]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("refresh ", Style::default().fg(Color::White)),
-            Span::styled("[x]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("cleanup", Style::default().fg(Color::White)),
-            Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
+            Span::styled("c", Style::default().fg(WARNING_ORANGE).add_modifier(Modifier::BOLD)),
+            Span::styled("laude ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("f", Style::default().fg(WARNING_ORANGE).add_modifier(Modifier::BOLD)),
+            Span::styled(" refresh ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("x", Style::default().fg(WARNING_ORANGE).add_modifier(Modifier::BOLD)),
+            Span::styled(" cleanup", Style::default().fg(MUTED_GRAY)),
+            Span::styled(" │ ", Style::default().fg(SUBDUED_BORDER)),
             // System group
-            Span::styled("[r]", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
-            Span::styled("e-auth ", Style::default().fg(Color::White)),
-            Span::styled("[?]", Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD)),
-            Span::styled("help ", Style::default().fg(Color::White)),
-            Span::styled("[q]", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
-            Span::styled("uit", Style::default().fg(Color::White)),
+            Span::styled("r", Style::default().fg(MUTED_GRAY).add_modifier(Modifier::BOLD)),
+            Span::styled(" re-auth ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("?", Style::default().fg(MUTED_GRAY).add_modifier(Modifier::BOLD)),
+            Span::styled(" help ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("q", Style::default().fg(Color::Rgb(230, 100, 100)).add_modifier(Modifier::BOLD)),
+            Span::styled("uit", Style::default().fg(MUTED_GRAY)),
         ];
 
         let menu_line = Line::from(menu_spans);
@@ -209,7 +219,9 @@ impl LayoutComponent {
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Cyan)),
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(SUBDUED_BORDER))
+                    .style(Style::default().bg(PANEL_BG)),
             )
             .alignment(Alignment::Center);
 
@@ -217,13 +229,14 @@ impl LayoutComponent {
     }
 
     fn render_status_bar(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        let mut status_parts = vec![];
+        let mut status_spans: Vec<Span> = vec![];
 
         // Current workspace/repo info
         if let Some(workspace_idx) = state.selected_workspace_index {
             if let Some(workspace) = state.workspaces.get(workspace_idx) {
                 if let Some(repo_name) = workspace.path.file_name().and_then(|n| n.to_str()) {
-                    status_parts.push(format!("📁 {}", repo_name));
+                    status_spans.push(Span::styled("📁 ", Style::default().fg(GOLD)));
+                    status_spans.push(Span::styled(repo_name.to_string(), Style::default().fg(SOFT_WHITE)));
                 }
             }
         }
@@ -234,22 +247,28 @@ impl LayoutComponent {
                 if let Some(session_idx) = state.selected_session_index {
                     if let Some(workspace) = state.workspaces.get(workspace_idx) {
                         if let Some(session) = workspace.sessions.get(session_idx) {
+                            // Separator
+                            if !status_spans.is_empty() {
+                                status_spans.push(Span::styled("  │  ", Style::default().fg(SUBDUED_BORDER)));
+                            }
+
                             // Branch info
-                            status_parts.push(format!("🌿 {}", session.branch_name));
+                            status_spans.push(Span::styled("🌿 ", Style::default().fg(SELECTION_GREEN)));
+                            status_spans.push(Span::styled(session.branch_name.clone(), Style::default().fg(SOFT_WHITE)));
 
                             // Container info
                             if let Some(container_id) = &session.container_id {
                                 let short_id = &container_id[..8.min(container_id.len())];
-                                let status_icon = match session.status {
-                                    crate::models::SessionStatus::Running => "🟢",
-                                    crate::models::SessionStatus::Stopped => "🔴",
-                                    crate::models::SessionStatus::Idle => "🟡",
-                                    crate::models::SessionStatus::Error(_) => "❌",
+                                let (status_icon, status_color) = match session.status {
+                                    crate::models::SessionStatus::Running => ("🟢", SELECTION_GREEN),
+                                    crate::models::SessionStatus::Stopped => ("🔴", Color::Rgb(230, 100, 100)),
+                                    crate::models::SessionStatus::Idle => ("🟡", WARNING_ORANGE),
+                                    crate::models::SessionStatus::Error(_) => ("❌", Color::Rgb(230, 100, 100)),
                                 };
-                                status_parts.push(format!(
-                                    "{} {} ({})",
-                                    status_icon, session.name, short_id
-                                ));
+                                status_spans.push(Span::styled("  │  ", Style::default().fg(SUBDUED_BORDER)));
+                                status_spans.push(Span::styled(format!("{} ", status_icon), Style::default().fg(status_color)));
+                                status_spans.push(Span::styled(format!("{} ", session.name), Style::default().fg(SOFT_WHITE)));
+                                status_spans.push(Span::styled(format!("({})", short_id), Style::default().fg(MUTED_GRAY)));
                             }
                         }
                     }
@@ -258,27 +277,35 @@ impl LayoutComponent {
         }
 
         // Claude chat status
-        let chat_status = if state.claude_chat_visible {
-            "🗨️ ON"
+        if !status_spans.is_empty() {
+            status_spans.push(Span::styled("  │  ", Style::default().fg(SUBDUED_BORDER)));
+        }
+        if state.claude_chat_visible {
+            status_spans.push(Span::styled("🗨️ ", Style::default().fg(SELECTION_GREEN)));
+            status_spans.push(Span::styled("ON", Style::default().fg(SELECTION_GREEN)));
         } else {
-            "🗨️ OFF"
-        };
-        status_parts.push(chat_status.to_string());
+            status_spans.push(Span::styled("🗨️ ", Style::default().fg(MUTED_GRAY)));
+            status_spans.push(Span::styled("OFF", Style::default().fg(MUTED_GRAY)));
+        }
 
-        let status_text = if status_parts.is_empty() {
-            "Claude-in-a-Box - No active session".to_string()
+        let status_line = if status_spans.is_empty() {
+            Line::from(Span::styled("Agents-in-a-Box - No active session", Style::default().fg(MUTED_GRAY)))
         } else {
-            status_parts.join(" | ")
+            Line::from(status_spans)
         };
 
-        let status = Paragraph::new(status_text)
+        let status = Paragraph::new(status_line)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Blue))
-                    .title("Status"),
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(CORNFLOWER_BLUE))
+                    .style(Style::default().bg(DARK_BG))
+                    .title(Line::from(vec![
+                        Span::styled(" 📊 ", Style::default().fg(GOLD)),
+                        Span::styled("Status", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                    ])),
             )
-            .style(Style::default().fg(Color::White))
             .alignment(Alignment::Left);
 
         frame.render_widget(status, area);
@@ -315,28 +342,34 @@ impl LayoutComponent {
                 height: 3.min(notification_area.height - y_offset),
             };
 
-            let (style, border_color) = match notification.notification_type {
+            let (icon, text_color, border_color) = match notification.notification_type {
                 crate::app::state::NotificationType::Success => {
-                    (Style::default().fg(Color::Green), Color::Green)
+                    ("✓ ", SELECTION_GREEN, SELECTION_GREEN)
                 }
                 crate::app::state::NotificationType::Error => {
-                    (Style::default().fg(Color::Red), Color::Red)
+                    ("✗ ", Color::Rgb(230, 100, 100), Color::Rgb(230, 100, 100))
                 }
                 crate::app::state::NotificationType::Warning => {
-                    (Style::default().fg(Color::Yellow), Color::Yellow)
+                    ("⚠ ", WARNING_ORANGE, WARNING_ORANGE)
                 }
                 crate::app::state::NotificationType::Info => {
-                    (Style::default().fg(Color::Cyan), Color::Cyan)
+                    ("ℹ ", CORNFLOWER_BLUE, CORNFLOWER_BLUE)
                 }
             };
 
-            let notification_widget = Paragraph::new(notification.message.as_str())
+            let notification_line = Line::from(vec![
+                Span::styled(icon, Style::default().fg(text_color).add_modifier(Modifier::BOLD)),
+                Span::styled(notification.message.as_str(), Style::default().fg(text_color)),
+            ]);
+
+            let notification_widget = Paragraph::new(notification_line)
                 .block(
                     Block::default()
                         .borders(Borders::ALL)
-                        .border_style(Style::default().fg(border_color)),
+                        .border_type(BorderType::Rounded)
+                        .border_style(Style::default().fg(border_color))
+                        .style(Style::default().bg(PANEL_BG)),
                 )
-                .style(style)
                 .wrap(ratatui::widgets::Wrap { trim: true });
 
             frame.render_widget(notification_widget, single_notification_area);
@@ -347,8 +380,8 @@ impl LayoutComponent {
         // Create a centered dialog area
         let dialog_area = centered_rect(60, 20, area);
 
-        // Clear the background
-        let clear = Block::default().style(Style::default().bg(Color::Black));
+        // Clear the background with premium dark bg
+        let clear = Block::default().style(Style::default().bg(DARK_BG));
         frame.render_widget(clear, dialog_area);
 
         // Create the dialog layout
@@ -362,41 +395,62 @@ impl LayoutComponent {
             .split(dialog_area);
 
         // Render title
-        let title = Paragraph::new("Quick Commit")
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow))
-                    .title("Git Commit"),
-            )
-            .style(Style::default().fg(Color::Yellow))
-            .alignment(Alignment::Center);
+        let title = Paragraph::new(Line::from(vec![
+            Span::styled("🚀 ", Style::default().fg(GOLD)),
+            Span::styled("Quick Commit", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+        ]))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(CORNFLOWER_BLUE))
+                .style(Style::default().bg(DARK_BG))
+                .title(Line::from(vec![
+                    Span::styled(" 📋 ", Style::default().fg(GOLD)),
+                    Span::styled("Git Commit", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                ])),
+        )
+        .alignment(Alignment::Center);
         frame.render_widget(title, dialog_layout[0]);
 
-        // Render input field
+        // Render input field with block cursor
         let empty_string = String::new();
         let commit_message = state.quick_commit_message.as_ref().unwrap_or(&empty_string);
 
-        // Create the input text with cursor
-        let mut display_text = commit_message.clone();
-        if state.quick_commit_cursor <= display_text.len() {
-            display_text.insert(state.quick_commit_cursor, '|');
-        }
+        // Create spans with cursor visualization
+        let (before_cursor, after_cursor) = commit_message.split_at(
+            state.quick_commit_cursor.min(commit_message.len())
+        );
 
-        let input_paragraph = Paragraph::new(display_text)
+        let input_line = Line::from(vec![
+            Span::styled(before_cursor, Style::default().fg(SOFT_WHITE)),
+            Span::styled("█", Style::default().fg(SELECTION_GREEN)),
+            Span::styled(after_cursor, Style::default().fg(SOFT_WHITE)),
+        ]);
+
+        let input_paragraph = Paragraph::new(input_line)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Green))
-                    .title("Commit Message"),
-            )
-            .style(Style::default().fg(Color::White));
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(SELECTION_GREEN))
+                    .style(Style::default().bg(Color::Rgb(35, 35, 45)))
+                    .title(Line::from(vec![
+                        Span::styled(" ✏️ ", Style::default().fg(GOLD)),
+                        Span::styled("Commit Message", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                    ])),
+            );
         frame.render_widget(input_paragraph, dialog_layout[1]);
 
         // Render instructions
-        let instructions = Paragraph::new("Enter: Commit & Push | Esc: Cancel")
-            .style(Style::default().fg(Color::Gray))
-            .alignment(Alignment::Center);
+        let instructions = Paragraph::new(Line::from(vec![
+            Span::styled("Enter", Style::default().fg(SELECTION_GREEN).add_modifier(Modifier::BOLD)),
+            Span::styled(" Commit & Push ", Style::default().fg(MUTED_GRAY)),
+            Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+            Span::styled(" Esc", Style::default().fg(WARNING_ORANGE).add_modifier(Modifier::BOLD)),
+            Span::styled(" Cancel", Style::default().fg(MUTED_GRAY)),
+        ]))
+        .alignment(Alignment::Center);
         frame.render_widget(instructions, dialog_layout[2]);
     }
 }

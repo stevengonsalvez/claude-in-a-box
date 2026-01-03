@@ -5,8 +5,20 @@
 use ratatui::{
     prelude::*,
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, List, ListItem, ListState},
+    text::{Line, Span},
+    widgets::{Block, Borders, BorderType, List, ListItem, ListState},
 };
+
+// Premium color palette (TUI Style Guide)
+const CORNFLOWER_BLUE: Color = Color::Rgb(100, 149, 237);
+const GOLD: Color = Color::Rgb(255, 215, 0);
+const SELECTION_GREEN: Color = Color::Rgb(100, 200, 100);
+const WARNING_ORANGE: Color = Color::Rgb(255, 165, 0);
+const DARK_BG: Color = Color::Rgb(25, 25, 35);
+const LIST_HIGHLIGHT_BG: Color = Color::Rgb(40, 40, 60);
+const SOFT_WHITE: Color = Color::Rgb(220, 220, 230);
+const MUTED_GRAY: Color = Color::Rgb(120, 120, 140);
+const SUBDUED_BORDER: Color = Color::Rgb(60, 60, 80);
 
 use crate::app::AppState;
 use crate::models::{SessionMode, SessionStatus, Workspace};
@@ -34,28 +46,45 @@ impl SessionListComponent {
 
         let items = SessionListComponent::build_list_items_static(state);
 
-        // Show focus indicator
+        // Show focus indicator with premium colors
         use crate::app::state::FocusedPane;
-        let (border_color, title_color) = match state.focused_pane {
-            FocusedPane::Sessions => (Color::Cyan, Color::Yellow), // Focused
-            FocusedPane::LiveLogs => (Color::Gray, Color::Blue),   // Not focused
+        let (border_color, is_focused) = match state.focused_pane {
+            FocusedPane::Sessions => (SELECTION_GREEN, true),
+            FocusedPane::LiveLogs => (SUBDUED_BORDER, false),
         };
+
+        let workspace_count = state.workspaces.len();
 
         let list = List::new(items)
             .block(
                 Block::default()
-                    .title("Workspaces")
                     .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
                     .border_style(Style::default().fg(border_color))
-                    .title_style(Style::default().fg(title_color)),
+                    .style(Style::default().bg(DARK_BG))
+                    .title(Line::from(vec![
+                        Span::styled(" 📁 ", Style::default().fg(GOLD)),
+                        Span::styled("Workspaces ", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                        Span::styled(
+                            format!("({})", workspace_count),
+                            Style::default().fg(if is_focused { CORNFLOWER_BLUE } else { MUTED_GRAY }).add_modifier(Modifier::BOLD)
+                        ),
+                    ]))
+                    .title_bottom(Line::from(vec![
+                        Span::styled(" j/k", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                        Span::styled(" nav ", Style::default().fg(MUTED_GRAY)),
+                        Span::styled("│", Style::default().fg(SUBDUED_BORDER)),
+                        Span::styled(" Enter", Style::default().fg(GOLD).add_modifier(Modifier::BOLD)),
+                        Span::styled(" select ", Style::default().fg(MUTED_GRAY)),
+                    ])),
             )
-            .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+            .highlight_style(Style::default().bg(LIST_HIGHLIGHT_BG))
             .highlight_symbol("▶ ");
 
         frame.render_stateful_widget(list, area, &mut self.list_state);
     }
 
-    fn build_list_items_static(state: &AppState) -> Vec<ListItem> {
+    fn build_list_items_static(state: &AppState) -> Vec<ListItem<'static>> {
         let mut items = Vec::new();
 
         for (workspace_idx, workspace) in state.workspaces.iter().enumerate() {
@@ -73,50 +102,53 @@ impl SessionListComponent {
                 "▶"
             };
 
-            let workspace_style = if is_selected_workspace {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            // Premium workspace styling
+            let (symbol_color, name_color) = if is_selected_workspace {
+                (SELECTION_GREEN, SELECTION_GREEN)
             } else {
-                Style::default().fg(Color::White)
+                (MUTED_GRAY, SOFT_WHITE)
             };
 
-            // Add session count badge (only show if sessions exist, use dot separator)
-            let count_display = if session_count > 1 {
-                format!(" ·{}", session_count)  // Only show count when multiple sessions
+            let count_display = if session_count > 0 {
+                format!(" ({})", session_count)
             } else {
                 String::new()
             };
 
-            items.push(
-                ListItem::new(format!("{} {}{}", workspace_symbol, workspace.name, count_display))
-                    .style(workspace_style),
-            );
+            let workspace_line = Line::from(vec![
+                Span::styled(workspace_symbol, Style::default().fg(symbol_color)),
+                Span::styled(" 📁 ", Style::default().fg(if is_selected_workspace { GOLD } else { CORNFLOWER_BLUE })),
+                Span::styled(workspace.name.clone(), Style::default().fg(name_color).add_modifier(if is_selected_workspace { Modifier::BOLD } else { Modifier::empty() })),
+                Span::styled(count_display, Style::default().fg(MUTED_GRAY)),
+            ]);
 
-            // Show sessions if workspace is expanded (selected OR expand_all is true)
+            items.push(ListItem::new(workspace_line));
+
+            // Show sessions if workspace is expanded
             if is_expanded {
                 let session_len = workspace.sessions.len();
                 for (session_idx, session) in workspace.sessions.iter().enumerate() {
-                    // Session is selected only if this workspace is selected AND session index matches
                     let is_selected_session = is_selected_workspace && state.selected_session_index == Some(session_idx);
                     let is_last_session = session_idx == session_len - 1;
 
-                    // Use tree line characters
+                    // Tree line characters with subdued color
                     let tree_prefix = if is_last_session { "└─" } else { "├─" };
 
                     let status_indicator = session.status.indicator();
 
-                    // Mode indicator (Boss = Docker container, Interactive = host tmux)
+                    // Mode indicator
                     let mode_indicator = match session.mode {
-                        SessionMode::Boss => "🐳", // Docker container
-                        SessionMode::Interactive => "🖥️", // Host/Interactive
+                        SessionMode::Boss => "🐳",
+                        SessionMode::Interactive => "🖥️",
                     };
 
                     // Tmux status indicator
                     let tmux_indicator = if session.is_attached {
-                        "🔗" // Attached to tmux
+                        "🔗"
                     } else if session.tmux_session_name.is_some() {
-                        "●"  // Tmux session running
+                        "●"
                     } else {
-                        "○"  // No tmux session
+                        "○"
                     };
 
                     let changes_text = if session.git_changes.total() > 0 {
@@ -125,26 +157,29 @@ impl SessionListComponent {
                         String::new()
                     };
 
-                    let session_style = if is_selected_session {
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    // Premium session styling
+                    let (branch_color, tmux_color) = if is_selected_session {
+                        (SELECTION_GREEN, SELECTION_GREEN)
                     } else {
                         match session.status {
-                            SessionStatus::Running => Style::default().fg(Color::Green),
-                            SessionStatus::Stopped => Style::default().fg(Color::Gray),
-                            SessionStatus::Idle => Style::default().fg(Color::Yellow),
-                            SessionStatus::Error(_) => Style::default().fg(Color::Red),
+                            SessionStatus::Running => (SELECTION_GREEN, SOFT_WHITE),
+                            SessionStatus::Stopped => (MUTED_GRAY, MUTED_GRAY),
+                            SessionStatus::Idle => (WARNING_ORANGE, SOFT_WHITE),
+                            SessionStatus::Error(_) => (Color::Rgb(230, 100, 100), SOFT_WHITE),
                         }
                     };
 
-                    // Show branch name instead of session name (more distinctive)
-                    // Format: tree_prefix status_indicator mode_indicator tmux_indicator branch_name changes
-                    items.push(
-                        ListItem::new(format!(
-                            "  {} {} {} {} {}{}",
-                            tree_prefix, status_indicator, mode_indicator, tmux_indicator, session.branch_name, changes_text
-                        ))
-                        .style(session_style),
-                    );
+                    let session_line = Line::from(vec![
+                        Span::styled("  ", Style::default()),
+                        Span::styled(tree_prefix, Style::default().fg(SUBDUED_BORDER)),
+                        Span::styled(format!(" {} ", status_indicator), Style::default()),
+                        Span::styled(format!("{} ", mode_indicator), Style::default()),
+                        Span::styled(format!("{} ", tmux_indicator), Style::default().fg(tmux_color)),
+                        Span::styled(session.branch_name.clone(), Style::default().fg(branch_color).add_modifier(if is_selected_session { Modifier::BOLD } else { Modifier::empty() })),
+                        Span::styled(changes_text, Style::default().fg(WARNING_ORANGE)),
+                    ]);
+
+                    items.push(ListItem::new(session_line));
                 }
             }
         }
@@ -153,37 +188,35 @@ impl SessionListComponent {
         if !state.other_tmux_sessions.is_empty() {
             // Add separator line
             if !items.is_empty() {
-                items.push(ListItem::new("").style(Style::default()));
+                items.push(ListItem::new(Line::from("")));
             }
 
             let session_count = state.other_tmux_sessions.len();
             let is_selected_other = state.selected_workspace_index.is_none()
                 && state.selected_other_tmux_index.is_some();
 
-            // Header for other tmux section
-            let other_symbol = if state.other_tmux_expanded {
-                "▼"
+            let other_symbol = if state.other_tmux_expanded { "▼" } else { "▶" };
+
+            let header_color = if state.selected_workspace_index.is_none() {
+                CORNFLOWER_BLUE
             } else {
-                "▶"
+                MUTED_GRAY
             };
 
-            let header_style = if state.selected_workspace_index.is_none() {
-                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Magenta)
-            };
+            let other_header = Line::from(vec![
+                Span::styled(other_symbol, Style::default().fg(header_color)),
+                Span::styled(" 🖥️ ", Style::default().fg(header_color)),
+                Span::styled("Other tmux ", Style::default().fg(header_color).add_modifier(if is_selected_other { Modifier::BOLD } else { Modifier::empty() })),
+                Span::styled(format!("({})", session_count), Style::default().fg(MUTED_GRAY)),
+            ]);
 
-            items.push(
-                ListItem::new(format!("{} Other tmux ·{}", other_symbol, session_count))
-                    .style(header_style),
-            );
+            items.push(ListItem::new(other_header));
 
             // Show other tmux sessions if expanded
             if state.other_tmux_expanded {
                 let session_len = state.other_tmux_sessions.len();
                 for (idx, other_session) in state.other_tmux_sessions.iter().enumerate() {
-                    let is_selected = is_selected_other
-                        && state.selected_other_tmux_index == Some(idx);
+                    let is_selected = is_selected_other && state.selected_other_tmux_index == Some(idx);
                     let is_last = idx == session_len - 1;
 
                     let tree_prefix = if is_last { "└─" } else { "├─" };
@@ -195,28 +228,33 @@ impl SessionListComponent {
                         String::new()
                     };
 
-                    let session_style = if is_selected {
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    let name_color = if is_selected {
+                        SELECTION_GREEN
                     } else if other_session.attached {
-                        Style::default().fg(Color::Cyan)
+                        CORNFLOWER_BLUE
                     } else {
-                        Style::default().fg(Color::Gray)
+                        MUTED_GRAY
                     };
 
-                    items.push(
-                        ListItem::new(format!(
-                            "  {} {} {}{}",
-                            tree_prefix, status, other_session.name, windows_text
-                        ))
-                        .style(session_style),
-                    );
+                    let session_line = Line::from(vec![
+                        Span::styled("  ", Style::default()),
+                        Span::styled(tree_prefix, Style::default().fg(SUBDUED_BORDER)),
+                        Span::styled(format!(" {} ", status), Style::default()),
+                        Span::styled(other_session.name.clone(), Style::default().fg(name_color).add_modifier(if is_selected { Modifier::BOLD } else { Modifier::empty() })),
+                        Span::styled(windows_text, Style::default().fg(MUTED_GRAY)),
+                    ]);
+
+                    items.push(ListItem::new(session_line));
                 }
             }
         }
 
         if items.is_empty() {
-            items
-                .push(ListItem::new("No workspaces found").style(Style::default().fg(Color::Gray)));
+            let empty_line = Line::from(vec![
+                Span::styled("✨ ", Style::default().fg(MUTED_GRAY)),
+                Span::styled("No workspaces found", Style::default().fg(MUTED_GRAY).add_modifier(Modifier::ITALIC)),
+            ]);
+            items.push(ListItem::new(empty_line));
         }
 
         items
