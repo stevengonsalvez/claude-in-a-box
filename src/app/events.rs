@@ -126,6 +126,10 @@ pub enum AppEvent {
     GitViewCommitCancel,          // Cancel commit message input (Esc)
     GitViewCommitConfirm,         // Confirm and execute commit (Enter)
     GitCommitSuccess(String),     // Commit was successful with message
+    // File tree navigation events
+    GitViewToggleFolder,          // Toggle folder expand/collapse
+    GitViewExpandAll,             // Expand all folders
+    GitViewCollapseAll,           // Collapse all folders
     // Tmux integration events
     AttachTmuxSession,            // Attach to tmux session
     DetachTmuxSession,            // Detach from tmux session
@@ -791,6 +795,9 @@ impl EventHandler {
                             crate::components::git_view::GitTab::Diff => {
                                 Some(AppEvent::GitViewScrollDown)
                             }
+                            crate::components::git_view::GitTab::Markdown => {
+                                Some(AppEvent::GitViewScrollDown)
+                            }
                         }
                     } else {
                         None
@@ -805,6 +812,45 @@ impl EventHandler {
                             crate::components::git_view::GitTab::Diff => {
                                 Some(AppEvent::GitViewScrollUp)
                             }
+                            crate::components::git_view::GitTab::Markdown => {
+                                Some(AppEvent::GitViewScrollUp)
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Enter => {
+                    // Toggle folder on Enter key in Files tab
+                    if let Some(ref git_state) = state.git_view_state {
+                        if git_state.active_tab == crate::components::git_view::GitTab::Files {
+                            Some(AppEvent::GitViewToggleFolder)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Char('e') => {
+                    // Expand all folders
+                    if let Some(ref git_state) = state.git_view_state {
+                        if git_state.active_tab == crate::components::git_view::GitTab::Files {
+                            Some(AppEvent::GitViewExpandAll)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                KeyCode::Char('E') => {
+                    // Collapse all folders
+                    if let Some(ref git_state) = state.git_view_state {
+                        if git_state.active_tab == crate::components::git_view::GitTab::Files {
+                            Some(AppEvent::GitViewCollapseAll)
+                        } else {
+                            None
                         }
                     } else {
                         None
@@ -1266,12 +1312,35 @@ impl EventHandler {
             }
             AppEvent::GitViewScrollUp => {
                 if let Some(ref mut git_state) = state.git_view_state {
-                    git_state.scroll_diff_up();
+                    match git_state.active_tab {
+                        crate::components::git_view::GitTab::Diff => git_state.scroll_diff_up(),
+                        crate::components::git_view::GitTab::Markdown => git_state.scroll_markdown_up(),
+                        _ => {}
+                    }
                 }
             }
             AppEvent::GitViewScrollDown => {
                 if let Some(ref mut git_state) = state.git_view_state {
-                    git_state.scroll_diff_down();
+                    match git_state.active_tab {
+                        crate::components::git_view::GitTab::Diff => git_state.scroll_diff_down(),
+                        crate::components::git_view::GitTab::Markdown => git_state.scroll_markdown_down(),
+                        _ => {}
+                    }
+                }
+            }
+            AppEvent::GitViewToggleFolder => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.toggle_folder();
+                }
+            }
+            AppEvent::GitViewExpandAll => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.expand_all_folders();
+                }
+            }
+            AppEvent::GitViewCollapseAll => {
+                if let Some(ref mut git_state) = state.git_view_state {
+                    git_state.collapse_all_folders();
                 }
             }
             AppEvent::GitViewCommitPush => {

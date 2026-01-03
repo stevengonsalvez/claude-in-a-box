@@ -1,9 +1,11 @@
 // ABOUTME: Git view component for displaying git status, changed files, and diffs with commit/push functionality
+// Supports hierarchical file tree view and markdown preview for .md files
 
 #![allow(dead_code)]
 
 use anyhow::Result;
 use git2::{DiffFormat, DiffOptions, Repository};
+use pulldown_cmark::{Event, Parser, Tag, CodeBlockKind, HeadingLevel};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -11,6 +13,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tracing::{debug, error};
 
@@ -26,12 +29,57 @@ pub struct GitViewState {
     pub can_push: bool,
     pub commit_message_input: Option<String>, // None = not in commit mode, Some = commit message being entered
     pub commit_message_cursor: usize,         // Cursor position in commit message
+    // File tree state
+    pub expanded_folders: HashSet<String>,    // Tracks which folders are expanded
+    pub file_tree_items: Vec<FileTreeItem>,   // Flattened tree for rendering
+    pub selected_tree_index: usize,           // Index in the flattened tree
+    // Markdown viewer state
+    pub markdown_content: Vec<MarkdownLine>,  // Rendered markdown lines
+    pub markdown_scroll_offset: usize,
+}
+
+/// Represents an item in the file tree (either a folder or file)
+#[derive(Debug, Clone)]
+pub struct FileTreeItem {
+    pub display_name: String,        // Just the filename or folder name
+    pub full_path: String,           // Full path for file operations
+    pub depth: usize,                // Indentation level
+    pub is_folder: bool,             // true = folder, false = file
+    pub status: Option<GitFileStatus>, // Only for files
+    pub is_last_in_group: bool,      // For tree line characters (└─ vs ├─)
+    pub is_expanded: bool,           // Only meaningful for folders
+    pub file_count: usize,           // Number of changed files in folder (for folders only)
+}
+
+/// A line of rendered markdown content
+#[derive(Debug, Clone)]
+pub struct MarkdownLine {
+    pub content: String,
+    pub style: MarkdownStyle,
+}
+
+/// Styling categories for markdown content
+#[derive(Debug, Clone, PartialEq)]
+pub enum MarkdownStyle {
+    Heading1,
+    Heading2,
+    Heading3,
+    Paragraph,
+    CodeBlock,
+    CodeBlockHeader(String), // Language name
+    ListItem,
+    Bold,
+    Italic,
+    InlineCode,
+    Link,
+    BlockQuote,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GitTab {
     Files,
     Diff,
+    Markdown, // Preview for .md files
 }
 
 #[derive(Debug, Clone)]
@@ -75,7 +123,7 @@ impl GitFileStatus {
 
 impl GitViewState {
     pub fn new(worktree_path: PathBuf) -> Self {
-        Self {
+        let mut state = Self {
             active_tab: GitTab::Files,
             changed_files: Vec::new(),
             selected_file_index: 0,
@@ -86,7 +134,17 @@ impl GitViewState {
             can_push: false,
             commit_message_input: None,
             commit_message_cursor: 0,
-        }
+            // File tree state - expand all folders by default
+            expanded_folders: HashSet::new(),
+            file_tree_items: Vec::new(),
+            selected_tree_index: 0,
+            // Markdown viewer state
+            markdown_content: Vec::new(),
+            markdown_scroll_offset: 0,
+        };
+        // Expand root by default
+        state.expanded_folders.insert(String::new());
+        state
     }
 
     pub fn refresh_git_status(&mut self) -> Result<()> {
@@ -143,19 +201,544 @@ impl GitViewState {
         // Check if we can push (has commits ahead of remote)
         self.can_push = self.check_can_push(&repo)?;
 
+        // Build the file tree from changed files
+        self.build_file_tree();
+
         // Reset selection if needed
-        if self.selected_file_index >= self.changed_files.len() && !self.changed_files.is_empty() {
-            self.selected_file_index = 0;
+        if self.selected_tree_index >= self.file_tree_items.len() && !self.file_tree_items.is_empty() {
+            self.selected_tree_index = 0;
         }
+
+        // Update selected_file_index based on tree selection
+        self.update_selected_file_from_tree();
 
         // Refresh diff for selected file
         if !self.changed_files.is_empty() {
             self.refresh_diff_for_selected_file()?;
+            // Also load markdown if it's an .md file
+            self.load_markdown_if_applicable();
         } else {
             self.diff_content.clear();
+            self.markdown_content.clear();
         }
 
         Ok(())
+    }
+
+    /// Build file tree from flat list of changed files
+    fn build_file_tree(&mut self) {
+        use std::collections::BTreeMap;
+
+        // Collect all unique folder paths and their file counts
+        let mut folders: BTreeMap<String, usize> = BTreeMap::new();
+        for file in &self.changed_files {
+            // Filter out empty parts for consistent path handling
+            let parts: Vec<&str> = file.path.split('/').filter(|p| !p.is_empty()).collect();
+            // Add each folder level
+            for i in 0..parts.len().saturating_sub(1) {
+                let folder_path = parts[..=i].join("/");
+                *folders.entry(folder_path).or_insert(0) += 1;
+            }
+        }
+
+        // Build tree items
+        let mut items = Vec::new();
+        let mut processed_folders: HashSet<String> = HashSet::new();
+
+        // Sort files by path for consistent ordering
+        let mut sorted_files: Vec<&ChangedFile> = self.changed_files.iter().collect();
+        sorted_files.sort_by(|a, b| a.path.cmp(&b.path));
+
+        for file in sorted_files {
+            // Filter out empty parts (handles paths like "folder//file" or trailing slashes)
+            let parts: Vec<&str> = file.path.split('/').filter(|p| !p.is_empty()).collect();
+
+            if parts.is_empty() {
+                // Skip files with empty paths
+                continue;
+            }
+
+            // Add folder entries for each parent folder not yet added
+            for i in 0..parts.len().saturating_sub(1) {
+                let folder_path = parts[..=i].join("/");
+                if !processed_folders.contains(&folder_path) {
+                    processed_folders.insert(folder_path.clone());
+
+                    let depth = i;
+                    let display_name = parts[i].to_string();
+                    let is_expanded = self.expanded_folders.contains(&folder_path);
+                    let file_count = *folders.get(&folder_path).unwrap_or(&0);
+
+                    // Calculate if this folder is the last at its depth level
+                    // (simplified - could be improved for accuracy)
+                    let is_last = false; // Will be recalculated later
+
+                    items.push(FileTreeItem {
+                        display_name,
+                        full_path: folder_path,
+                        depth,
+                        is_folder: true,
+                        status: None,
+                        is_last_in_group: is_last,
+                        is_expanded,
+                        file_count,
+                    });
+                }
+            }
+
+            // Check if this path is actually a directory on the filesystem
+            // Git reports untracked directories without trailing slash
+            let full_fs_path = self.worktree_path.join(&file.path);
+            let is_directory = full_fs_path.is_dir();
+
+            if is_directory {
+                // This is an untracked directory - treat it as a folder
+                let folder_path = file.path.clone();
+                if !processed_folders.contains(&folder_path) {
+                    processed_folders.insert(folder_path.clone());
+
+                    let base_depth = parts.len().saturating_sub(1);
+                    let display_name = parts.last()
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| file.path.clone());
+                    let is_expanded = self.expanded_folders.contains(&folder_path);
+
+                    // Scan directory contents to get file count
+                    let dir_contents = Self::scan_directory_contents(&full_fs_path);
+                    let file_count = dir_contents.len();
+
+                    items.push(FileTreeItem {
+                        display_name,
+                        full_path: folder_path.clone(),
+                        depth: base_depth,
+                        is_folder: true,
+                        status: Some(file.status.clone()), // Keep status for untracked folders
+                        is_last_in_group: false,
+                        is_expanded,
+                        file_count,
+                    });
+
+                    // If expanded, add the directory contents as children
+                    if is_expanded {
+                        Self::add_directory_contents_to_tree(
+                            &mut items,
+                            &mut processed_folders,
+                            &self.expanded_folders,
+                            &full_fs_path,
+                            &folder_path,
+                            base_depth + 1,
+                            &file.status,
+                        );
+                    }
+                }
+            } else {
+                // Regular file
+                let depth = parts.len().saturating_sub(1);
+                // Use the last part as filename, fallback to full path if empty
+                let display_name = parts.last()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| file.path.clone());
+
+                items.push(FileTreeItem {
+                    display_name,
+                    full_path: file.path.clone(),
+                    depth,
+                    is_folder: false,
+                    status: Some(file.status.clone()),
+                    is_last_in_group: false, // Will be recalculated
+                    is_expanded: false,
+                    file_count: 0,
+                });
+            }
+        }
+
+        // Recalculate is_last_in_group for proper tree rendering
+        self.calculate_last_in_group(&mut items);
+
+        // Filter out items under collapsed folders
+        self.file_tree_items = self.filter_collapsed_items(&items);
+    }
+
+    /// Calculate which items are last in their group for tree line rendering
+    fn calculate_last_in_group(&self, items: &mut [FileTreeItem]) {
+        let len = items.len();
+        for i in 0..len {
+            let current_depth = items[i].depth;
+            // Look ahead to find if there's another item at the same depth under the same parent
+            let mut is_last = true;
+            for j in (i + 1)..len {
+                if items[j].depth < current_depth {
+                    break; // We've moved up in the tree
+                }
+                if items[j].depth == current_depth {
+                    is_last = false;
+                    break;
+                }
+            }
+            items[i].is_last_in_group = is_last;
+        }
+    }
+
+    /// Filter out items that are under collapsed folders
+    fn filter_collapsed_items(&self, items: &[FileTreeItem]) -> Vec<FileTreeItem> {
+        let mut result = Vec::new();
+        let mut skip_until_depth: Option<usize> = None;
+
+        for item in items {
+            // If we're skipping items under a collapsed folder
+            if let Some(skip_depth) = skip_until_depth {
+                if item.depth > skip_depth {
+                    continue; // Skip this item
+                } else {
+                    skip_until_depth = None; // We've moved past the collapsed section
+                }
+            }
+
+            result.push(item.clone());
+
+            // If this is a collapsed folder, start skipping its children
+            if item.is_folder && !item.is_expanded {
+                skip_until_depth = Some(item.depth);
+            }
+        }
+
+        result
+    }
+
+    /// Scan directory contents recursively and return list of relative file paths
+    fn scan_directory_contents(dir_path: &std::path::Path) -> Vec<String> {
+        let mut files = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(dir_path) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(name) = path.file_name() {
+                        files.push(name.to_string_lossy().to_string());
+                    }
+                } else if path.is_dir() {
+                    // Count files in subdirectories too
+                    let sub_files = Self::scan_directory_contents(&path);
+                    files.extend(sub_files);
+                }
+            }
+        }
+
+        files
+    }
+
+    /// Add directory contents to the tree recursively
+    fn add_directory_contents_to_tree(
+        items: &mut Vec<FileTreeItem>,
+        processed_folders: &mut HashSet<String>,
+        expanded_folders: &HashSet<String>,
+        fs_path: &std::path::Path,
+        relative_path: &str,
+        depth: usize,
+        inherited_status: &GitFileStatus,
+    ) {
+        let mut entries: Vec<_> = match std::fs::read_dir(fs_path) {
+            Ok(entries) => entries.flatten().collect(),
+            Err(_) => return,
+        };
+
+        // Sort entries: directories first, then files, alphabetically
+        entries.sort_by(|a, b| {
+            let a_is_dir = a.path().is_dir();
+            let b_is_dir = b.path().is_dir();
+            match (a_is_dir, b_is_dir) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.file_name().cmp(&b.file_name()),
+            }
+        });
+
+        let entry_count = entries.len();
+        for (idx, entry) in entries.into_iter().enumerate() {
+            let path = entry.path();
+            let file_name = match path.file_name() {
+                Some(name) => name.to_string_lossy().to_string(),
+                None => continue,
+            };
+
+            // Skip hidden files/directories (starting with .)
+            if file_name.starts_with('.') {
+                continue;
+            }
+
+            let full_relative_path = if relative_path.is_empty() {
+                file_name.clone()
+            } else {
+                format!("{}/{}", relative_path, file_name)
+            };
+
+            let is_last = idx == entry_count - 1;
+
+            if path.is_dir() {
+                // It's a subdirectory
+                if !processed_folders.contains(&full_relative_path) {
+                    processed_folders.insert(full_relative_path.clone());
+
+                    let is_expanded = expanded_folders.contains(&full_relative_path);
+                    let sub_contents = Self::scan_directory_contents(&path);
+                    let file_count = sub_contents.len();
+
+                    items.push(FileTreeItem {
+                        display_name: file_name,
+                        full_path: full_relative_path.clone(),
+                        depth,
+                        is_folder: true,
+                        status: Some(inherited_status.clone()),
+                        is_last_in_group: is_last,
+                        is_expanded,
+                        file_count,
+                    });
+
+                    // Recursively add subdirectory contents if expanded
+                    if is_expanded {
+                        Self::add_directory_contents_to_tree(
+                            items,
+                            processed_folders,
+                            expanded_folders,
+                            &path,
+                            &full_relative_path,
+                            depth + 1,
+                            inherited_status,
+                        );
+                    }
+                }
+            } else {
+                // It's a file
+                items.push(FileTreeItem {
+                    display_name: file_name,
+                    full_path: full_relative_path,
+                    depth,
+                    is_folder: false,
+                    status: Some(inherited_status.clone()),
+                    is_last_in_group: is_last,
+                    is_expanded: false,
+                    file_count: 0,
+                });
+            }
+        }
+    }
+
+    /// Update selected_file_index based on the currently selected tree item
+    fn update_selected_file_from_tree(&mut self) {
+        if let Some(item) = self.file_tree_items.get(self.selected_tree_index) {
+            if !item.is_folder {
+                // Find this file in changed_files
+                if let Some(idx) = self.changed_files.iter().position(|f| f.path == item.full_path) {
+                    self.selected_file_index = idx;
+                }
+            }
+        }
+    }
+
+    /// Load markdown content if the selected file is a .md file
+    fn load_markdown_if_applicable(&mut self) {
+        let file_path = self.file_tree_items
+            .get(self.selected_tree_index)
+            .filter(|item| !item.is_folder && (item.full_path.ends_with(".md") || item.full_path.ends_with(".markdown")))
+            .map(|item| item.full_path.clone());
+
+        if let Some(path) = file_path {
+            self.load_markdown_content(&path);
+        } else {
+            self.markdown_content.clear();
+        }
+    }
+
+    /// Load and parse markdown content from a file
+    fn load_markdown_content(&mut self, file_path: &str) {
+        let full_path = self.worktree_path.join(file_path);
+        match std::fs::read_to_string(&full_path) {
+            Ok(content) => {
+                self.markdown_content = Self::parse_markdown(&content);
+                self.markdown_scroll_offset = 0;
+            }
+            Err(e) => {
+                self.markdown_content = vec![MarkdownLine {
+                    content: format!("Error reading file: {}", e),
+                    style: MarkdownStyle::Paragraph,
+                }];
+            }
+        }
+    }
+
+    /// Parse markdown content into styled lines
+    fn parse_markdown(content: &str) -> Vec<MarkdownLine> {
+        let mut lines = Vec::new();
+        let parser = Parser::new(content);
+
+        let mut current_text = String::new();
+        let mut in_code_block = false;
+        #[allow(unused_assignments)]
+        let mut code_block_lang: Option<String> = None;
+        let mut list_depth: usize = 0;
+
+        for event in parser {
+            match event {
+                Event::Start(tag) => {
+                    // Flush accumulated text
+                    if !current_text.is_empty() && !in_code_block {
+                        lines.push(MarkdownLine {
+                            content: current_text.clone(),
+                            style: MarkdownStyle::Paragraph,
+                        });
+                        current_text.clear();
+                    }
+
+                    match tag {
+                        Tag::Heading(_level, _, _) => {
+                            // Add blank line before headings
+                            if !lines.is_empty() {
+                                lines.push(MarkdownLine {
+                                    content: String::new(),
+                                    style: MarkdownStyle::Paragraph,
+                                });
+                            }
+                            current_text.clear();
+                        }
+                        Tag::CodeBlock(kind) => {
+                            in_code_block = true;
+                            code_block_lang = match kind {
+                                CodeBlockKind::Fenced(lang) => {
+                                    let lang_str = lang.to_string();
+                                    if !lang_str.is_empty() {
+                                        Some(lang_str)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => None,
+                            };
+                            // Add code block header with language badge
+                            if let Some(ref lang) = code_block_lang {
+                                lines.push(MarkdownLine {
+                                    content: format!("┌─ [{}] ", lang.to_uppercase()),
+                                    style: MarkdownStyle::CodeBlockHeader(lang.clone()),
+                                });
+                            } else {
+                                lines.push(MarkdownLine {
+                                    content: "┌────────────────────".to_string(),
+                                    style: MarkdownStyle::CodeBlock,
+                                });
+                            }
+                        }
+                        Tag::List(_) => {
+                            list_depth += 1;
+                        }
+                        Tag::BlockQuote => {}
+                        _ => {}
+                    }
+                }
+
+                Event::End(tag) => {
+                    match tag {
+                        Tag::Heading(level, _, _) => {
+                            let style = match level {
+                                HeadingLevel::H1 => MarkdownStyle::Heading1,
+                                HeadingLevel::H2 => MarkdownStyle::Heading2,
+                                _ => MarkdownStyle::Heading3,
+                            };
+                            let prefix = match level {
+                                HeadingLevel::H1 => "# ",
+                                HeadingLevel::H2 => "## ",
+                                HeadingLevel::H3 => "### ",
+                                HeadingLevel::H4 => "#### ",
+                                HeadingLevel::H5 => "##### ",
+                                HeadingLevel::H6 => "###### ",
+                            };
+                            lines.push(MarkdownLine {
+                                content: format!("{}{}", prefix, current_text),
+                                style,
+                            });
+                            current_text.clear();
+                        }
+                        Tag::Paragraph => {
+                            if !current_text.is_empty() {
+                                lines.push(MarkdownLine {
+                                    content: current_text.clone(),
+                                    style: MarkdownStyle::Paragraph,
+                                });
+                                current_text.clear();
+                            }
+                            // Add blank line after paragraphs
+                            lines.push(MarkdownLine {
+                                content: String::new(),
+                                style: MarkdownStyle::Paragraph,
+                            });
+                        }
+                        Tag::CodeBlock(_) => {
+                            in_code_block = false;
+                            // Add closing line for code block
+                            lines.push(MarkdownLine {
+                                content: "└────────────────────".to_string(),
+                                style: MarkdownStyle::CodeBlock,
+                            });
+                            // Reset code block lang (value intentionally unused after)
+                            let _ = code_block_lang.take();
+                        }
+                        Tag::List(_) => {
+                            list_depth = list_depth.saturating_sub(1);
+                        }
+                        Tag::Item => {
+                            if !current_text.is_empty() {
+                                let indent = "  ".repeat(list_depth.saturating_sub(1));
+                                lines.push(MarkdownLine {
+                                    content: format!("{}• {}", indent, current_text),
+                                    style: MarkdownStyle::ListItem,
+                                });
+                                current_text.clear();
+                            }
+                        }
+                        Tag::Strong => {}
+                        Tag::Emphasis => {}
+                        Tag::BlockQuote => {}
+                        _ => {}
+                    }
+                }
+
+                Event::Text(text) => {
+                    if in_code_block {
+                        // Add each line of code separately
+                        for line in text.lines() {
+                            lines.push(MarkdownLine {
+                                content: format!("│ {}", line),
+                                style: MarkdownStyle::CodeBlock,
+                            });
+                        }
+                    } else {
+                        current_text.push_str(&text);
+                    }
+                }
+
+                Event::Code(code) => {
+                    current_text.push_str(&format!("`{}`", code));
+                }
+
+                Event::SoftBreak | Event::HardBreak => {
+                    if !in_code_block {
+                        current_text.push(' ');
+                    }
+                }
+
+                _ => {}
+            }
+        }
+
+        // Flush any remaining text
+        if !current_text.is_empty() {
+            lines.push(MarkdownLine {
+                content: current_text,
+                style: MarkdownStyle::Paragraph,
+            });
+        }
+
+        lines
     }
 
     fn check_can_push(&self, repo: &Repository) -> Result<bool> {
@@ -252,26 +835,94 @@ impl GitViewState {
         Ok(())
     }
 
+    /// Navigate to the next item in the file tree
     pub fn next_file(&mut self) {
-        if !self.changed_files.is_empty() {
-            self.selected_file_index = (self.selected_file_index + 1) % self.changed_files.len();
-            if let Err(e) = self.refresh_diff_for_selected_file() {
-                error!("Failed to refresh diff: {}", e);
+        if !self.file_tree_items.is_empty() {
+            self.selected_tree_index = (self.selected_tree_index + 1) % self.file_tree_items.len();
+            self.on_tree_selection_changed();
+        }
+    }
+
+    /// Navigate to the previous item in the file tree
+    pub fn previous_file(&mut self) {
+        if !self.file_tree_items.is_empty() {
+            self.selected_tree_index = if self.selected_tree_index == 0 {
+                self.file_tree_items.len() - 1
+            } else {
+                self.selected_tree_index - 1
+            };
+            self.on_tree_selection_changed();
+        }
+    }
+
+    /// Called when the tree selection changes to update diff and markdown
+    fn on_tree_selection_changed(&mut self) {
+        self.update_selected_file_from_tree();
+
+        // Refresh diff for the selected file (if it's a file, not a folder)
+        if let Some(item) = self.file_tree_items.get(self.selected_tree_index) {
+            if !item.is_folder {
+                if let Err(e) = self.refresh_diff_for_selected_file() {
+                    error!("Failed to refresh diff: {}", e);
+                }
+                // Load markdown if applicable
+                self.load_markdown_if_applicable();
             }
         }
     }
 
-    pub fn previous_file(&mut self) {
-        if !self.changed_files.is_empty() {
-            self.selected_file_index = if self.selected_file_index == 0 {
-                self.changed_files.len() - 1
-            } else {
-                self.selected_file_index - 1
-            };
-            if let Err(e) = self.refresh_diff_for_selected_file() {
-                error!("Failed to refresh diff: {}", e);
+    /// Toggle folder expansion/collapse
+    pub fn toggle_folder(&mut self) {
+        if let Some(item) = self.file_tree_items.get(self.selected_tree_index).cloned() {
+            if item.is_folder {
+                // Toggle the folder's expanded state
+                if self.expanded_folders.contains(&item.full_path) {
+                    self.expanded_folders.remove(&item.full_path);
+                } else {
+                    self.expanded_folders.insert(item.full_path);
+                }
+                // Rebuild the tree to reflect the change
+                self.build_file_tree();
             }
         }
+    }
+
+    /// Expand all folders in the tree
+    pub fn expand_all_folders(&mut self) {
+        // Collect all folder paths
+        for file in &self.changed_files {
+            let parts: Vec<&str> = file.path.split('/').collect();
+            for i in 0..parts.len().saturating_sub(1) {
+                let folder_path = parts[..=i].join("/");
+                self.expanded_folders.insert(folder_path);
+            }
+        }
+        self.build_file_tree();
+    }
+
+    /// Collapse all folders in the tree
+    pub fn collapse_all_folders(&mut self) {
+        self.expanded_folders.clear();
+        // Keep only the root expanded
+        self.expanded_folders.insert(String::new());
+        self.build_file_tree();
+        self.selected_tree_index = 0;
+    }
+
+    /// Check if the currently selected item is a folder
+    pub fn is_selected_folder(&self) -> bool {
+        self.file_tree_items
+            .get(self.selected_tree_index)
+            .map(|item| item.is_folder)
+            .unwrap_or(false)
+    }
+
+    /// Check if the currently selected file is a markdown file
+    pub fn is_selected_markdown(&self) -> bool {
+        self.file_tree_items
+            .get(self.selected_tree_index)
+            .map(|item| !item.is_folder && (item.full_path.ends_with(".md") || item.full_path.ends_with(".markdown")))
+            .unwrap_or(false)
     }
 
     pub fn scroll_diff_up(&mut self) {
@@ -286,10 +937,32 @@ impl GitViewState {
         }
     }
 
+    /// Scroll markdown content up
+    pub fn scroll_markdown_up(&mut self) {
+        if self.markdown_scroll_offset > 0 {
+            self.markdown_scroll_offset -= 1;
+        }
+    }
+
+    /// Scroll markdown content down
+    pub fn scroll_markdown_down(&mut self) {
+        if self.markdown_scroll_offset < self.markdown_content.len().saturating_sub(1) {
+            self.markdown_scroll_offset += 1;
+        }
+    }
+
     pub fn switch_tab(&mut self) {
         self.active_tab = match self.active_tab {
             GitTab::Files => GitTab::Diff,
-            GitTab::Diff => GitTab::Files,
+            GitTab::Diff => {
+                // Only show Markdown tab if current file is a markdown file
+                if self.is_selected_markdown() && !self.markdown_content.is_empty() {
+                    GitTab::Markdown
+                } else {
+                    GitTab::Files
+                }
+            }
+            GitTab::Markdown => GitTab::Files,
         };
     }
 
@@ -388,11 +1061,23 @@ impl GitViewComponent {
             .constraints(constraints)
             .split(area);
 
-        // Render tabs
-        let tab_titles = vec!["Files", "Diff"];
-        let selected_tab = match git_state.active_tab {
-            GitTab::Files => 0,
-            GitTab::Diff => 1,
+        // Render tabs - dynamically include Markdown tab if applicable
+        let (tab_titles, selected_tab) = if git_state.is_selected_markdown() && !git_state.markdown_content.is_empty() {
+            let titles = vec!["Files", "Diff", "Markdown"];
+            let selected = match git_state.active_tab {
+                GitTab::Files => 0,
+                GitTab::Diff => 1,
+                GitTab::Markdown => 2,
+            };
+            (titles, selected)
+        } else {
+            let titles = vec!["Files", "Diff"];
+            let selected = match git_state.active_tab {
+                GitTab::Files => 0,
+                GitTab::Diff => 1,
+                GitTab::Markdown => 0, // Fallback to Files if Markdown not available
+            };
+            (titles, selected)
         };
 
         let tabs = Tabs::new(tab_titles)
@@ -407,6 +1092,7 @@ impl GitViewComponent {
         match git_state.active_tab {
             GitTab::Files => Self::render_files_tab(frame, chunks[1], git_state),
             GitTab::Diff => Self::render_diff_tab(frame, chunks[1], git_state),
+            GitTab::Markdown => Self::render_markdown_tab(frame, chunks[1], git_state),
         }
 
         // Render commit message input if in commit mode
@@ -421,7 +1107,7 @@ impl GitViewComponent {
     }
 
     fn render_files_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
-        if git_state.changed_files.is_empty() {
+        if git_state.file_tree_items.is_empty() {
             let no_changes = Paragraph::new("No changes detected")
                 .block(Block::default().borders(Borders::ALL).title("Changed Files"))
                 .style(Style::default().fg(Color::Gray))
@@ -431,50 +1117,153 @@ impl GitViewComponent {
         }
 
         let items: Vec<ListItem> = git_state
-            .changed_files
+            .file_tree_items
             .iter()
             .enumerate()
-            .map(|(i, file)| {
-                let style = if i == git_state.selected_file_index {
-                    Style::default().bg(Color::Blue).fg(Color::White)
+            .map(|(i, item)| {
+                let is_selected = i == git_state.selected_tree_index;
+                let base_style = if is_selected {
+                    Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 };
 
-                let status_span = Span::styled(
-                    format!("[{}]", file.status.symbol()),
-                    Style::default().fg(file.status.color()).add_modifier(Modifier::BOLD),
-                );
+                // Build indentation with tree lines
+                let indent = Self::build_tree_indent(item.depth, item.is_last_in_group);
 
-                let path_span = Span::styled(&file.path, style);
+                if item.is_folder {
+                    // Folder rendering
+                    let expand_symbol = if item.is_expanded { "▼" } else { "▶" };
+                    let folder_style = if is_selected {
+                        Style::default().fg(Color::Cyan).bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Cyan)
+                    };
 
-                let changes_span = if file.insertions > 0 || file.deletions > 0 {
-                    Span::styled(
-                        format!(" (+{} -{}) ", file.insertions, file.deletions),
-                        Style::default().fg(Color::Gray),
-                    )
+                    let count_text = if item.file_count > 0 {
+                        format!(" ({})", item.file_count)
+                    } else {
+                        String::new()
+                    };
+
+                    // Show status badge for untracked directories
+                    let status_prefix = if let Some(ref status) = item.status {
+                        let status_style = Style::default().fg(status.color()).add_modifier(Modifier::BOLD);
+                        vec![
+                            Span::styled(format!("[{}]", status.symbol()), status_style),
+                            Span::raw(" "),
+                        ]
+                    } else {
+                        vec![]
+                    };
+
+                    let mut spans = vec![Span::raw(indent)];
+                    spans.extend(status_prefix);
+                    spans.extend(vec![
+                        Span::styled(expand_symbol, folder_style),
+                        Span::raw(" "),
+                        Span::styled("📁 ", folder_style),
+                        Span::styled(&item.display_name, folder_style),
+                        Span::styled(count_text, Style::default().fg(Color::DarkGray)),
+                    ]);
+
+                    ListItem::new(Line::from(spans)).style(base_style)
                 } else {
-                    Span::raw("")
-                };
+                    // File rendering
+                    let status = item.status.as_ref().unwrap_or(&GitFileStatus::Modified);
+                    let status_style = Style::default().fg(status.color()).add_modifier(Modifier::BOLD);
 
-                ListItem::new(Line::from(vec![
-                    status_span,
-                    Span::raw(" "),
-                    path_span,
-                    changes_span,
-                ]))
-                .style(style)
+                    // Use display_name, fallback to full_path if empty
+                    let filename = if item.display_name.is_empty() {
+                        &item.full_path
+                    } else {
+                        &item.display_name
+                    };
+
+                    let file_icon = Self::get_file_icon(filename);
+                    let file_style = if is_selected {
+                        Style::default().bg(Color::DarkGray)
+                    } else {
+                        Style::default()
+                    };
+
+                    ListItem::new(Line::from(vec![
+                        Span::raw(indent),
+                        Span::styled(format!("[{}]", status.symbol()), status_style),
+                        Span::raw(" "),
+                        Span::raw(file_icon),
+                        Span::raw(" "),
+                        Span::styled(filename, file_style),
+                    ]))
+                    .style(base_style)
+                }
             })
             .collect();
 
+        let title = format!(
+            "Changed Files ({}) [Enter: toggle folder, e: expand all, E: collapse all]",
+            git_state.changed_files.len()
+        );
+
         let files_list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title("Changed Files"))
-            .highlight_style(Style::default().bg(Color::Blue).fg(Color::White));
+            .block(Block::default().borders(Borders::ALL).title(title))
+            .highlight_style(Style::default().bg(Color::DarkGray));
 
         let mut list_state = ListState::default();
-        list_state.select(Some(git_state.selected_file_index));
+        list_state.select(Some(git_state.selected_tree_index));
 
         frame.render_stateful_widget(files_list, area, &mut list_state);
+    }
+
+    /// Build tree indentation string with proper line characters
+    fn build_tree_indent(depth: usize, is_last: bool) -> String {
+        if depth == 0 {
+            return String::new();
+        }
+
+        let mut indent = String::new();
+        // Add vertical lines for all but the last level
+        for _ in 0..(depth - 1) {
+            indent.push_str("│  ");
+        }
+        // Add the final branch character
+        if is_last {
+            indent.push_str("└─ ");
+        } else {
+            indent.push_str("├─ ");
+        }
+        indent
+    }
+
+    /// Get file icon based on extension
+    fn get_file_icon(filename: &str) -> &'static str {
+        if filename.ends_with(".rs") {
+            "🦀"
+        } else if filename.ends_with(".py") {
+            "🐍"
+        } else if filename.ends_with(".js") || filename.ends_with(".jsx") {
+            "📜"
+        } else if filename.ends_with(".ts") || filename.ends_with(".tsx") {
+            "📘"
+        } else if filename.ends_with(".md") || filename.ends_with(".markdown") {
+            "📝"
+        } else if filename.ends_with(".json") {
+            "📋"
+        } else if filename.ends_with(".toml") || filename.ends_with(".yaml") || filename.ends_with(".yml") {
+            "⚙️"
+        } else if filename.ends_with(".sh") || filename.ends_with(".bash") {
+            "🖥️"
+        } else if filename.ends_with(".html") {
+            "🌐"
+        } else if filename.ends_with(".css") || filename.ends_with(".scss") {
+            "🎨"
+        } else if filename.ends_with(".go") {
+            "🐹"
+        } else if filename.ends_with(".java") {
+            "☕"
+        } else {
+            "📄"
+        }
     }
 
     fn render_diff_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
@@ -530,6 +1319,85 @@ impl GitViewComponent {
         frame.render_widget(diff_paragraph, area);
     }
 
+    fn render_markdown_tab(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
+        if git_state.markdown_content.is_empty() {
+            let no_content = Paragraph::new(
+                "No markdown content available\nSelect a .md file in the Files tab",
+            )
+            .block(Block::default().borders(Borders::ALL).title("Markdown Preview"))
+            .style(Style::default().fg(Color::Gray))
+            .wrap(Wrap { trim: true });
+            frame.render_widget(no_content, area);
+            return;
+        }
+
+        // Calculate visible lines
+        let content_height = area.height.saturating_sub(2) as usize; // Account for borders
+        let start_line = git_state.markdown_scroll_offset;
+        let end_line = (start_line + content_height).min(git_state.markdown_content.len());
+
+        let visible_lines: Vec<Line> = git_state.markdown_content[start_line..end_line]
+            .iter()
+            .map(|md_line| {
+                let style = match &md_line.style {
+                    MarkdownStyle::Heading1 => Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                    MarkdownStyle::Heading2 => Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                    MarkdownStyle::Heading3 => Style::default()
+                        .fg(Color::Blue)
+                        .add_modifier(Modifier::BOLD),
+                    MarkdownStyle::Paragraph => Style::default().fg(Color::White),
+                    MarkdownStyle::CodeBlock => Style::default()
+                        .fg(Color::Green)
+                        .bg(Color::Rgb(30, 30, 30)),
+                    MarkdownStyle::CodeBlockHeader(_) => Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                    MarkdownStyle::ListItem => Style::default().fg(Color::White),
+                    MarkdownStyle::Bold => Style::default().add_modifier(Modifier::BOLD),
+                    MarkdownStyle::Italic => Style::default().add_modifier(Modifier::ITALIC),
+                    MarkdownStyle::InlineCode => Style::default()
+                        .fg(Color::Magenta)
+                        .bg(Color::Rgb(40, 40, 40)),
+                    MarkdownStyle::Link => Style::default()
+                        .fg(Color::Blue)
+                        .add_modifier(Modifier::UNDERLINED),
+                    MarkdownStyle::BlockQuote => Style::default()
+                        .fg(Color::Gray)
+                        .add_modifier(Modifier::ITALIC),
+                };
+
+                Line::from(Span::styled(md_line.content.clone(), style))
+            })
+            .collect();
+
+        // Get selected file name for title
+        let file_name = git_state
+            .file_tree_items
+            .get(git_state.selected_tree_index)
+            .map(|item| item.display_name.as_str())
+            .unwrap_or("Markdown");
+
+        let scroll_info = format!(
+            " [{}/{}]",
+            git_state.markdown_scroll_offset + 1,
+            git_state.markdown_content.len()
+        );
+
+        let markdown_paragraph = Paragraph::new(visible_lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("📝 {}{}", file_name, scroll_info)),
+            )
+            .wrap(Wrap { trim: false });
+
+        frame.render_widget(markdown_paragraph, area);
+    }
+
     fn render_commit_input(frame: &mut Frame, area: Rect, git_state: &GitViewState) {
         let empty_string = String::new();
         let commit_message = git_state.commit_message_input.as_ref().unwrap_or(&empty_string);
@@ -570,9 +1438,10 @@ impl GitViewComponent {
         } else {
             match git_state.active_tab {
                 GitTab::Files => {
-                    " [j/k] navigate • [Tab] switch tab • [p] commit & push • [Esc] back"
+                    " [j/k] nav • [Enter] toggle • [e/E] expand/collapse • [Tab] tab • [p] push • [Esc] back"
                 }
                 GitTab::Diff => " [j/k] scroll • [Tab] switch tab • [p] commit & push • [Esc] back",
+                GitTab::Markdown => " [j/k] scroll • [Tab] switch tab • [p] commit & push • [Esc] back",
             }
         };
 
