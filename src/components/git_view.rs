@@ -248,6 +248,9 @@ impl GitViewState {
     fn build_file_tree(&mut self) {
         use std::collections::BTreeMap;
 
+        // Track visited paths to prevent symlink loop recursion
+        let mut visited_paths: HashSet<std::path::PathBuf> = HashSet::new();
+
         // Collect all unique folder paths and their file counts
         let mut folders: BTreeMap<String, usize> = BTreeMap::new();
         for file in &self.changed_files {
@@ -344,6 +347,7 @@ impl GitViewState {
                             &mut items,
                             &mut processed_folders,
                             &self.expanded_folders,
+                            &mut visited_paths,
                             &full_fs_path,
                             &folder_path,
                             base_depth + 1,
@@ -381,22 +385,31 @@ impl GitViewState {
     }
 
     /// Calculate which items are last in their group for tree line rendering
+    /// Optimized O(n) implementation using reverse iteration with depth tracking
     fn calculate_last_in_group(&self, items: &mut [FileTreeItem]) {
-        let len = items.len();
-        for i in 0..len {
-            let current_depth = items[i].depth;
-            // Look ahead to find if there's another item at the same depth under the same parent
-            let mut is_last = true;
-            for j in (i + 1)..len {
-                if items[j].depth < current_depth {
-                    break; // We've moved up in the tree
-                }
-                if items[j].depth == current_depth {
-                    is_last = false;
-                    break;
-                }
+        if items.is_empty() {
+            return;
+        }
+
+        // Track if we've seen an item at each depth level (from the end)
+        // When iterating backwards, the first item we see at a depth is the "last" one
+        let max_depth = items.iter().map(|i| i.depth).max().unwrap_or(0);
+        let mut seen_at_depth = vec![false; max_depth + 1];
+
+        // Iterate backwards
+        for i in (0..items.len()).rev() {
+            let depth = items[i].depth;
+
+            // If we haven't seen an item at this depth yet (from the end), it's last in group
+            items[i].is_last_in_group = !seen_at_depth[depth];
+
+            // Mark this depth as seen
+            seen_at_depth[depth] = true;
+
+            // Reset all deeper depths (they belong to a different subtree)
+            for d in (depth + 1)..=max_depth {
+                seen_at_depth[d] = false;
             }
-            items[i].is_last_in_group = is_last;
         }
     }
 
@@ -427,19 +440,45 @@ impl GitViewState {
     }
 
     /// Scan directory contents recursively and return list of relative file paths
+    /// Uses visited set to prevent infinite recursion from symlink loops
     fn scan_directory_contents(dir_path: &std::path::Path) -> Vec<String> {
+        let mut visited = HashSet::new();
+        Self::scan_directory_contents_inner(dir_path, &mut visited)
+    }
+
+    /// Inner recursive function with visited tracking
+    fn scan_directory_contents_inner(
+        dir_path: &std::path::Path,
+        visited: &mut HashSet<std::path::PathBuf>,
+    ) -> Vec<String> {
         let mut files = Vec::new();
+
+        // Get canonical path to detect symlink loops
+        let canonical = match dir_path.canonicalize() {
+            Ok(p) => p,
+            Err(_) => return files, // Can't resolve path, skip
+        };
+
+        // Check if we've already visited this path (symlink loop detection)
+        if visited.contains(&canonical) {
+            return files;
+        }
+        visited.insert(canonical);
 
         if let Ok(entries) = std::fs::read_dir(dir_path) {
             for entry in entries.flatten() {
                 let path = entry.path();
+                // Skip symlinks to avoid potential loops
+                if path.is_symlink() {
+                    continue;
+                }
                 if path.is_file() {
                     if let Some(name) = path.file_name() {
                         files.push(name.to_string_lossy().to_string());
                     }
                 } else if path.is_dir() {
                     // Count files in subdirectories too
-                    let sub_files = Self::scan_directory_contents(&path);
+                    let sub_files = Self::scan_directory_contents_inner(&path, visited);
                     files.extend(sub_files);
                 }
             }
@@ -449,15 +488,28 @@ impl GitViewState {
     }
 
     /// Add directory contents to the tree recursively
+    /// Uses visited_paths to prevent infinite recursion from symlink loops
     fn add_directory_contents_to_tree(
         items: &mut Vec<FileTreeItem>,
         processed_folders: &mut HashSet<String>,
         expanded_folders: &HashSet<String>,
+        visited_paths: &mut HashSet<std::path::PathBuf>,
         fs_path: &std::path::Path,
         relative_path: &str,
         depth: usize,
         inherited_status: &GitFileStatus,
     ) {
+        // Check for symlink loops using canonical path
+        let canonical = match fs_path.canonicalize() {
+            Ok(p) => p,
+            Err(_) => return, // Can't resolve path, skip
+        };
+
+        if visited_paths.contains(&canonical) {
+            return; // Already visited, skip to prevent infinite recursion
+        }
+        visited_paths.insert(canonical);
+
         let mut entries: Vec<_> = match std::fs::read_dir(fs_path) {
             Ok(entries) => entries.flatten().collect(),
             Err(_) => return,
@@ -477,6 +529,12 @@ impl GitViewState {
         let entry_count = entries.len();
         for (idx, entry) in entries.into_iter().enumerate() {
             let path = entry.path();
+
+            // Skip symlinks to avoid potential loops
+            if path.is_symlink() {
+                continue;
+            }
+
             let file_name = match path.file_name() {
                 Some(name) => name.to_string_lossy().to_string(),
                 None => continue,
@@ -521,6 +579,7 @@ impl GitViewState {
                             items,
                             processed_folders,
                             expanded_folders,
+                            visited_paths,
                             &path,
                             &full_relative_path,
                             depth + 1,

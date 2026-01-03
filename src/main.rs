@@ -374,52 +374,42 @@ async fn run_tui_loop(
                                 EventHandler::process_event(app_event, &mut app.state);
                             }
                         }
-                        MouseEventKind::ScrollDown => {
+                        MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
                             // Handle mouse scroll based on current view
                             use crate::app::state::View;
                             const SCROLL_LINES: usize = 3; // Lines per mouse wheel tick
+                            let is_down = matches!(mouse_event.kind, MouseEventKind::ScrollDown);
 
                             if app.state.current_view == View::GitView {
                                 // Scroll git view content (markdown or diff)
                                 if let Some(ref mut git_state) = app.state.git_view_state {
                                     match git_state.active_tab {
                                         crate::components::git_view::GitTab::Diff => {
-                                            git_state.scroll_diff_down_by(SCROLL_LINES);
+                                            if is_down {
+                                                git_state.scroll_diff_down_by(SCROLL_LINES);
+                                            } else {
+                                                git_state.scroll_diff_up_by(SCROLL_LINES);
+                                            }
                                         }
                                         crate::components::git_view::GitTab::Markdown => {
-                                            git_state.scroll_markdown_down_by(SCROLL_LINES);
+                                            if is_down {
+                                                git_state.scroll_markdown_down_by(SCROLL_LINES);
+                                            } else {
+                                                git_state.scroll_markdown_up_by(SCROLL_LINES);
+                                            }
                                         }
                                         _ => {}
                                     }
                                 }
                             } else {
                                 // Default: scroll live logs
-                                let total_logs =
-                                    app.state.live_logs.values().map(|v| v.len()).sum::<usize>();
-                                layout.live_logs_mut().scroll_down(total_logs);
-                            }
-                        }
-                        MouseEventKind::ScrollUp => {
-                            // Handle mouse scroll based on current view
-                            use crate::app::state::View;
-                            const SCROLL_LINES: usize = 3; // Lines per mouse wheel tick
-
-                            if app.state.current_view == View::GitView {
-                                // Scroll git view content (markdown or diff)
-                                if let Some(ref mut git_state) = app.state.git_view_state {
-                                    match git_state.active_tab {
-                                        crate::components::git_view::GitTab::Diff => {
-                                            git_state.scroll_diff_up_by(SCROLL_LINES);
-                                        }
-                                        crate::components::git_view::GitTab::Markdown => {
-                                            git_state.scroll_markdown_up_by(SCROLL_LINES);
-                                        }
-                                        _ => {}
-                                    }
+                                if is_down {
+                                    let total_logs =
+                                        app.state.live_logs.values().map(|v| v.len()).sum::<usize>();
+                                    layout.live_logs_mut().scroll_down(total_logs);
+                                } else {
+                                    layout.live_logs_mut().scroll_up();
                                 }
-                            } else {
-                                // Default: scroll live logs
-                                layout.live_logs_mut().scroll_up();
                             }
                         }
                         MouseEventKind::Drag(MouseButton::Left) => {
