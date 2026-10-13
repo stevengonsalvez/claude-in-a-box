@@ -1,0 +1,6 @@
+# Historical gitleaks hits present when this gate was added (2026-10-13).
+# Reviewed as test fixtures and placeholders. A new leak is not in this list and fails CI.
+# Remove a line once its value is rotated or the file is gone. Do not add a line to hide a new leak.
+a997e70799a8898e5deafe729ae905bbf80b2fff:docker/claude-dev/scripts/tests/oauth-start.test.js.backup:generic-api-key:78
+a997e70799a8898e5deafe729ae905bbf80b2fff:docker/claude-dev/scripts/tests/test/oauth-finish.test.js:generic-api-key:17
+a997e70799a8898e5deafe729ae905bbf80b2fff:docker/claude-dev/scripts/tests/test/oauth-start.test.js:generic-api-key:16
